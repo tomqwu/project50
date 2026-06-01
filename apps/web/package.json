@@ -15,6 +15,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1058.0",
     "@project50/core": "workspace:*",
     "@project50/db": "workspace:*",
+    "@project50/recap": "workspace:*",
     "@project50/ui": "workspace:*",
     "next": "^15.0.0",
     "next-auth": "5.0.0-beta.31",

@@ -59,6 +59,24 @@ export async function presignGet(objectKey: string): Promise<string> {
   return getSignedUrl(getClient(), command, { expiresIn: PRESIGN_EXPIRY });
 }
 
+/**
+ * Upload a Buffer directly to object storage (server-side upload).
+ * Use for server-generated files such as rendered recap MP4s.
+ */
+export async function putObject(
+  objectKey: string,
+  body: Buffer,
+  contentType: string,
+): Promise<void> {
+  const command = new PutObjectCommand({
+    Bucket: getBucket(),
+    Key: objectKey,
+    Body: body,
+    ContentType: contentType,
+  });
+  await getClient().send(command);
+}
+
 /** Idempotent: create S3_BUCKET if it does not exist. */
 export async function ensureBucket(): Promise<void> {
   const client = getClient();

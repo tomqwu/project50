@@ -28,15 +28,18 @@ const defaultProps: RecapData = {
 };
 
 export function RemotionRoot() {
+  // Remotion's Composition generic expects Record<string, unknown>; cast to satisfy.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AnyRecapVideo = RecapVideo as unknown as React.ComponentType<Record<string, unknown>>;
   return (
     <Composition
       id="recap"
-      component={RecapVideo}
+      component={AnyRecapVideo}
       durationInFrames={300}
       fps={30}
       width={1080}
       height={1920}
-      defaultProps={defaultProps}
+      defaultProps={defaultProps as unknown as Record<string, unknown>}
     />
   );
 }
