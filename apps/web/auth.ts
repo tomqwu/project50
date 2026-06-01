@@ -5,10 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@project50/db";
 import { onJwt, onSession, onSignIn } from "@/lib/auth-callbacks";
 
-const providers: NextAuthConfig["providers"] = [
-  Google({ allowDangerousEmailAccountLinking: true }),
-  Facebook({ allowDangerousEmailAccountLinking: true }),
-];
+const providers: NextAuthConfig["providers"] = [Google({}), Facebook({})];
 
 // Test-only deterministic sign-in. NEVER enabled in production.
 if (process.env.AUTH_E2E === "1") {

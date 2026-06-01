@@ -15,10 +15,12 @@ export default mergeConfig(
     },
     test: {
       environment: "jsdom",
-      setupFiles: ["./vitest.setup.ts"],
+      setupFiles: ["./vitest.setup.ts", "./test/load-env.ts"],
       exclude: ["e2e/**", "node_modules/**"],
+      // Run test files sequentially so integration tests don't race on the DB.
+      fileParallelism: false,
       coverage: {
-        include: ["app/**/*.{ts,tsx}"],
+        include: ["app/**/*.{ts,tsx}", "lib/**/*.ts", "auth.ts"],
         exclude: ["e2e/**"],
       },
     },
