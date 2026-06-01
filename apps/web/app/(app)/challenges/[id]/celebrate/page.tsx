@@ -39,6 +39,11 @@ export default async function CelebratePage({
         unit: challenge.unit ?? null,
       }}
       milestones={milestones}
+      shareActions={{
+        challengeId: id,
+        shareId: challenge.shareId,
+        visibility: challenge.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE",
+      }}
     />
   );
 }

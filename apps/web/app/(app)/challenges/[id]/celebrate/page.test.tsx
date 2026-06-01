@@ -19,6 +19,11 @@ vi.mock("@project50/core", () => ({
   localDayKey: mockLocalDayKey,
   dayNumber: mockDayNumber,
 }));
+vi.mock("./ShareActions", () => ({
+  ShareActions: ({ challengeId, shareId, visibility }: { challengeId: string; shareId: string; visibility: string }) => (
+    <div data-testid="share-actions" data-challenge-id={challengeId} data-share-id={shareId} data-visibility={visibility} />
+  ),
+}));
 
 import CelebratePage from "./page";
 
@@ -35,6 +40,8 @@ const baseChallenge = {
   startDate: "2026-05-01",
   dailyTarget: 5,
   timezone: "UTC",
+  visibility: "PUBLIC",
+  shareId: "share-abc123",
   dayStatuses: [
     { dayKey: "2026-05-01", totalAmount: 5, completed: true },
     { dayKey: "2026-05-02", totalAmount: 3, completed: false },
@@ -61,6 +68,22 @@ describe("CelebratePage", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
     // totalAmount = 5 + 5 = 10
     expect(screen.getByText("10 km")).toBeInTheDocument();
+  });
+
+  it("passes shareActions with correct challengeId, shareId, visibility to CelebrateView", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const sa = screen.getByTestId("share-actions");
+    expect(sa).toHaveAttribute("data-challenge-id", "c1");
+    expect(sa).toHaveAttribute("data-share-id", "share-abc123");
+    expect(sa).toHaveAttribute("data-visibility", "PUBLIC");
   });
 
   it("renders CelebrateView for day-50 complete", async () => {
