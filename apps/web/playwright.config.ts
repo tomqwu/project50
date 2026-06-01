@@ -8,5 +8,14 @@ export default defineConfig({
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: {
+      AUTH_E2E: "1",
+      AUTH_SECRET:
+        process.env.AUTH_SECRET ?? "e2e-test-secret",
+      AUTH_TRUST_HOST: "1",
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgresql://project50:project50@localhost:5432/project50?schema=public",
+    },
   },
 });
