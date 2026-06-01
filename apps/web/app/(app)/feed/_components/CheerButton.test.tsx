@@ -64,6 +64,22 @@ describe("CheerButton", () => {
     });
   });
 
+  it("reverts and re-enables on non-ok server response", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+    render(<CheerButton activityId="a1" count={5} />);
+
+    fireEvent.click(screen.getByTestId("cheer-button"));
+
+    // Optimistic: 6
+    expect(screen.getByTestId("cheer-count")).toHaveTextContent("6");
+
+    // After non-ok response: reverted to 5 and re-enabled
+    await waitFor(() => {
+      expect(screen.getByTestId("cheer-count")).toHaveTextContent("5");
+    });
+    expect(screen.getByTestId("cheer-button")).not.toBeDisabled();
+  });
+
   it("does not fire fetch if already cheered", async () => {
     mockFetch.mockResolvedValue({ ok: true });
     render(<CheerButton activityId="a1" count={5} />);

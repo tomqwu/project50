@@ -19,13 +19,18 @@ export function CheerButton({ activityId, count }: CheerButtonProps) {
     setCheered(true);
 
     try {
-      await fetch(`/api/activities/${activityId}/reactions`, {
+      const res = await fetch(`/api/activities/${activityId}/reactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "CHEER" }),
       });
+      if (!res.ok) {
+        // Server rejected — revert optimistic update and re-enable
+        setCheerCount((c) => c - 1);
+        setCheered(false);
+      }
     } catch {
-      // On failure, revert optimistic update
+      // Network failure — revert optimistic update
       setCheerCount((c) => c - 1);
       setCheered(false);
     } finally {

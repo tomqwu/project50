@@ -1,18 +1,6 @@
 import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { requireUser } from "@/lib/session";
-
-/**
- * Checks whether the current request has an authenticated user.
- * Returns the uid on success; calls redirect("/signin") if not.
- * Extracted for testability.
- */
-export async function requireAuth(): Promise<string> {
-  const uid = await requireUser().catch(() => null);
-  if (!uid) redirect("/signin");
-  return uid;
-}
+import { requireAuth } from "@/lib/auth-guard";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   await requireAuth();
