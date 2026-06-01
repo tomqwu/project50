@@ -1,0 +1,29 @@
+/* Momentum design system — CSS custom properties */
+/* Font variables --font-display and --font-body are provided by apps/web
+   via next/font/google (Anton + Sora). Fallbacks are used standalone. */
+
+:root {
+  --bg: #121013;
+  --card: #1c1a1e;
+  --surface2: #232026;
+  --text: #f2f0ec;
+  --muted: #8c8a86;
+  --accent: #d6ff3f;
+  --hairline: rgba(242, 240, 236, 0.08);
+  --font-display: "Anton", sans-serif;
+  --font-body: "Sora", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
