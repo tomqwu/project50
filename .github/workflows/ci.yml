@@ -53,3 +53,6 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter @project50/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+        env:
+          # Use the fake renderer in e2e — no heavy Chromium Remotion render in CI
+          RECAP_FAKE: "1"

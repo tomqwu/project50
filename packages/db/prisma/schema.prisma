@@ -36,6 +36,12 @@ enum MilestoneKind {
   STREAK_30
 }
 
+enum RecapKind {
+  DAY
+  WEEK
+  FIFTY
+}
+
 model User {
   id          String      @id @default(cuid())
   handle      String      @unique
@@ -88,6 +94,7 @@ model Challenge {
   activities  Activity[]
   dayStatuses DayStatus[]
   milestones  Milestone[]
+  recaps      Recap[]
 }
 
 model Activity {
@@ -148,4 +155,13 @@ model Milestone {
   earnedAt    DateTime      @default(now())
 
   @@unique([challengeId, kind])
+}
+
+model Recap {
+  id          String     @id @default(cuid())
+  challengeId String
+  challenge   Challenge  @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  kind        RecapKind
+  objectKey   String
+  createdAt   DateTime   @default(now())
 }

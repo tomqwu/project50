@@ -4,9 +4,9 @@ A social progress-tracking app built around **50-day challenges** — track your
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
 
-> Status: **Increment 1 (media upload) in progress on `feat/inc1-media-upload`.** Phases 0–4
-> are merged; the sharing + PWA + full e2e suite is green. Photo upload is now live (Tasks 1–5
-> complete). See the roadmap below.
+> Status: **Increment 2 (recap animation engine) complete on `feat/inc2-recap-engine`.** Phases 0–4 +
+> Increment 1 (photo upload) are merged. Recap video generation (day/week/50-day) is live —
+> see the roadmap below.
 
 ## What it does
 
@@ -18,6 +18,10 @@ integrations: Facebook, Instagram, WeChat.
 - Earn **streaks**, **badges**, and a **day-50 finale**.
 - **Follow** friends, see their progress in a feed, and cheer/comment.
 - **Share** milestones via a generated image card, a public link, and the Web Share API.
+- **Generate recap videos** (day / week / 50-day) — Momentum-styled MP4s rendered via
+  [Remotion](https://www.remotion.dev/), stored in S3/MinIO, preview/download/share from the
+  celebrate screen. CI/e2e use `RECAP_FAKE=1` (no Chromium); real renders run locally via
+  `pnpm --filter @project50/recap render:sample`.
 
 ## Tech stack
 
@@ -28,6 +32,7 @@ TypeScript monorepo (pnpm workspaces):
 | `packages/core` | Pure, framework-free domain logic (streaks, completion, milestones, validation). The testable heart. |
 | `packages/db` | Prisma schema + client (PostgreSQL). |
 | `packages/config` | Shared ESLint + Vitest config (incl. the 99% coverage gate). |
+| `packages/recap` | Remotion compositions + render pipeline for day/week/50-day recap MP4s. |
 | `apps/web` | Next.js (App Router) PWA + API route handlers. |
 
 Auth: Google/Facebook OAuth (Auth.js). Media: S3-compatible object storage (MinIO in dev).
@@ -83,6 +88,10 @@ Within the first slice, phased delivery:
 - [x] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — complete. First slice (A + B) done.
 - [x] **Increment 1 — Photo upload end-to-end:** presigned S3/MinIO upload, media stored in DB,
   feed + celebrate render real photos, full e2e round-trip, MinIO in CI.
+- [x] **Increment 2 — Recap animation engine:** Remotion compositions (day/week/50-day),
+  render pipeline with `FakeRecapRenderer` (CI-safe) + `RemotionRenderer` (real h264),
+  `POST /api/challenges/:id/recap` (owner-only) → MP4 stored in MinIO → signed URL,
+  celebrate screen with generate/preview/download/share, full e2e with fake renderer.
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).

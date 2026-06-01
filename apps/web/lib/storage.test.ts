@@ -19,6 +19,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   presignPut,
   presignGet,
+  putObject,
   newMediaKey,
   ensureBucket,
   _resetClientForTest,
@@ -125,6 +126,31 @@ describe("presignGet", () => {
     (getSignedUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce("https://get-url");
     const url = await presignGet("some/key");
     expect(url).toBe("https://get-url");
+  });
+});
+
+describe("putObject", () => {
+  it("sends a PutObjectCommand with the correct Bucket, Key, Body, and ContentType", async () => {
+    mockSend.mockResolvedValueOnce({});
+    const body = Buffer.from("mp4-bytes");
+    await putObject("media/u1/recap-DAY-abc.mp4", body, "video/mp4");
+    expect(mockSend).toHaveBeenCalledOnce();
+    const [cmd] = mockSend.mock.calls[0] as [{ Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string }];
+    expect(cmd.Bucket).toBe("project50-media");
+    expect(cmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
+    expect(cmd.Body).toBe(body);
+    expect(cmd.ContentType).toBe("video/mp4");
+  });
+
+  it("resolves to undefined on success", async () => {
+    mockSend.mockResolvedValueOnce({});
+    const result = await putObject("media/u1/f.mp4", Buffer.from("x"), "video/mp4");
+    expect(result).toBeUndefined();
+  });
+
+  it("propagates S3 errors", async () => {
+    mockSend.mockRejectedValueOnce(new Error("Access Denied"));
+    await expect(putObject("media/u1/f.mp4", Buffer.from("x"), "video/mp4")).rejects.toThrow("Access Denied");
   });
 });
 
