@@ -8,7 +8,7 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "vitest run --coverage",
+    "test": "pnpm -r test",
     "test:watch": "vitest",
     "build": "pnpm --filter @project50/web build",
     "test:e2e": "pnpm --filter @project50/web exec playwright test",

@@ -1,0 +1,3 @@
+# Next.js generates this file automatically — it uses triple-slash references
+# by design and must not be edited (see nextjs.org/docs/app/api-reference/config/typescript).
+next-env.d.ts
