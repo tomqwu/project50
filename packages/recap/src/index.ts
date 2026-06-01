@@ -17,3 +17,7 @@ export type { StatLineProps } from "./components/StatLine.js";
 // Composition + Root
 export { RecapVideo } from "./RecapVideo.js";
 export { RemotionRoot } from "./Root.js";
+
+// Render pipeline
+export type { RecapRenderer } from "./render.js";
+export { RemotionRenderer, FakeRecapRenderer, getRenderer } from "./render.js";
