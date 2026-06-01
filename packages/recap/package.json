@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "render:sample": "npx tsx scripts/render-sample.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.471",

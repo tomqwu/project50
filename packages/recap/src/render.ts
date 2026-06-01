@@ -32,10 +32,14 @@ export class RemotionRenderer implements RecapRenderer {
 
     const serveUrl = await bundle({ entryPoint });
 
+    // @remotion/renderer expects inputProps to be Record<string, unknown>;
+    // RecapData is structurally compatible but needs a cast.
+    const props = data as unknown as Record<string, unknown>;
+
     const composition = await selectComposition({
       serveUrl,
       id: "recap",
-      inputProps: data,
+      inputProps: props,
     });
 
     const outputLocation = join(tmpdir(), `recap-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
@@ -44,7 +48,7 @@ export class RemotionRenderer implements RecapRenderer {
       composition,
       serveUrl,
       codec: "h264",
-      inputProps: data,
+      inputProps: props,
       outputLocation,
     });
 
@@ -71,6 +75,7 @@ const FAKE_MP4_B64 =
   "AAAAFGZ0eXBpc29tAAAAAWlzb20AAAAIZnJlZQ==";
 
 export class FakeRecapRenderer implements RecapRenderer {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async render(_data: RecapData): Promise<Buffer> {
     return Buffer.from(FAKE_MP4_B64, "base64");
   }

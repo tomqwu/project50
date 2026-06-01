@@ -94,7 +94,7 @@ describe("RemotionRenderer", () => {
       durationInFrames: 300,
       defaultProps: {},
     } as Awaited<ReturnType<typeof selectComposition>>);
-    vi.mocked(renderMedia).mockResolvedValue(undefined);
+    vi.mocked(renderMedia).mockResolvedValue(null as unknown as Awaited<ReturnType<typeof renderMedia>>);
     vi.mocked(readFile).mockResolvedValue(Buffer.from("fake-mp4-bytes") as unknown as string);
   });
 
@@ -102,7 +102,7 @@ describe("RemotionRenderer", () => {
     const renderer = new RemotionRenderer();
     await renderer.render(sampleData);
     expect(bundle).toHaveBeenCalledOnce();
-    const callArg = vi.mocked(bundle).mock.calls[0][0] as { entryPoint: string };
+    const callArg = vi.mocked(bundle).mock.calls[0]![0] as { entryPoint: string };
     expect(typeof callArg.entryPoint).toBe("string");
     expect(callArg.entryPoint).toMatch(/Root\.tsx$/);
   });
@@ -116,9 +116,10 @@ describe("RemotionRenderer", () => {
     const renderer = new RemotionRenderer();
     await renderer.render(sampleData);
     expect(selectComposition).toHaveBeenCalledOnce();
-    const args = vi.mocked(selectComposition).mock.calls[0][0];
+    const args = vi.mocked(selectComposition).mock.calls[0]![0];
     expect(args.id).toBe("recap");
-    expect(args.inputProps).toBe(sampleData);
+    // inputProps is the cast version of sampleData (same reference via cast)
+    expect(args.inputProps).toStrictEqual(sampleData);
     expect(args.serveUrl).toBe("http://localhost:3001/bundle");
   });
 
@@ -126,11 +127,11 @@ describe("RemotionRenderer", () => {
     const renderer = new RemotionRenderer();
     await renderer.render(sampleData);
     expect(renderMedia).toHaveBeenCalledOnce();
-    const args = vi.mocked(renderMedia).mock.calls[0][0];
+    const args = vi.mocked(renderMedia).mock.calls[0]![0];
     expect(args.codec).toBe("h264");
-    expect(args.inputProps).toBe(sampleData);
+    expect(args.inputProps).toStrictEqual(sampleData);
     expect(typeof args.outputLocation).toBe("string");
-    expect(args.outputLocation).toMatch(/\.mp4$/);
+    expect(args.outputLocation as string).toMatch(/\.mp4$/);
   });
 
   it("reads the temp output file and returns its contents as Buffer", async () => {
