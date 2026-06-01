@@ -75,8 +75,8 @@ The full product is decomposed into sub-projects, each with its own spec → pla
 Within the first slice, phased delivery:
 
 - [x] **Phase 0 — Foundation:** monorepo, dev env, CI, coverage gate, Playwright.
-- [ ] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
-- [ ] **Phase 2 — Auth + API.**
+- [x] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
+- [x] **Phase 2 — Auth + API**.
 - [ ] **Phase 3 — Web UI** (Momentum design system + screens).
 - [ ] **Phase 4 — Sharing + PWA + full e2e.**
 
