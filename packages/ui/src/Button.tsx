@@ -13,7 +13,7 @@ interface ButtonProps {
 const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
   primary: {
     background: "var(--accent)",
-    color: "#121013",
+    color: "var(--bg)",
     border: "none",
     boxShadow: "0 0 24px rgba(214,255,63,0.4)",
   },
@@ -23,8 +23,8 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
     border: "1px solid var(--hairline)",
   },
   danger: {
-    background: "#c0392b",
-    color: "#ffffff",
+    background: "var(--danger)",
+    color: "var(--text)",
     border: "none",
   },
 };

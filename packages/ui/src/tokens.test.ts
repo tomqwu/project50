@@ -27,12 +27,16 @@ describe("momentum tokens", () => {
     expect(momentum.accent).toBe("#D6FF3F");
   });
 
+  it("has exact danger hex", () => {
+    expect(momentum.danger).toBe("#E5484D");
+  });
+
   it("has exact hairline rgba", () => {
     expect(momentum.hairline).toBe("rgba(242,240,236,0.08)");
   });
 
-  it("has exactly 7 tokens", () => {
-    expect(Object.keys(momentum)).toHaveLength(7);
+  it("has exactly 8 tokens", () => {
+    expect(Object.keys(momentum)).toHaveLength(8);
   });
 
   it("MomentumToken type covers all keys", () => {
@@ -44,8 +48,9 @@ describe("momentum tokens", () => {
       "text",
       "muted",
       "accent",
+      "danger",
       "hairline",
     ];
-    expect(keys).toHaveLength(7);
+    expect(keys).toHaveLength(8);
   });
 });
