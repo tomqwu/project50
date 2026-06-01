@@ -8,10 +8,16 @@ import {
 } from "@project50/core";
 import { notFound, unprocessable, HttpError } from "./http";
 
+export interface MediaInput {
+  objectKey: string;
+  width: number;
+  height: number;
+}
+
 export async function logActivity(
   userId: string,
   challengeId: string,
-  input: ActivityInput & { activityType?: string; note?: string },
+  input: ActivityInput & { activityType?: string; note?: string; media?: MediaInput[] },
   asOf: string,
 ) {
   // 1. Load challenge (404 if missing)
@@ -52,6 +58,25 @@ export async function logActivity(
       mood: input.mood,
     },
   });
+
+  // 4b. Attach media (if any)
+  if (input.media && input.media.length > 0) {
+    const expectedPrefix = `media/${userId}/`;
+    for (const m of input.media) {
+      if (!m.objectKey.startsWith(expectedPrefix)) {
+        unprocessable("INVALID_MEDIA_KEY");
+      }
+    }
+    await prisma.activityMedia.createMany({
+      data: input.media.map((m, idx) => ({
+        activityId: activity.id,
+        objectKey: m.objectKey,
+        width: m.width,
+        height: m.height,
+        order: idx,
+      })),
+    });
+  }
 
   // 5. Recompute that day's DayStatus
   const dayActivities = await prisma.activity.findMany({

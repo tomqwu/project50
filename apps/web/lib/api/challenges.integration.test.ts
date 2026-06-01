@@ -3,6 +3,12 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 
 // challenges.ts → http.ts → session.ts → @/auth (next-auth) needs next/server — not available in vitest node env.
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/storage", () => ({
+  presignGet: vi.fn().mockResolvedValue("https://signed-get"),
+  presignPut: vi.fn().mockResolvedValue("https://signed-put"),
+  newMediaKey: vi.fn(),
+  ensureBucket: vi.fn(),
+}));
 
 import { prisma, resetDb, createUser, createChallenge as seedChallenge } from "../../test/db";
 import { createChallenge, listChallenges, getChallenge, getMilestones, getChallengeByShareId } from "./challenges";
@@ -254,6 +260,91 @@ describe("getChallenge", () => {
 
     const result = await getChallenge(challenge.id, owner.id);
     expect(result.id).toBe(challenge.id);
+  });
+
+  it("returns badges = milestones.length", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC" });
+
+    // Seed 2 milestones
+    await prisma.milestone.create({ data: { challengeId: challenge.id, kind: "COMPLETED_7" } });
+    await prisma.milestone.create({ data: { challengeId: challenge.id, kind: "STREAK_7" } });
+
+    const result = await getChallenge(challenge.id, owner.id);
+    expect(result.badges).toBe(2);
+  });
+
+  it("returns badges = 0 when no milestones", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC" });
+
+    const result = await getChallenge(challenge.id, owner.id);
+    expect(result.badges).toBe(0);
+  });
+
+  it("returns cheering = count of CHEER reactions on owner's activities for this challenge", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const fan1 = await createUser({ handle: "bob" });
+    const fan2 = await createUser({ handle: "carol" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: owner.id, dayKey: "2026-06-01", done: true },
+    });
+
+    // Two cheers
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan1.id, kind: "CHEER" } });
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan2.id, kind: "CHEER" } });
+    // A comment (should not count)
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan1.id, kind: "COMMENT", text: "Nice!" } });
+
+    const result = await getChallenge(challenge.id, owner.id);
+    expect(result.cheering).toBe(2);
+  });
+
+  it("returns cheering = 0 when no CHEER reactions", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC" });
+
+    const result = await getChallenge(challenge.id, owner.id);
+    expect(result.cheering).toBe(0);
+  });
+
+  it("does not count CHEERs from another challenge's activities", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const fan = await createUser({ handle: "bob" });
+    const challenge1 = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const challenge2 = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+
+    const activity2 = await prisma.activity.create({
+      data: { challengeId: challenge2.id, userId: owner.id, dayKey: "2026-06-01", done: true },
+    });
+    await prisma.reaction.create({ data: { activityId: activity2.id, userId: fan.id, kind: "CHEER" } });
+
+    const result = await getChallenge(challenge1.id, owner.id);
+    expect(result.cheering).toBe(0);
+  });
+
+  it("returns activities with media and signed URLs", async () => {
+    const { presignGet } = await import("@/lib/storage");
+    vi.mocked(presignGet).mockResolvedValue("https://signed-get");
+
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: owner.id, dayKey: "2026-06-01", done: true },
+    });
+    await prisma.activityMedia.create({
+      data: { activityId: activity.id, objectKey: `media/${owner.id}/img.jpg`, width: 800, height: 600, order: 0 },
+    });
+
+    const result = await getChallenge(challenge.id, owner.id);
+    const foundActivity = result.activities.find((a) => a.id === activity.id);
+    expect(foundActivity).toBeDefined();
+    expect(foundActivity!.media).toHaveLength(1);
+    expect(foundActivity!.media[0]!.url).toBe("https://signed-get");
+    expect(foundActivity!.media[0]!.objectKey).toBe(`media/${owner.id}/img.jpg`);
   });
 });
 

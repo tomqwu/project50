@@ -1,5 +1,6 @@
 import { prisma } from "@project50/db";
 import { notFound, unprocessable } from "./http";
+import { withMediaUrls } from "./media";
 
 /** Follow followeeId as followerId. Idempotent (upsert). Rejects self-follow. */
 export async function follow(followerId: string, followeeId: string) {
@@ -24,10 +25,10 @@ export async function unfollow(followerId: string, followeeId: string) {
 /**
  * Feed for viewerId: activities from users the viewer follows,
  * where the activity's challenge visibility is PUBLIC or FOLLOWERS.
- * Newest first. Includes challenge and user.
+ * Newest first. Includes challenge, user, media (with signed URLs), and cheer count.
  */
 export async function feed(viewerId: string) {
-  return prisma.activity.findMany({
+  const activities = await prisma.activity.findMany({
     where: {
       user: {
         followers: {
@@ -42,8 +43,17 @@ export async function feed(viewerId: string) {
     include: {
       challenge: true,
       user: true,
+      media: { orderBy: { order: "asc" } },
+      _count: { select: { reactions: { where: { kind: "CHEER" } } } },
     },
   });
+
+  const withUrls = await withMediaUrls(activities);
+  return withUrls.map((a) => ({
+    ...a,
+    cheerCount: a._count.reactions,
+    hasPhoto: a.media.length > 0,
+  }));
 }
 
 /** React to an activity. CHEER ignores text; COMMENT requires non-empty text. */
