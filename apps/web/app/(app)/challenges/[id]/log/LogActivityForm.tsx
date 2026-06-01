@@ -332,7 +332,6 @@ export function LogActivityForm({
         {selectedMedia ? (
           <div style={{ marginTop: "10px" }}>
             {/* Thumbnail preview */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={selectedMedia.previewUrl}
               alt="Selected photo preview"

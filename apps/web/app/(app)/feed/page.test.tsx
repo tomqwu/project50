@@ -48,7 +48,9 @@ describe("FeedPage", () => {
         note: "Good run",
         cheerCount: 5,
         hasPhoto: true,
-        media: [],
+        media: [
+          { objectKey: "media/u1/p.png", width: 100, height: 80, url: "https://signed-get/p.png" },
+        ],
       },
       {
         id: "a2",
@@ -73,5 +75,11 @@ describe("FeedPage", () => {
     expect(capturedItems[0]!.userHandle).toBe("@alice");
     expect(capturedItems[0]!.challengeTitle).toBe("Run 5K");
     expect(capturedItems[0]!.note).toBe("Good run");
+    // The media map callback runs for the non-empty media array.
+    expect(capturedItems[0]!.media).toEqual([
+      { objectKey: "media/u1/p.png", width: 100, height: 80, url: "https://signed-get/p.png" },
+    ]);
+    // Empty media array maps to an empty array.
+    expect(capturedItems[1]!.media).toEqual([]);
   });
 });
