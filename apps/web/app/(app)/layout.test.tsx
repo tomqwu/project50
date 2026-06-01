@@ -28,6 +28,7 @@ describe("AppLayout", () => {
     expect(screen.getByText("project50")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed");
+    expect(screen.getByRole("link", { name: "New" })).toHaveAttribute("href", "/challenges/new");
     expect(screen.getByTestId("child")).toBeInTheDocument();
   });
 

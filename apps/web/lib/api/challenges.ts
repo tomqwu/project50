@@ -118,3 +118,24 @@ export async function getMilestones(challengeId: string) {
     orderBy: { earnedAt: "asc" },
   });
 }
+
+/**
+ * Returns a PUBLIC challenge (with dayStatuses + milestones) by its shareId.
+ * Returns null if not found or visibility is not PUBLIC.
+ * Used by the unauthenticated /c/[shareId] public share page.
+ */
+export async function getChallengeByShareId(shareId: string) {
+  const challenge = await prisma.challenge.findUnique({
+    where: { shareId },
+    include: {
+      dayStatuses: true,
+      milestones: { orderBy: { earnedAt: "asc" } },
+    },
+  });
+
+  if (!challenge || challenge.visibility !== "PUBLIC") {
+    return null;
+  }
+
+  return challenge;
+}

@@ -1,4 +1,6 @@
-import { Button, Card, Label, StatTile } from "@project50/ui";
+import { Card, Label, StatTile } from "@project50/ui";
+import { ShareActions } from "./ShareActions";
+import type { ShareActionsProps } from "./ShareActions";
 
 export type MilestoneKind =
   | "COMPLETED_7"
@@ -18,6 +20,7 @@ export interface CelebrateViewProps {
   dayNumber: number;
   stats: CelebrateStats;
   milestones: MilestoneKind[];
+  shareActions?: ShareActionsProps;
 }
 
 const MILESTONE_LABELS: Record<MilestoneKind, string> = {
@@ -33,6 +36,7 @@ export function CelebrateView({
   dayNumber,
   stats,
   milestones,
+  shareActions,
 }: CelebrateViewProps) {
   const isComplete = dayNumber >= 50;
 
@@ -127,36 +131,10 @@ export function CelebrateView({
         </div>
       )}
 
-      {/* Share actions — Phase 4 stubs; never fake functionality */}
-      <div
-        style={{
-          marginTop: "40px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-        }}
-      >
-        <Button variant="primary" disabled>
-          Save image
-        </Button>
-        <Button variant="ghost" disabled>
-          Public link
-        </Button>
-        <Button variant="ghost" disabled>
-          Share
-        </Button>
-        <p
-          style={{
-            fontFamily: "var(--font-body, system-ui)",
-            fontSize: "12px",
-            color: "var(--muted)",
-            margin: "4px 0 0",
-          }}
-          data-testid="coming-soon-note"
-        >
-          Image card, public link & sharing coming in a future update.
-        </p>
-      </div>
+      {/* Share actions */}
+      {shareActions ? (
+        <ShareActions {...shareActions} />
+      ) : null}
     </div>
   );
 }

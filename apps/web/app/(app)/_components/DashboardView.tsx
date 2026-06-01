@@ -43,6 +43,9 @@ export function DashboardView({ primary, challenges }: DashboardViewProps) {
         <p style={{ color: "var(--muted)", marginBottom: "24px" }}>
           No active challenges yet.
         </p>
+        <Link href="/challenges/new" style={{ textDecoration: "none" }}>
+          <Button variant="primary">Start a challenge</Button>
+        </Link>
       </div>
     );
   }

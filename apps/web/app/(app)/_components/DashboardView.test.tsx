@@ -64,6 +64,12 @@ describe("DashboardView — empty state", () => {
     render(<DashboardView primary={null} challenges={[]} />);
     expect(screen.getByText(/No active challenges yet/)).toBeInTheDocument();
   });
+
+  it("shows 'Start a challenge' CTA link to /challenges/new", () => {
+    render(<DashboardView primary={null} challenges={[]} />);
+    const link = screen.getByRole("link", { name: /Start a challenge/i });
+    expect(link).toHaveAttribute("href", "/challenges/new");
+  });
 });
 
 describe("DashboardView — TARGET challenge", () => {

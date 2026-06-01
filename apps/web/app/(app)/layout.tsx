@@ -49,6 +49,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         >
           Feed
         </Link>
+        <Link
+          href="/challenges/new"
+          style={{
+            color: "var(--text)",
+            textDecoration: "none",
+            fontFamily: "var(--font-body, system-ui)",
+            fontSize: "14px",
+          }}
+        >
+          New
+        </Link>
       </nav>
       <main>{children}</main>
     </div>

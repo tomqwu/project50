@@ -1,6 +1,13 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { CelebrateView, type CelebrateViewProps, type MilestoneKind } from "./CelebrateView";
+
+// Mock ShareActions to isolate CelebrateView tests
+vi.mock("./ShareActions", () => ({
+  ShareActions: ({ challengeId, visibility }: { challengeId: string; shareId: string; visibility: string }) => (
+    <div data-testid="share-actions" data-challenge-id={challengeId} data-visibility={visibility} />
+  ),
+}));
 
 afterEach(() => {
   cleanup();
@@ -63,15 +70,22 @@ describe("CelebrateView — in-progress milestone", () => {
     expect(screen.queryByText("Earned badges")).toBeNull();
   });
 
-  it("renders disabled share buttons with coming-soon note", () => {
+  it("does not render ShareActions when shareActions prop is not provided", () => {
     render(<CelebrateView {...makeProps()} />);
-    const saveBtn = screen.getByRole("button", { name: /Save image/i });
-    const linkBtn = screen.getByRole("button", { name: /Public link/i });
-    const shareBtn = screen.getByRole("button", { name: /Share/i });
-    expect(saveBtn).toBeDisabled();
-    expect(linkBtn).toBeDisabled();
-    expect(shareBtn).toBeDisabled();
-    expect(screen.getByTestId("coming-soon-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("share-actions")).toBeNull();
+  });
+
+  it("renders ShareActions when shareActions prop is provided", () => {
+    render(
+      <CelebrateView
+        {...makeProps()}
+        shareActions={{ challengeId: "c1", shareId: "s1", visibility: "PUBLIC" }}
+      />,
+    );
+    const actions = screen.getByTestId("share-actions");
+    expect(actions).toBeInTheDocument();
+    expect(actions).toHaveAttribute("data-challenge-id", "c1");
+    expect(actions).toHaveAttribute("data-visibility", "PUBLIC");
   });
 });
 

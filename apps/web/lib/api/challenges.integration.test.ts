@@ -5,7 +5,7 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import { prisma, resetDb, createUser, createChallenge as seedChallenge } from "../../test/db";
-import { createChallenge, listChallenges, getChallenge, getMilestones } from "./challenges";
+import { createChallenge, listChallenges, getChallenge, getMilestones, getChallengeByShareId } from "./challenges";
 import { HttpError } from "./http";
 
 beforeEach(resetDb);
@@ -254,6 +254,52 @@ describe("getChallenge", () => {
 
     const result = await getChallenge(challenge.id, owner.id);
     expect(result.id).toBe(challenge.id);
+  });
+});
+
+describe("getChallengeByShareId", () => {
+  it("returns challenge with dayStatuses and milestones for a PUBLIC challenge", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC" });
+
+    // Seed a dayStatus
+    await prisma.dayStatus.create({
+      data: { challengeId: challenge.id, dayKey: "2026-06-01", totalAmount: 5, completed: true },
+    });
+
+    // Seed a milestone
+    await prisma.milestone.create({
+      data: { challengeId: challenge.id, kind: "COMPLETED_7" },
+    });
+
+    const result = await getChallengeByShareId(challenge.shareId);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(challenge.id);
+    expect(result!.visibility).toBe("PUBLIC");
+    expect(Array.isArray(result!.dayStatuses)).toBe(true);
+    expect(result!.dayStatuses.length).toBe(1);
+    expect(Array.isArray(result!.milestones)).toBe(true);
+    expect(result!.milestones.length).toBe(1);
+    expect(result!.milestones[0]!.kind).toBe("COMPLETED_7");
+  });
+
+  it("returns null for FOLLOWERS challenge", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "FOLLOWERS" });
+    const result = await getChallengeByShareId(challenge.shareId);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for PRIVATE challenge", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id, { visibility: "PRIVATE" });
+    const result = await getChallengeByShareId(challenge.shareId);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when shareId does not exist", async () => {
+    const result = await getChallengeByShareId("nonexistent-share-id");
+    expect(result).toBeNull();
   });
 });
 
