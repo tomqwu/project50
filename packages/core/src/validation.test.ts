@@ -45,7 +45,7 @@ describe("validateActivityInput", () => {
   });
 
   it("allows an omitted mood", () => {
-    const { mood: _omit, ...noMood } = base;
+    const noMood = { dayKey: base.dayKey, amount: base.amount, done: base.done };
     expect(validateActivityInput(challenge, noMood, "2026-06-10")).toEqual([]);
   });
 

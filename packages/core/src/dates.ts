@@ -24,8 +24,8 @@ export function localDayKey(instant: Date, timeZone: string): DayKey {
 }
 
 function toUtcMillis(dayKey: DayKey): number {
-  const [y, m, d] = dayKey.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
+  const parts = dayKey.split("-").map(Number) as [number, number, number];
+  return Date.UTC(parts[0], parts[1] - 1, parts[2]);
 }
 
 const MS_PER_DAY = 86_400_000;
