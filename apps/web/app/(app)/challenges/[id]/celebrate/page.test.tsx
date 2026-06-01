@@ -1,20 +1,28 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-const { mockRequireUser, mockGetChallenge, mockGetMilestones, mockLocalDayKey, mockDayNumber } =
-  vi.hoisted(() => ({
-    mockRequireUser: vi.fn<() => Promise<string>>(),
-    mockGetChallenge: vi.fn(),
-    mockGetMilestones: vi.fn(),
-    mockLocalDayKey: vi.fn(),
-    mockDayNumber: vi.fn(),
-  }));
+const {
+  mockRequireUser,
+  mockGetChallenge,
+  mockGetMilestones,
+  mockListRecaps,
+  mockLocalDayKey,
+  mockDayNumber,
+} = vi.hoisted(() => ({
+  mockRequireUser: vi.fn<() => Promise<string>>(),
+  mockGetChallenge: vi.fn(),
+  mockGetMilestones: vi.fn(),
+  mockListRecaps: vi.fn(),
+  mockLocalDayKey: vi.fn(),
+  mockDayNumber: vi.fn(),
+}));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
 vi.mock("@/lib/api/challenges", () => ({
   getChallenge: mockGetChallenge,
   getMilestones: mockGetMilestones,
 }));
+vi.mock("@/lib/api/recap", () => ({ listRecaps: mockListRecaps }));
 vi.mock("@project50/core", () => ({
   localDayKey: mockLocalDayKey,
   dayNumber: mockDayNumber,
@@ -24,8 +32,22 @@ vi.mock("./ShareActions", () => ({
     <div data-testid="share-actions" data-challenge-id={challengeId} data-share-id={shareId} data-visibility={visibility} />
   ),
 }));
+vi.mock("./RecapPanel", () => ({
+  RecapPanel: ({ challengeId, initialRecaps }: { challengeId: string; initialRecaps: unknown[] }) => (
+    <div
+      data-testid="recap-panel"
+      data-challenge-id={challengeId}
+      data-recap-count={initialRecaps?.length ?? 0}
+    />
+  ),
+}));
 
 import CelebratePage from "./page";
+
+beforeEach(() => {
+  // Default: no existing recaps
+  mockListRecaps.mockResolvedValue([]);
+});
 
 afterEach(() => {
   cleanup();
@@ -216,5 +238,37 @@ describe("CelebratePage", () => {
     render(ui);
 
     expect(screen.queryByTestId("celebrate-photo")).toBeNull();
+  });
+
+  it("renders RecapPanel with challengeId and initialRecaps", async () => {
+    const initialRecaps = [
+      { id: "r1", kind: "DAY" as const, url: "https://example.com/day.mp4", createdAt: new Date() },
+    ];
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockListRecaps.mockResolvedValue(initialRecaps);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const panel = screen.getByTestId("recap-panel");
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute("data-challenge-id", "c1");
+    expect(panel).toHaveAttribute("data-recap-count", "1");
+  });
+
+  it("calls listRecaps with the correct challengeId and userId", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+
+    expect(mockListRecaps).toHaveBeenCalledWith("c1", "u1");
   });
 });
