@@ -38,6 +38,12 @@ importers:
 
   packages/config: {}
 
+  packages/core:
+    devDependencies:
+      '@project50/config':
+        specifier: workspace:*
+        version: link:../config
+
 packages:
 
   '@ampproject/remapping@2.3.0':

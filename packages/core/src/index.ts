@@ -1,0 +1,1 @@
+export { coreVersion } from "./version";
