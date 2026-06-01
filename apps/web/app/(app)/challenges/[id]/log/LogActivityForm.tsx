@@ -329,6 +329,18 @@ export function LogActivityForm({
       {/* Photo upload */}
       <div>
         <Label>Photo (optional)</Label>
+        {/* The file input stays mounted (hidden) so its ref persists across
+            select/remove cycles and the same file can be re-selected. */}
+        <input
+          id="photo-input"
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={handleFileChange}
+          data-testid="photo-input"
+          disabled={uploading}
+          style={{ display: "none" }}
+        />
         {selectedMedia ? (
           <div style={{ marginTop: "10px" }}>
             {/* Thumbnail preview */}
@@ -380,16 +392,6 @@ export function LogActivityForm({
             >
               {uploading ? "Uploading…" : "Choose photo"}
             </label>
-            <input
-              id="photo-input"
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={handleFileChange}
-              data-testid="photo-input"
-              disabled={uploading}
-              style={{ display: "none" }}
-            />
           </div>
         )}
 

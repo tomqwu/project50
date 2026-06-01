@@ -24,10 +24,13 @@ Object.defineProperty(URL, "revokeObjectURL", {
   writable: true,
 });
 
-import { LogActivityForm } from "./LogActivityForm";
+import { LogActivityForm, readImageDimensions } from "./LogActivityForm";
 
 beforeEach(() => {
   mockReadDimensions.mockResolvedValue({ width: 800, height: 600 });
+  // vi.resetAllMocks() in afterEach clears these implementations; re-establish them
+  // so createObjectURL returns a truthy preview URL for every test.
+  (URL.createObjectURL as ReturnType<typeof vi.fn>).mockReturnValue(mockObjectUrl);
 });
 
 afterEach(() => {
@@ -597,5 +600,119 @@ describe("LogActivityForm — Photo upload", () => {
     const call = mockFetch.mock.calls[0] as [string, { body: string }];
     const body = JSON.parse(call[1].body);
     expect(body.media).toBeUndefined();
+  });
+
+  it("does nothing when the change event has no file selected", async () => {
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    // Fire change with an empty file list → handler should early-return.
+    fireEvent.change(fileInput, { target: { files: [] } });
+
+    // No upload error, no preview, no fetch, no dimension read.
+    expect(screen.queryByTestId("upload-error")).toBeNull();
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockReadDimensions).not.toHaveBeenCalled();
+  });
+
+  it("falls back to 'upload' suffix when filename sanitizes to empty", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/upload.png" }),
+      })
+      .mockResolvedValueOnce({ ok: true }); // PUT
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    // Filename whose stem is empty after stripping the extension → "" → "upload".
+    const file = new File(["bytes"], ".png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    const presignCall = mockFetch.mock.calls[0] as [string, { body: string }];
+    const presignBody = JSON.parse(presignCall[1].body) as { suffix: string };
+    expect(presignBody.suffix).toBe("upload");
+  });
+});
+
+describe("readImageDimensions", () => {
+  // Save/restore the real globals around these tests.
+  const RealImage = globalThis.Image;
+
+  afterEach(() => {
+    globalThis.Image = RealImage;
+    vi.resetAllMocks();
+    (URL.createObjectURL as ReturnType<typeof vi.fn>).mockReturnValue(mockObjectUrl);
+    (URL.revokeObjectURL as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("resolves with naturalWidth/naturalHeight on image load and revokes the object URL", async () => {
+    let loadHandler: (() => void) | null = null;
+    // Minimal fake Image: capture onload, expose natural dimensions.
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      set src(_value: string) {
+        this.naturalWidth = 320;
+        this.naturalHeight = 240;
+        // Stash the handler so the test can fire it after src assignment.
+        loadHandler = () => this.onload?.();
+      }
+    }
+    globalThis.Image = FakeImage as unknown as typeof Image;
+
+    const file = new File(["bytes"], "p.png", { type: "image/png" });
+    const promise = readImageDimensions(file);
+
+    // Trigger onload.
+    loadHandler!();
+
+    const dims = await promise;
+    expect(dims).toEqual({ width: 320, height: 240 });
+    expect(URL.createObjectURL).toHaveBeenCalledWith(file);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(mockObjectUrl);
+  });
+
+  it("rejects and revokes the object URL when the image fails to load", async () => {
+    let errorHandler: (() => void) | null = null;
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      set src(_value: string) {
+        errorHandler = () => this.onerror?.();
+      }
+    }
+    globalThis.Image = FakeImage as unknown as typeof Image;
+
+    const file = new File(["bytes"], "p.png", { type: "image/png" });
+    const promise = readImageDimensions(file);
+
+    // Trigger onerror.
+    errorHandler!();
+
+    await expect(promise).rejects.toThrow("Failed to load image");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(mockObjectUrl);
   });
 });
