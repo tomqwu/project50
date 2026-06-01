@@ -21,6 +21,8 @@ export interface CelebrateViewProps {
   stats: CelebrateStats;
   milestones: MilestoneKind[];
   shareActions?: ShareActionsProps;
+  /** Signed URL of the most recent activity photo, if any */
+  photoUrl?: string | null;
 }
 
 const MILESTONE_LABELS: Record<MilestoneKind, string> = {
@@ -37,6 +39,7 @@ export function CelebrateView({
   stats,
   milestones,
   shareActions,
+  photoUrl,
 }: CelebrateViewProps) {
   const isComplete = dayNumber >= 50;
 
@@ -75,6 +78,23 @@ export function CelebrateView({
       >
         Day {dayNumber} / 50
       </p>
+
+      {/* Activity photo — only when a real signed URL is available */}
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt={`${challengeTitle} activity photo`}
+          data-testid="celebrate-photo"
+          style={{
+            display: "block",
+            width: "100%",
+            maxHeight: "280px",
+            objectFit: "cover",
+            borderRadius: "14px",
+            marginBottom: "24px",
+          }}
+        />
+      ) : null}
 
       {/* Stats */}
       <Card>

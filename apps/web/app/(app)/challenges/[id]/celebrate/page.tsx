@@ -29,6 +29,10 @@ export default async function CelebratePage({
 
   const milestones = milestoneRows.map((m) => m.kind as MilestoneKind);
 
+  // Find the most recent activity photo (activities are ordered by createdAt desc)
+  const photoUrl =
+    challenge.activities.find((a) => a.media.length > 0)?.media[0]?.url ?? null;
+
   return (
     <CelebrateView
       challengeTitle={challenge.title}
@@ -44,6 +48,7 @@ export default async function CelebratePage({
         shareId: challenge.shareId,
         visibility: challenge.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE",
       }}
+      photoUrl={photoUrl}
     />
   );
 }

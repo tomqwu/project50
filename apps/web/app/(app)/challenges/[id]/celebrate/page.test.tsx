@@ -47,6 +47,7 @@ const baseChallenge = {
     { dayKey: "2026-05-02", totalAmount: 3, completed: false },
     { dayKey: "2026-05-03", totalAmount: 5, completed: true },
   ],
+  activities: [],
   currentStreak: 0,
   longestStreak: 0,
 };
@@ -171,5 +172,49 @@ describe("CelebratePage", () => {
 
     // null→0 + 5 = 5
     expect(screen.getByText("5 km")).toBeInTheDocument();
+  });
+
+  it("passes photoUrl from most recent activity with media", async () => {
+    const signedUrl = "https://minio.example.com/bucket/media/u1/photo.jpg?sig=abc";
+    const withPhotoCh = {
+      ...baseChallenge,
+      activities: [
+        {
+          id: "act1",
+          media: [{ objectKey: "media/u1/photo.jpg", width: 800, height: 600, url: signedUrl }],
+        },
+      ],
+    };
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(withPhotoCh);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const img = screen.getByTestId("celebrate-photo");
+    expect(img).toHaveAttribute("src", signedUrl);
+  });
+
+  it("passes null photoUrl when no activities have media", async () => {
+    const noPhotoCh = {
+      ...baseChallenge,
+      activities: [
+        { id: "act1", media: [] },
+        { id: "act2", media: [] },
+      ],
+    };
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(noPhotoCh);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    expect(screen.queryByTestId("celebrate-photo")).toBeNull();
   });
 });

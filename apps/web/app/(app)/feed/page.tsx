@@ -15,6 +15,12 @@ export default async function FeedPage() {
     note: a.note ?? null,
     hasPhoto: a.hasPhoto,
     cheerCount: a.cheerCount,
+    media: a.media.map((m) => ({
+      objectKey: m.objectKey,
+      width: m.width,
+      height: m.height,
+      url: m.url,
+    })),
   }));
 
   return <FeedView items={items} />;
