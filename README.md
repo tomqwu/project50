@@ -77,7 +77,7 @@ Within the first slice, phased delivery:
 - [x] **Phase 0 — Foundation:** monorepo, dev env, CI, coverage gate, Playwright.
 - [x] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
 - [x] **Phase 2 — Auth + API**.
-- [ ] **Phase 3 — Web UI** (Momentum design system + screens).
+- [ ] **Phase 3 — Web UI** (Momentum design system + screens) — in progress.
 - [ ] **Phase 4 — Sharing + PWA + full e2e.**
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
