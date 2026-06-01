@@ -45,6 +45,41 @@ import { getRenderer } from "@project50/recap";
 const buffer = await getRenderer().render(recapData);
 ```
 
+## Webpack extension alias (why `recapWebpackOverride` is required)
+
+All source files use TypeScript ESM-style `.js` extension specifiers (e.g. `import { RecapVideo } from "./RecapVideo.js"`). This is correct for Node ESM — TypeScript resolves `.js` → `.tsx` at compile time — but Remotion's webpack bundler does not include `resolve.extensionAlias` by default, so a bare `bundle({ entryPoint })` call fails with:
+
+```
+Module not found: Error: Can't resolve './RecapVideo.js'
+```
+
+`RemotionRenderer` passes a `webpackOverride` (exported as `recapWebpackOverride`) that adds:
+
+```js
+resolve.extensionAlias = {
+  ".js": [".tsx", ".ts", ".js"],
+  ".mjs": [".mts", ".mjs"],
+}
+```
+
+This tells webpack 5 to try `.tsx` and `.ts` before falling back to the literal `.js`, exactly mirroring TypeScript's own resolution.
+
+## Bundle-only proof (no Chromium needed)
+
+To prove `bundle()` works without launching Chromium:
+
+```bash
+node packages/recap/scripts/verify-bundle.mjs
+```
+
+Expected output:
+
+```
+✓ bundle() SUCCEEDED in ~1-5s
+✓ Serve URL / bundle dir: /tmp/remotion-webpack-bundle-XXXXXX
+✓ Bundle chunk ... contains recap composition code
+```
+
 ## Local real-render smoke test
 
 To prove the real Remotion rendering pipeline works end-to-end (requires Chromium):
@@ -54,12 +89,12 @@ pnpm --filter @project50/recap render:sample
 ```
 
 This will:
-1. Bundle the Remotion Root via `@remotion/bundler`
+1. Bundle the Remotion Root via `@remotion/bundler` (with `recapWebpackOverride`)
 2. Select the `recap` composition with sample `RecapData`
 3. Render to MP4 using `h264` codec via `@remotion/renderer`
 4. Write the output to `/tmp/project50-recap-sample.mp4`
 
-On first run, `@remotion/renderer` will download Chromium (~300MB). Allow a few minutes.
+On first run, `@remotion/renderer` will download Chromium (~93MB). Allow a few minutes.
 
 **Do NOT run this in CI.** CI uses `RECAP_FAKE=1` so no Chromium render is attempted.
 

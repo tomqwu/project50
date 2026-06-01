@@ -20,6 +20,32 @@ export function getEntryPoint(): string {
 }
 
 /**
+ * Webpack override that adds `resolve.extensionAlias` so that TypeScript
+ * ESM-style imports using `.js` extension specifiers (e.g. `'./RecapVideo.js'`)
+ * are resolved to their actual `.tsx` / `.ts` sources.
+ *
+ * Without this, Remotion's bundler (webpack 5) treats `./RecapVideo.js` as a
+ * literal filename and fails with "Module not found: Can't resolve './RecapVideo.js'".
+ * `resolve.extensions` only applies when an import has NO extension at all.
+ *
+ * Typed as `WebpackOverrideFn` so it can be passed directly to `bundle()`.
+ */
+export function recapWebpackOverride(
+  config: import("@remotion/bundler").WebpackConfiguration,
+): import("@remotion/bundler").WebpackConfiguration {
+  return {
+    ...config,
+    resolve: {
+      ...config.resolve,
+      extensionAlias: {
+        ".js": [".tsx", ".ts", ".js"],
+        ".mjs": [".mts", ".mjs"],
+      },
+    },
+  };
+}
+
+/**
  * Real renderer: bundles the Remotion Root, selects the "recap" composition,
  * and renders it to an MP4 using the h264 codec.
  */
@@ -30,7 +56,7 @@ export class RemotionRenderer implements RecapRenderer {
 
     const entryPoint = getEntryPoint();
 
-    const serveUrl = await bundle({ entryPoint });
+    const serveUrl = await bundle({ entryPoint, webpackOverride: recapWebpackOverride });
 
     // @remotion/renderer expects inputProps to be Record<string, unknown>;
     // RecapData is structurally compatible but needs a cast.

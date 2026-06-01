@@ -26,6 +26,7 @@ vi.mock("node:fs/promises", () => ({
 
 // ---------- imports (after mocks) ----------
 import { bundle } from "@remotion/bundler";
+import type { WebpackConfiguration } from "@remotion/bundler";
 import { selectComposition, renderMedia } from "@remotion/renderer";
 import { readFile } from "node:fs/promises";
 import {
@@ -33,6 +34,7 @@ import {
   FakeRecapRenderer,
   getRenderer,
   getEntryPoint,
+  recapWebpackOverride,
 } from "./render.js";
 import type { RecapData } from "./types.js";
 
@@ -52,6 +54,45 @@ const sampleData: RecapData = {
     { dayKey: "2026-06-02", completed: true, amount: 60 },
   ],
 };
+
+// ---------- recapWebpackOverride ----------
+describe("recapWebpackOverride", () => {
+  it("adds resolve.extensionAlias mapping .js to [.tsx, .ts, .js]", () => {
+    const input: WebpackConfiguration = {
+      mode: "production",
+      resolve: { extensions: [".ts", ".tsx", ".js"] },
+    };
+    const result = recapWebpackOverride(input);
+    const alias = result.resolve?.extensionAlias as Record<string, string[]>;
+    expect(alias[".js"]).toEqual([".tsx", ".ts", ".js"]);
+  });
+
+  it("adds resolve.extensionAlias mapping .mjs to [.mts, .mjs]", () => {
+    const result = recapWebpackOverride({});
+    const alias = result.resolve?.extensionAlias as Record<string, string[]>;
+    expect(alias[".mjs"]).toEqual([".mts", ".mjs"]);
+  });
+
+  it("preserves existing resolve fields (e.g. extensions, alias)", () => {
+    const input: WebpackConfiguration = {
+      resolve: {
+        extensions: [".ts", ".tsx"],
+        alias: { react: "/path/to/react" },
+      },
+    };
+    const result = recapWebpackOverride(input);
+    expect(result.resolve?.extensions).toEqual([".ts", ".tsx"]);
+    expect(result.resolve?.alias).toEqual({ react: "/path/to/react" });
+  });
+
+  it("preserves all other top-level webpack config fields", () => {
+    const input: WebpackConfiguration = { mode: "production", entry: "./src/Root.tsx", plugins: [] };
+    const result = recapWebpackOverride(input);
+    expect(result.mode).toBe("production");
+    expect(result.entry).toBe("./src/Root.tsx");
+    expect(result.plugins).toEqual([]);
+  });
+});
 
 // ---------- FakeRecapRenderer ----------
 describe("FakeRecapRenderer", () => {
@@ -105,6 +146,19 @@ describe("RemotionRenderer", () => {
     const callArg = vi.mocked(bundle).mock.calls[0]![0] as { entryPoint: string };
     expect(typeof callArg.entryPoint).toBe("string");
     expect(callArg.entryPoint).toMatch(/Root\.tsx$/);
+  });
+
+  it("calls bundle with recapWebpackOverride so .js imports resolve to .tsx sources", async () => {
+    const renderer = new RemotionRenderer();
+    await renderer.render(sampleData);
+    expect(bundle).toHaveBeenCalledOnce();
+    const callArg = vi.mocked(bundle).mock.calls[0]![0] as {
+      entryPoint: string;
+      webpackOverride?: (config: WebpackConfiguration) => WebpackConfiguration;
+    };
+    expect(typeof callArg.webpackOverride).toBe("function");
+    // The override must be recapWebpackOverride (same reference)
+    expect(callArg.webpackOverride).toBe(recapWebpackOverride);
   });
 
   it("getEntryPoint returns a path ending in Root.tsx", () => {
