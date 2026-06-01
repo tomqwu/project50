@@ -9,6 +9,11 @@ vi.mock("next/font/google", () => ({
 // globals.css import is a no-op in jsdom
 vi.mock("./globals.css", () => ({}));
 
+// Mock ServiceWorkerRegister
+vi.mock("./_components/ServiceWorkerRegister", () => ({
+  ServiceWorkerRegister: () => null,
+}));
+
 import RootLayout, { metadata } from "./layout";
 
 describe("RootLayout", () => {
@@ -24,6 +29,8 @@ describe("RootLayout", () => {
     // body className should contain the font variable classes
     expect(body.props.className).toContain("--next-font-display");
     expect(body.props.className).toContain("--next-font-body");
-    expect(body.props.children).toBe("content");
+    // body children is now [ServiceWorkerRegister, children]
+    const bodyChildren = body.props.children;
+    expect(bodyChildren).toContain("content");
   });
 });

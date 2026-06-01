@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Anton, Sora } from "next/font/google";
 import "./globals.css";
+import { ServiceWorkerRegister } from "./_components/ServiceWorkerRegister";
 
 const anton = Anton({
   weight: "400",
@@ -20,7 +21,10 @@ export const metadata = { title: "project50", description: "50-day challenges" }
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${anton.variable} ${sora.variable}`}>{children}</body>
+      <body className={`${anton.variable} ${sora.variable}`}>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }
