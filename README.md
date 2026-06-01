@@ -78,7 +78,7 @@ Within the first slice, phased delivery:
 - [x] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
 - [x] **Phase 2 — Auth + API**.
 - [x] **Phase 3 — Web UI** (Momentum design system + screens).
-- [ ] **Phase 4 — Sharing + PWA + full e2e.**
+- [ ] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — in progress.
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).
