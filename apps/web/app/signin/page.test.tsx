@@ -18,9 +18,9 @@ describe("SignInPage", () => {
     cleanup();
   });
 
-  it("renders the project50 heading", () => {
+  it("renders the project50 heading with data-testid='home'", () => {
     render(<SignInPage />);
-    expect(screen.getByText("project50")).toBeInTheDocument();
+    expect(screen.getByTestId("home")).toHaveTextContent("project50");
   });
 
   it("renders Google and Facebook buttons", () => {

@@ -44,12 +44,15 @@ describe("SignInButtons", () => {
     expect(mockSignIn).toHaveBeenCalledWith("facebook", { callbackUrl: "/" });
   });
 
-  it("calls signIn('e2e') on E2E button click", () => {
+  it("calls signIn('e2e') on E2E button click with a unique handle", () => {
     render(<SignInButtons e2eEnabled />);
     fireEvent.click(screen.getByTestId("signin-e2e"));
-    expect(mockSignIn).toHaveBeenCalledWith("e2e", {
-      callbackUrl: "/",
-      handle: "e2e-user",
-    });
+    expect(mockSignIn).toHaveBeenCalledWith(
+      "e2e",
+      expect.objectContaining({
+        callbackUrl: "/",
+        handle: expect.stringMatching(/^e2e-\d+$/),
+      }),
+    );
   });
 });

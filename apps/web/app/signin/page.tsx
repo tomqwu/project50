@@ -19,6 +19,7 @@ export default function SignInPage() {
       }}
     >
       <h1
+        data-testid="home"
         style={{
           fontFamily: "var(--font-display, 'Anton', sans-serif)",
           fontSize: "48px",

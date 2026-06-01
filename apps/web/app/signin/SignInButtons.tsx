@@ -36,7 +36,12 @@ export function SignInButtons({ e2eEnabled = false }: SignInButtonsProps) {
       {e2eEnabled && (
         <button
           type="button"
-          onClick={() => signIn("e2e", { callbackUrl: "/", handle: "e2e-user" })}
+          onClick={() =>
+            signIn("e2e", {
+              callbackUrl: "/",
+              handle: `e2e-${Date.now()}`,
+            })
+          }
           style={{ ...providerButtonStyle, background: "var(--surface2)" }}
           data-testid="signin-e2e"
         >
