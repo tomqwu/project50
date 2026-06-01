@@ -5,7 +5,6 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import { prisma, resetDb, createUser, createChallenge } from "../../test/db";
 import { follow, unfollow, feed, react } from "./social";
-import { HttpError } from "./http";
 
 beforeEach(resetDb);
 
@@ -106,8 +105,8 @@ describe("feed", () => {
     expect(ids).not.toContain((await prisma.activity.findFirst({ where: { userId: carol.id } }))!.id);
 
     // Includes challenge and user
-    expect(result[0].challenge).toBeDefined();
-    expect(result[0].user).toBeDefined();
+    expect(result[0]!.challenge).toBeDefined();
+    expect(result[0]!.user).toBeDefined();
   });
 
   it("includes FOLLOWERS-visibility activities from followed users", async () => {

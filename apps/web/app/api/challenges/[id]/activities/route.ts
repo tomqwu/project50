@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/session";
-import { handleRoute, HttpError } from "@/lib/api/http";
+import { handleRoute } from "@/lib/api/http";
 import { logActivity } from "@/lib/api/activities";
 import { localDayKey } from "@project50/core";
 import { prisma } from "@project50/db";

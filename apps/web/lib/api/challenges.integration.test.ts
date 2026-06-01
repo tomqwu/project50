@@ -150,8 +150,8 @@ describe("listChallenges", () => {
     const result = await listChallenges(user.id);
     expect(result).toHaveLength(2);
     // Newest first: c2 created after c1
-    expect(result[0].id).toBe(c2.id);
-    expect(result[1].id).toBe(c1.id);
+    expect(result[0]!.id).toBe(c2.id);
+    expect(result[1]!.id).toBe(c1.id);
     // No other user's challenges
     expect(result.every((c) => c.ownerId === user.id)).toBe(true);
   });

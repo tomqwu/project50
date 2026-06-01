@@ -63,7 +63,10 @@ export async function logActivity(
       goalType: challenge.goalType,
       dailyTarget: challenge.dailyTarget === null ? undefined : challenge.dailyTarget,
     },
-    dayActivities,
+    dayActivities.map((a) => ({
+      amount: a.amount === null ? undefined : a.amount,
+      done: a.done,
+    })),
   );
 
   const dayStatus = await prisma.dayStatus.upsert({
