@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 const { mockPush, mockFetch } = vi.hoisted(() => ({
@@ -79,7 +79,8 @@ describe("LogActivityForm — TARGET", () => {
       );
     });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const firstCall = mockFetch.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(firstCall[1].body);
     expect(body.activityType).toBe("Run");
     expect(body.amount).toBe(5);
     expect(body.note).toBe("Great run");
@@ -218,7 +219,8 @@ describe("LogActivityForm — BINARY", () => {
     fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
 
     await waitFor(() => {
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const binaryCall = mockFetch.mock.calls[0] as [string, { body: string }];
+      const body = JSON.parse(binaryCall[1].body);
       expect(body.done).toBe(true);
       expect(body.amount).toBeUndefined();
     });

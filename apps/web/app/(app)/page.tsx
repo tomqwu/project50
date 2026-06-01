@@ -14,7 +14,8 @@ export default async function DashboardPage() {
   }
 
   // Pick the first (most-recently created) challenge as primary
-  const primaryRaw = challenges[0];
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const primaryRaw = challenges[0]!;
 
   // Load full challenge detail (includes dayStatuses + streak info)
   const full = await getChallenge(primaryRaw.id, uid);

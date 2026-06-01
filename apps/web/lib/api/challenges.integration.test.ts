@@ -5,7 +5,7 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import { prisma, resetDb, createUser, createChallenge as seedChallenge } from "../../test/db";
-import { createChallenge, listChallenges, getChallenge } from "./challenges";
+import { createChallenge, listChallenges, getChallenge, getMilestones } from "./challenges";
 import { HttpError } from "./http";
 
 beforeEach(resetDb);
@@ -254,5 +254,31 @@ describe("getChallenge", () => {
 
     const result = await getChallenge(challenge.id, owner.id);
     expect(result.id).toBe(challenge.id);
+  });
+});
+
+describe("getMilestones", () => {
+  it("returns an empty array when no milestones earned", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id);
+    const milestones = await getMilestones(challenge.id);
+    expect(milestones).toEqual([]);
+  });
+
+  it("returns earned milestones ordered by earnedAt", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const challenge = await seedChallenge(owner.id);
+
+    await prisma.milestone.create({
+      data: { challengeId: challenge.id, kind: "COMPLETED_7" },
+    });
+    await prisma.milestone.create({
+      data: { challengeId: challenge.id, kind: "STREAK_7" },
+    });
+
+    const milestones = await getMilestones(challenge.id);
+    expect(milestones).toHaveLength(2);
+    expect(milestones.map((m) => m.kind)).toContain("COMPLETED_7");
+    expect(milestones.map((m) => m.kind)).toContain("STREAK_7");
   });
 });
