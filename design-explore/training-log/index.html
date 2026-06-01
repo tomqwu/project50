@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>project50 — Training Log</title>
+
+  <!-- React + Babel pinned -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; width: 100%; }
+    body {
+      font-family: -apple-system, 'SF Pro Text', sans-serif;
+      background: #ECE9E2;
+      color: #1A1A1A;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    /* ============================================================
+       IosFrame (inlined verbatim from ios_frame.jsx)
+    ============================================================ */
+    const iosFrameStyles = {
+      wrapper: {
+        display: 'inline-block',
+        padding: 12,
+        background: '#000',
+        borderRadius: 60,
+        boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.3)',
+        position: 'relative',
+      },
+      screen: {
+        position: 'relative',
+        borderRadius: 48,
+        overflow: 'hidden',
+        background: '#fff',
+      },
+      statusBar: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 54,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 32px 0 32px',
+        fontSize: 16,
+        fontWeight: 600,
+        fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+        zIndex: 20,
+        pointerEvents: 'none',
+      },
+      dynamicIsland: {
+        position: 'absolute',
+        top: 12,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 124,
+        height: 36,
+        background: '#000',
+        borderRadius: 999,
+        zIndex: 30,
+      },
+      statusIcons: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      },
+      signalIcon: {
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 2,
+        height: 12,
+      },
+      signalBar: {
+        width: 3,
+        background: 'currentColor',
+        borderRadius: 1,
+      },
+      wifiIcon: {
+        width: 16,
+        height: 12,
+        position: 'relative',
+      },
+      batteryIcon: {
+        width: 26,
+        height: 12,
+        border: '1.5px solid currentColor',
+        borderRadius: 3,
+        padding: 1,
+        position: 'relative',
+        opacity: 0.8,
+      },
+      batteryCap: {
+        position: 'absolute',
+        top: 3,
+        right: -3,
+        width: 2,
+        height: 6,
+        background: 'currentColor',
+        borderRadius: '0 1px 1px 0',
+      },
+      content: {
+        position: 'absolute',
+        top: 54,
+        left: 0,
+        right: 0,
+        bottom: 34,
+        overflow: 'auto',
+      },
+      homeIndicator: {
+        position: 'absolute',
+        bottom: 10,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 140,
+        height: 5,
+        background: 'rgba(0,0,0,0.3)',
+        borderRadius: 999,
+        zIndex: 10,
+      },
+      homeIndicatorDark: {
+        background: 'rgba(255,255,255,0.5)',
+      },
+    };
+
+    function IosFrame({
+      children,
+      width = 393,
+      height = 852,
+      time = '9:41',
+      battery = 100,
+      darkMode = false,
+      showStatusBar = true,
+      showDynamicIsland = true,
+      showHomeIndicator = true,
+    }) {
+      const textColor = darkMode ? '#fff' : '#000';
+
+      return (
+        <div style={iosFrameStyles.wrapper}>
+          <div style={{
+            ...iosFrameStyles.screen,
+            width,
+            height,
+            background: darkMode ? '#000' : '#fff',
+          }}>
+            {showStatusBar && (
+              <div style={{ ...iosFrameStyles.statusBar, color: textColor }}>
+                <span>{time}</span>
+                <div style={iosFrameStyles.statusIcons}>
+                  <div style={iosFrameStyles.signalIcon}>
+                    <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+                  </div>
+                  <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: textColor }}>
+                    <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+                    <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+                    <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+                  </svg>
+                  <div style={iosFrameStyles.batteryIcon}>
+                    <div style={{
+                      width: `${battery}%`,
+                      height: '100%',
+                      background: 'currentColor',
+                      borderRadius: 1,
+                      opacity: 0.9,
+                    }} />
+                    <div style={iosFrameStyles.batteryCap} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showDynamicIsland && <div style={iosFrameStyles.dynamicIsland} />}
+
+            <div style={iosFrameStyles.content}>
+              {children}
+            </div>
+
+            {showHomeIndicator && (
+              <div style={{
+                ...iosFrameStyles.homeIndicator,
+                ...(darkMode ? iosFrameStyles.homeIndicatorDark : {}),
+              }} />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       Design tokens — "Training Log" direction
+    ============================================================ */
+    const T = {
+      paper: '#F7F5F1',
+      ink: '#1A1A1A',
+      rule: '#D8D3C9',
+      accent: '#B23A2E',
+      sub: '#6E6A60',
+      display: '"Archivo", -apple-system, sans-serif',
+      mono: '"IBM Plex Mono", ui-monospace, monospace',
+    };
+
+    const IMG = {
+      runThumb: 'https://images.unsplash.com/photo-1502904550040-7534597429ae?w=800&q=80',
+      checkin: 'https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800&q=80',
+      feedRun: 'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=800&q=80',
+      celebrate: 'https://images.unsplash.com/photo-1486218119243-13883505764c?w=800&q=80',
+    };
+
+    /* ---- shared primitives ---- */
+    const trainingShared = {
+      page: {
+        minHeight: '100%',
+        background: T.paper,
+        color: T.ink,
+        paddingTop: 8,
+      },
+      label: {
+        fontFamily: T.display,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: '0.16em',
+        textTransform: 'uppercase',
+        color: T.sub,
+      },
+      rule: { height: 1, background: T.rule, border: 'none' },
+      pad: { paddingLeft: 24, paddingRight: 24 },
+    };
+
+    function Label({ children, style }) {
+      return <div style={{ ...trainingShared.label, ...style }}>{children}</div>;
+    }
+
+    /* ============================================================
+       SCREEN 1 — Challenge Dashboard
+    ============================================================ */
+    function DashboardScreen() {
+      // progress ticks: 60 min target, grouped in tens
+      const ticks = [];
+      const total = 60, done = 35;
+      for (let i = 0; i < total; i++) {
+        const filled = i < done;
+        ticks.push(
+          <div key={i} style={{
+            flex: 1,
+            height: i % 10 === 0 ? 22 : 14,
+            alignSelf: 'flex-end',
+            background: filled ? T.accent : T.rule,
+            marginRight: (i + 1) % 10 === 0 && i !== total - 1 ? 5 : 1.5,
+          }} />
+        );
+      }
+
+      return (
+        <div style={trainingShared.page}>
+          {/* masthead */}
+          <div style={{ ...trainingShared.pad, paddingTop: 14, paddingBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <Label>Challenge 01</Label>
+              <Label style={{ color: T.accent }}>project50</Label>
+            </div>
+            <div style={{
+              fontFamily: T.display, fontWeight: 800, fontSize: 30, lineHeight: 1.04,
+              letterSpacing: '-0.02em', marginTop: 10, textWrap: 'balance',
+            }}>
+              Work out<br />1&nbsp;hr / day
+            </div>
+          </div>
+
+          <hr style={trainingShared.rule} />
+
+          {/* day counter row */}
+          <div style={{ ...trainingShared.pad, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', paddingTop: 16, paddingBottom: 16 }}>
+            <div>
+              <Label>Day</Label>
+              <div style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 46, lineHeight: 0.95, letterSpacing: '-0.03em' }}>
+                23<span style={{ color: T.sub, fontSize: 22 }}> / 50</span>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <Label>Remaining</Label>
+              <div style={{ fontFamily: T.mono, fontWeight: 500, fontSize: 22, marginTop: 4 }}>27 days</div>
+            </div>
+          </div>
+
+          <hr style={trainingShared.rule} />
+
+          {/* today's progress with tick bar */}
+          <div style={{ ...trainingShared.pad, paddingTop: 18, paddingBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <Label>Today · minutes</Label>
+              <div style={{ fontFamily: T.mono, fontSize: 13, color: T.sub }}>58%</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+              <span style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 40, letterSpacing: '-0.03em' }}>35</span>
+              <span style={{ fontFamily: T.mono, fontSize: 17, color: T.sub }}>/ 60 min</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', height: 22, marginTop: 14 }}>
+              {ticks}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.sub }}>0</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.sub }}>60</span>
+            </div>
+          </div>
+
+          <hr style={trainingShared.rule} />
+
+          {/* three stats */}
+          <div style={{ display: 'flex' }}>
+            {[
+              { k: 'Streak', v: '22', note: '🔥 days' },
+              { k: 'Badges', v: '02', note: 'earned' },
+              { k: 'Cheering', v: '05', note: 'people' },
+            ].map((s, i) => (
+              <div key={s.k} style={{
+                flex: 1, padding: '16px 20px',
+                borderRight: i < 2 ? `1px solid ${T.rule}` : 'none',
+              }}>
+                <Label>{s.k}</Label>
+                <div style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 28, marginTop: 4, letterSpacing: '-0.02em' }}>{s.v}</div>
+                <div style={{ fontFamily: T.mono, fontSize: 11, color: T.sub, marginTop: 2 }}>{s.note}</div>
+              </div>
+            ))}
+          </div>
+
+          <hr style={trainingShared.rule} />
+
+          {/* primary button */}
+          <div style={{ ...trainingShared.pad, paddingTop: 18, paddingBottom: 18 }}>
+            <button style={{
+              width: '100%', height: 54, background: T.accent, color: '#fff', border: 'none',
+              fontFamily: T.display, fontWeight: 700, fontSize: 15, letterSpacing: '0.04em',
+              textTransform: 'uppercase', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 22px',
+            }}>
+              <span>Log an activity</span>
+              <span style={{ fontFamily: T.mono, fontWeight: 400 }}>+</span>
+            </button>
+          </div>
+
+          <hr style={trainingShared.rule} />
+
+          {/* today's activities (ruled table) */}
+          <div style={{ ...trainingShared.pad, paddingTop: 16, paddingBottom: 8 }}>
+            <Label>Today's activities</Label>
+          </div>
+          <div style={{ ...trainingShared.pad }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 12, paddingBottom: 12, borderTop: `1px solid ${T.rule}` }}>
+              <img src={IMG.runThumb} alt="Run" style={{ width: 52, height: 52, objectFit: 'cover', filter: 'grayscale(0.15)' }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: T.display, fontWeight: 700, fontSize: 16 }}>Run</div>
+                <div style={{ fontFamily: T.mono, fontSize: 12, color: T.sub, marginTop: 2 }}>07:12 · outdoor</div>
+              </div>
+              <div style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 18 }}>35<span style={{ color: T.sub, fontSize: 12 }}> min</span></div>
+            </div>
+          </div>
+
+          {/* other challenges */}
+          <div style={{ ...trainingShared.pad, paddingTop: 18, paddingBottom: 8 }}>
+            <Label>Your other challenges</Label>
+          </div>
+          <div style={{ ...trainingShared.pad, paddingBottom: 26 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 12, paddingBottom: 12, borderTop: `1px solid ${T.rule}` }}>
+              <div style={{
+                width: 22, height: 22, border: `1.5px solid ${T.ink}`, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <div style={{ width: 12, height: 12, background: T.ink }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: T.display, fontWeight: 700, fontSize: 16 }}>Read 30 min</div>
+                <div style={{ fontFamily: T.mono, fontSize: 12, color: T.sub, marginTop: 2 }}>done today · habit</div>
+              </div>
+              <div style={{ fontFamily: T.mono, fontWeight: 500, fontSize: 13, color: T.sub }}>day 12/50</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       SCREEN 2 — Log Activity
+    ============================================================ */
+    function LogScreen() {
+      const [type, setType] = useState('Run');
+      const [mood, setMood] = useState(4);
+      const types = ['Run', 'Bike', 'Gym', 'Yoga', '+'];
+      const moods = ['1', '2', '3', '4', '5'];
+
+      return (
+        <div style={trainingShared.page}>
+          <div style={{ ...trainingShared.pad, paddingTop: 14, paddingBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <div style={{ fontFamily: T.display, fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em' }}>Log activity</div>
+            <Label>Day 23</Label>
+          </div>
+          <hr style={trainingShared.rule} />
+
+          {/* type picker */}
+          <div style={{ ...trainingShared.pad, paddingTop: 16 }}>
+            <Label>Activity type</Label>
+            <div style={{ display: 'flex', marginTop: 10, border: `1px solid ${T.ink}` }}>
+              {types.map((tp, i) => (
+                <button key={tp} onClick={() => tp !== '+' && setType(tp)} style={{
+                  flex: tp === '+' ? '0 0 44px' : 1,
+                  height: 44, cursor: 'pointer',
+                  border: 'none',
+                  borderRight: i < types.length - 1 ? `1px solid ${T.ink}` : 'none',
+                  background: type === tp ? T.ink : 'transparent',
+                  color: type === tp ? '#fff' : T.ink,
+                  fontFamily: T.display, fontWeight: 700, fontSize: 13,
+                  letterSpacing: '0.03em',
+                }}>{tp}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* duration */}
+          <div style={{ ...trainingShared.pad, paddingTop: 20 }}>
+            <Label>Duration</Label>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, paddingBottom: 12, borderBottom: `1px solid ${T.ink}` }}>
+              <span style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 44, letterSpacing: '-0.03em' }}>25</span>
+              <span style={{ fontFamily: T.mono, fontSize: 18, color: T.sub }}>min</span>
+            </div>
+            <div style={{ fontFamily: T.mono, fontSize: 12, color: T.accent, marginTop: 8 }}>
+              → counts toward 60 min target
+            </div>
+          </div>
+
+          {/* photo */}
+          <div style={{ ...trainingShared.pad, paddingTop: 20 }}>
+            <Label>Photo</Label>
+            <div style={{ marginTop: 10, position: 'relative' }}>
+              <img src={IMG.checkin} alt="Captured" style={{ width: '100%', height: 150, objectFit: 'cover', display: 'block', filter: 'grayscale(0.1)' }} />
+              <div style={{
+                position: 'absolute', bottom: 8, left: 8,
+                background: T.ink, color: '#fff', padding: '3px 8px',
+                fontFamily: T.mono, fontSize: 10, letterSpacing: '0.05em',
+              }}>JUST CAPTURED</div>
+            </div>
+          </div>
+
+          {/* note */}
+          <div style={{ ...trainingShared.pad, paddingTop: 20 }}>
+            <Label>How did it go?</Label>
+            <div style={{
+              marginTop: 8, borderBottom: `1px solid ${T.rule}`, paddingBottom: 10,
+              fontFamily: '-apple-system', fontSize: 15, color: '#9a958a', fontStyle: 'italic',
+            }}>
+              Legs felt heavy but pushed through…
+            </div>
+          </div>
+
+          {/* mood scale */}
+          <div style={{ ...trainingShared.pad, paddingTop: 20 }}>
+            <Label>Mood</Label>
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              {moods.map((m) => (
+                <button key={m} onClick={() => setMood(+m)} style={{
+                  flex: 1, height: 40, cursor: 'pointer',
+                  border: `1px solid ${+m === mood ? T.accent : T.rule}`,
+                  background: +m === mood ? T.accent : 'transparent',
+                  color: +m === mood ? '#fff' : T.sub,
+                  fontFamily: T.mono, fontWeight: 600, fontSize: 15,
+                }}>{m}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.sub }}>rough</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, color: T.sub }}>great</span>
+            </div>
+          </div>
+
+          {/* submit */}
+          <div style={{ ...trainingShared.pad, paddingTop: 24, paddingBottom: 12 }}>
+            <button style={{
+              width: '100%', height: 54, background: T.accent, color: '#fff', border: 'none',
+              fontFamily: T.display, fontWeight: 700, fontSize: 15, letterSpacing: '0.04em',
+              textTransform: 'uppercase', cursor: 'pointer',
+            }}>Log activity</button>
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.sub, marginTop: 12, textAlign: 'center', paddingBottom: 20 }}>
+              Day auto-marks done when total ≥ 60 min
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       SCREEN 3 — Follow Feed
+    ============================================================ */
+    function FeedScreen() {
+      return (
+        <div style={trainingShared.page}>
+          <div style={{ ...trainingShared.pad, paddingTop: 14, paddingBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <div style={{ fontFamily: T.display, fontWeight: 800, fontSize: 24, letterSpacing: '-0.02em' }}>Following</div>
+            <Label>Today</Label>
+          </div>
+          <hr style={trainingShared.rule} />
+
+          {/* Card 1 — Maya */}
+          <div style={{ ...trainingShared.pad, paddingTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontFamily: T.display, fontWeight: 700, fontSize: 16 }}>@maya</span>
+                <span style={{ fontFamily: T.mono, fontSize: 12, color: T.sub }}>Run</span>
+              </div>
+              <span style={{ fontFamily: T.mono, fontSize: 12, color: T.sub }}>day 31</span>
+            </div>
+          </div>
+          <div style={{ ...trainingShared.pad, paddingTop: 10 }}>
+            <img src={IMG.feedRun} alt="Rainy 5k" style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block', filter: 'grayscale(0.1)' }} />
+          </div>
+          <div style={{ ...trainingShared.pad, paddingTop: 10, paddingBottom: 14 }}>
+            <div style={{ fontFamily: '-apple-system', fontSize: 15, lineHeight: 1.45 }}>
+              Rainy 5k. Soaked through but the splits held.
+            </div>
+            <div style={{ display: 'flex', gap: 22, marginTop: 14 }}>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 7, fontFamily: T.mono, fontSize: 13, color: T.ink }}>
+                <span>👏</span><span style={{ fontWeight: 600 }}>18</span>
+              </button>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: T.mono, fontSize: 13, color: T.sub }}>
+                Comment · 3
+              </button>
+            </div>
+          </div>
+
+          <hr style={{ ...trainingShared.rule, height: 6, background: T.ink }} />
+
+          {/* Card 2 — Leo (text only) */}
+          <div style={{ ...trainingShared.pad, paddingTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontFamily: T.display, fontWeight: 700, fontSize: 16 }}>@leo</span>
+                <span style={{ fontFamily: T.mono, fontSize: 12, color: T.sub }}>Read 30 min</span>
+              </div>
+              <span style={{ fontFamily: T.mono, fontSize: 12, color: T.sub }}>day 9</span>
+            </div>
+          </div>
+          <div style={{ ...trainingShared.pad, paddingTop: 12, paddingBottom: 16 }}>
+            <div style={{
+              borderLeft: `2px solid ${T.accent}`, paddingLeft: 14,
+              fontFamily: T.display, fontWeight: 600, fontSize: 20, lineHeight: 1.2, letterSpacing: '-0.01em',
+            }}>
+              Finished chapter 4.
+            </div>
+            <div style={{ display: 'flex', gap: 22, marginTop: 16, alignItems: 'center' }}>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 7, fontFamily: T.mono, fontSize: 13, color: T.ink }}>
+                <span>👏</span><span style={{ fontWeight: 600 }}>6</span>
+              </button>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: T.mono, fontSize: 13, color: T.sub }}>
+                Comment · 1
+              </button>
+              <span style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 12, color: T.sub }}>🔥 9</span>
+            </div>
+          </div>
+          <hr style={trainingShared.rule} />
+        </div>
+      );
+    }
+
+    /* ============================================================
+       SCREEN 4 — Celebrate / Day-50 card
+    ============================================================ */
+    function CelebrateScreen() {
+      return (
+        <div style={{ ...trainingShared.page, display: 'flex', flexDirection: 'column' }}>
+          {/* the milestone card */}
+          <div style={{ ...trainingShared.pad, paddingTop: 24 }}>
+            <div style={{ border: `1.5px solid ${T.ink}`, background: T.paper }}>
+              {/* header band */}
+              <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.ink}`, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ ...trainingShared.label }}>project50</span>
+                <span style={{ fontFamily: T.mono, fontSize: 11, color: T.sub }}>milestone · 50</span>
+              </div>
+
+              <div style={{ padding: '20px 18px 18px' }}>
+                <Label style={{ color: T.accent }}>Day 50 complete</Label>
+                <div style={{ fontFamily: T.display, fontWeight: 900, fontSize: 34, lineHeight: 0.98, letterSpacing: '-0.03em', marginTop: 8 }}>
+                  Work out<br />1&nbsp;hr / day
+                </div>
+              </div>
+
+              {/* hero photo */}
+              <img src={IMG.celebrate} alt="Finish" style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block', borderTop: `1px solid ${T.ink}`, borderBottom: `1px solid ${T.ink}`, filter: 'grayscale(0.1)' }} />
+
+              {/* numbers */}
+              <div style={{ display: 'flex' }}>
+                <div style={{ flex: 1, padding: '16px 18px', borderRight: `1px solid ${T.ink}` }}>
+                  <Label>Days</Label>
+                  <div style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', marginTop: 4 }}>
+                    47<span style={{ color: T.sub, fontSize: 16 }}>/50</span>
+                  </div>
+                </div>
+                <div style={{ flex: 1, padding: '16px 18px' }}>
+                  <Label>Distance</Label>
+                  <div style={{ fontFamily: T.mono, fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', marginTop: 4 }}>
+                    211<span style={{ color: T.sub, fontSize: 16 }}> km</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 18px', borderTop: `1px solid ${T.ink}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: T.mono, fontSize: 11, color: T.sub }}>logged Jun 2026</span>
+                <span style={{ fontFamily: T.display, fontWeight: 800, fontSize: 14, letterSpacing: '-0.01em' }}>project50</span>
+              </div>
+            </div>
+          </div>
+
+          {/* three actions */}
+          <div style={{ ...trainingShared.pad, paddingTop: 22, paddingBottom: 24 }}>
+            <button style={{
+              width: '100%', height: 54, background: T.accent, color: '#fff', border: 'none',
+              fontFamily: T.display, fontWeight: 700, fontSize: 15, letterSpacing: '0.04em',
+              textTransform: 'uppercase', cursor: 'pointer', marginBottom: 12,
+            }}>Save image</button>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button style={{
+                flex: 1, height: 50, background: 'transparent', color: T.ink, border: `1.5px solid ${T.ink}`,
+                fontFamily: T.display, fontWeight: 700, fontSize: 13, letterSpacing: '0.04em',
+                textTransform: 'uppercase', cursor: 'pointer',
+              }}>Public link</button>
+              <button style={{
+                flex: 1, height: 50, background: 'transparent', color: T.ink, border: `1.5px solid ${T.ink}`,
+                fontFamily: T.display, fontWeight: 700, fontSize: 13, letterSpacing: '0.04em',
+                textTransform: 'uppercase', cursor: 'pointer',
+              }}>Share</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       Overview tiling
+    ============================================================ */
+    const overviewStyles = {
+      page: {
+        minHeight: '100vh',
+        background: '#ECE9E2',
+        padding: 48,
+      },
+      head: {
+        maxWidth: 1700,
+        margin: '0 auto 28px',
+      },
+      kicker: {
+        fontFamily: '"Archivo", sans-serif', fontWeight: 700, fontSize: 12,
+        letterSpacing: '0.18em', textTransform: 'uppercase', color: '#B23A2E',
+      },
+      title: {
+        fontFamily: '"Archivo", sans-serif', fontWeight: 900, fontSize: 40,
+        letterSpacing: '-0.03em', color: '#1A1A1A', marginTop: 6,
+      },
+      sub: {
+        fontFamily: '"IBM Plex Mono", monospace', fontSize: 13, color: '#6E6A60', marginTop: 8,
+      },
+      grid: {
+        display: 'flex', flexWrap: 'wrap', gap: 32, justifyContent: 'center',
+        alignItems: 'flex-start', maxWidth: 1700, margin: '0 auto',
+      },
+      cell: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 },
+      caption: {
+        fontFamily: '"IBM Plex Mono", monospace', fontStyle: 'italic', fontSize: 13,
+        color: '#6E6A60', letterSpacing: '0.02em',
+      },
+    };
+
+    function Caption({ children }) {
+      return <div style={overviewStyles.caption}>{children}</div>;
+    }
+
+    function App() {
+      const screens = [
+        { cap: '01 — Challenge dashboard', node: <DashboardScreen />, time: '9:41', battery: 88 },
+        { cap: '02 — Log activity', node: <LogScreen />, time: '9:42', battery: 88 },
+        { cap: '03 — Follow feed', node: <FeedScreen />, time: '9:43', battery: 87 },
+        { cap: '04 — Day 50 celebrate', node: <CelebrateScreen />, time: '9:44', battery: 87 },
+      ];
+      return (
+        <div style={overviewStyles.page}>
+          <div style={overviewStyles.head}>
+            <div style={overviewStyles.kicker}>project50 · visual direction</div>
+            <div style={overviewStyles.title}>Training Log</div>
+            <div style={overviewStyles.sub}>Swiss / editorial — warm paper, ink, oxblood accent · Archivo + IBM Plex Mono</div>
+          </div>
+          <div style={overviewStyles.grid}>
+            {screens.map((s) => (
+              <div key={s.cap} style={overviewStyles.cell}>
+                <Caption>{s.cap}</Caption>
+                <IosFrame time={s.time} battery={s.battery}>
+                  {s.node}
+                </IosFrame>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>project50 — Daily Ritual</title>
+
+  <!-- React + Babel pinned -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      background: #EDE6D9;
+      color: #2B2925;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+    .serif { font-family: 'Newsreader', Georgia, serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    /* ============== Inlined IosFrame (verbatim) ============== */
+    const iosFrameStyles = {
+      wrapper: {
+        display: 'inline-block',
+        padding: 12,
+        background: '#000',
+        borderRadius: 60,
+        boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.3)',
+        position: 'relative',
+      },
+      screen: {
+        position: 'relative',
+        borderRadius: 48,
+        overflow: 'hidden',
+        background: '#fff',
+      },
+      statusBar: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 54,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 32px 0 32px',
+        fontSize: 16,
+        fontWeight: 600,
+        fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+        zIndex: 20,
+        pointerEvents: 'none',
+      },
+      dynamicIsland: {
+        position: 'absolute',
+        top: 12,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 124,
+        height: 36,
+        background: '#000',
+        borderRadius: 999,
+        zIndex: 30,
+      },
+      statusIcons: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      },
+      signalIcon: {
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 2,
+        height: 12,
+      },
+      signalBar: {
+        width: 3,
+        background: 'currentColor',
+        borderRadius: 1,
+      },
+      wifiIcon: {
+        width: 16,
+        height: 12,
+        position: 'relative',
+      },
+      batteryIcon: {
+        width: 26,
+        height: 12,
+        border: '1.5px solid currentColor',
+        borderRadius: 3,
+        padding: 1,
+        position: 'relative',
+        opacity: 0.8,
+      },
+      batteryCap: {
+        position: 'absolute',
+        top: 3,
+        right: -3,
+        width: 2,
+        height: 6,
+        background: 'currentColor',
+        borderRadius: '0 1px 1px 0',
+      },
+      content: {
+        position: 'absolute',
+        top: 54,
+        left: 0,
+        right: 0,
+        bottom: 34,
+        overflow: 'auto',
+      },
+      homeIndicator: {
+        position: 'absolute',
+        bottom: 10,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 140,
+        height: 5,
+        background: 'rgba(0,0,0,0.3)',
+        borderRadius: 999,
+        zIndex: 10,
+      },
+      homeIndicatorDark: {
+        background: 'rgba(255,255,255,0.5)',
+      },
+    };
+
+    function IosFrame({
+      children,
+      width = 393,
+      height = 852,
+      time = '9:41',
+      battery = 100,
+      darkMode = false,
+      showStatusBar = true,
+      showDynamicIsland = true,
+      showHomeIndicator = true,
+    }) {
+      const textColor = darkMode ? '#fff' : '#000';
+
+      return (
+        <div style={iosFrameStyles.wrapper}>
+          <div style={{
+            ...iosFrameStyles.screen,
+            width,
+            height,
+            background: darkMode ? '#000' : '#fff',
+          }}>
+            {showStatusBar && (
+              <div style={{ ...iosFrameStyles.statusBar, color: textColor }}>
+                <span>{time}</span>
+                <div style={iosFrameStyles.statusIcons}>
+                  <div style={iosFrameStyles.signalIcon}>
+                    <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+                  </div>
+                  <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: textColor }}>
+                    <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+                    <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+                    <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+                  </svg>
+                  <div style={iosFrameStyles.batteryIcon}>
+                    <div style={{
+                      width: `${battery}%`,
+                      height: '100%',
+                      background: 'currentColor',
+                      borderRadius: 1,
+                      opacity: 0.9,
+                    }} />
+                    <div style={iosFrameStyles.batteryCap} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showDynamicIsland && <div style={iosFrameStyles.dynamicIsland} />}
+
+            <div style={iosFrameStyles.content}>
+              {children}
+            </div>
+
+            {showHomeIndicator && (
+              <div style={{
+                ...iosFrameStyles.homeIndicator,
+                ...(darkMode ? iosFrameStyles.homeIndicatorDark : {}),
+              }} />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============== Daily Ritual palette ============== */
+    const C = {
+      paper: '#F4EFE6',
+      ink: '#2B2925',
+      muted: '#8A8579',
+      clay: '#C0552F',
+      hair: 'rgba(43,41,37,0.10)',
+      hairSoft: 'rgba(43,41,37,0.06)',
+    };
+
+    const ritual = {
+      micro: {
+        fontSize: 10.5,
+        letterSpacing: '0.22em',
+        textTransform: 'uppercase',
+        color: C.muted,
+        fontWeight: 600,
+      },
+      hair: { height: 1, background: C.hair, border: 'none' },
+    };
+
+    /* ============== Shared bits ============== */
+    function Micro({ children, style }) {
+      return <div style={{ ...ritual.micro, ...style }}>{children}</div>;
+    }
+
+    function ThinArc({ pct = 58, size = 150, label, sub }) {
+      // quiet thin filling arc
+      const r = (size - 14) / 2;
+      const cx = size / 2;
+      const cy = size / 2;
+      const circ = 2 * Math.PI * r;
+      const filled = circ * (pct / 100);
+      return (
+        <div style={{ position: 'relative', width: size, height: size }}>
+          <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.hair} strokeWidth="2" />
+            <circle
+              cx={cx} cy={cy} r={r} fill="none"
+              stroke={C.clay} strokeWidth="2" strokeLinecap="round"
+              strokeDasharray={`${filled} ${circ}`}
+            />
+          </svg>
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div className="serif" style={{ fontSize: 38, fontWeight: 400, color: C.ink, lineHeight: 1 }}>{label}</div>
+            <div style={{ marginTop: 7, ...ritual.micro }}>{sub}</div>
+          </div>
+        </div>
+      );
+    }
+
+    function ClayButton({ children, outline }) {
+      return (
+        <button style={{
+          width: '100%',
+          padding: '17px 20px',
+          borderRadius: 2,
+          border: outline ? `1px solid ${C.ink}` : 'none',
+          background: outline ? 'transparent' : C.ink,
+          color: outline ? C.ink : C.paper,
+          fontSize: 14,
+          letterSpacing: '0.08em',
+          fontWeight: 500,
+          fontFamily: '-apple-system, sans-serif',
+          cursor: 'pointer',
+        }}>{children}</button>
+      );
+    }
+
+    const PHOTO = {
+      run: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=800&q=80',
+      trail: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800&q=80',
+      rainRun: 'https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800&q=80',
+      hero: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=800&q=80',
+    };
+
+    function Photo({ src, h = 150, alt }) {
+      return (
+        <div style={{ width: '100%', height: h, background: '#E3DCCD', overflow: 'hidden', borderRadius: 2 }}>
+          <img src={src} alt={alt}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', filter: 'saturate(0.92)' }} />
+        </div>
+      );
+    }
+
+    /* ============== Screen 1 — Challenge Dashboard ============== */
+    function Dashboard() {
+      return (
+        <div style={{ background: C.paper, minHeight: '100%', padding: '14px 26px 40px' }}>
+          {/* header */}
+          <div style={{ marginTop: 4 }}>
+            <Micro>Day 23 of 50</Micro>
+            <h1 className="serif" style={{ fontSize: 27, fontWeight: 400, color: C.ink, marginTop: 9, lineHeight: 1.2 }}>
+              Work out 1&nbsp;hr/day
+            </h1>
+          </div>
+
+          {/* reflection line — signature */}
+          <p className="serif" style={{
+            fontStyle: 'italic', fontSize: 17, lineHeight: 1.5, color: C.muted,
+            marginTop: 22, maxWidth: 270,
+          }}>
+            “Begin before you feel ready. The body remembers what the mind forgets.”
+          </p>
+
+          {/* arc */}
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '34px 0 14px' }}>
+            <ThinArc pct={58} label="35" sub="of 60 min" />
+          </div>
+          <div style={{ textAlign: 'center', ...ritual.micro, color: C.muted, marginBottom: 30 }}>
+            Today
+          </div>
+
+          {/* understated stats */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 6px' }}>
+            {[['22', 'Streak'], ['2', 'Badges'], ['5', 'Cheering']].map(([n, l]) => (
+              <div key={l} style={{ textAlign: 'center' }}>
+                <div className="serif" style={{ fontSize: 22, color: C.ink, fontWeight: 400 }}>{n}</div>
+                <Micro style={{ fontSize: 9.5, marginTop: 5 }}>{l}</Micro>
+              </div>
+            ))}
+          </div>
+
+          <hr style={{ ...ritual.hair, margin: '28px 0' }} />
+
+          <ClayButton>Log an activity</ClayButton>
+
+          {/* today's activities */}
+          <Micro style={{ marginTop: 34, marginBottom: 14 }}>Today’s activities</Micro>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <div style={{ width: 58, height: 58, flexShrink: 0, borderRadius: 2, overflow: 'hidden', background: '#E3DCCD' }}>
+              <img src={PHOTO.run} alt="morning run" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.92)' }} />
+            </div>
+            <div>
+              <div className="serif" style={{ fontSize: 17, color: C.ink }}>Run</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>35 min · morning</div>
+            </div>
+          </div>
+
+          {/* other challenges */}
+          <Micro style={{ marginTop: 32, marginBottom: 14 }}>Your other challenges</Micro>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div className="serif" style={{ fontSize: 17, color: C.ink }}>Read 30 min</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>Day 12 of 50</div>
+            </div>
+            {/* binary done marker — quiet ring with clay dot */}
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%',
+              border: `1px solid ${C.clay}`, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: C.clay }} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============== Screen 2 — Log Activity ============== */
+    function LogActivity() {
+      const types = ['Run', 'Bike', 'Gym', 'Yoga', '+'];
+      const active = 'Run';
+      const moods = ['◌', '◔', '◑', '◕', '●'];
+      const moodActive = 3;
+      return (
+        <div style={{ background: C.paper, minHeight: '100%', padding: '14px 26px 40px' }}>
+          <Micro style={{ marginTop: 4 }}>New entry</Micro>
+          <h1 className="serif" style={{ fontSize: 26, fontWeight: 400, color: C.ink, marginTop: 9 }}>
+            Log activity
+          </h1>
+
+          {/* type picker */}
+          <Micro style={{ marginTop: 28, marginBottom: 13 }}>Activity</Micro>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {types.map((t) => {
+              const on = t === active;
+              return (
+                <div key={t} style={{
+                  padding: '9px 16px', borderRadius: 999,
+                  border: `1px solid ${on ? C.ink : C.hair}`,
+                  background: on ? C.ink : 'transparent',
+                  color: on ? C.paper : C.muted,
+                  fontSize: 13, fontWeight: 500, letterSpacing: '0.02em',
+                }}>{t}</div>
+              );
+            })}
+          </div>
+
+          {/* duration */}
+          <Micro style={{ marginTop: 30, marginBottom: 10 }}>Duration</Micro>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            <span className="serif" style={{ fontSize: 40, color: C.ink, fontWeight: 400 }}>25</span>
+            <span style={{ fontSize: 14, color: C.muted }}>min</span>
+            <span style={{ marginLeft: 'auto', fontSize: 12.5, color: C.clay, fontStyle: 'italic', fontFamily: 'Newsreader, serif' }}>
+              counts toward 60
+            </span>
+          </div>
+          <div style={{ marginTop: 14, height: 2, background: C.hair, position: 'relative' }}>
+            <div style={{ width: '42%', height: '100%', background: C.clay }} />
+            <div style={{ position: 'absolute', left: '42%', top: -4, width: 10, height: 10, borderRadius: '50%', background: C.ink, transform: 'translateX(-50%)' }} />
+          </div>
+
+          {/* photo */}
+          <Micro style={{ marginTop: 30, marginBottom: 13 }}>Photo</Micro>
+          <Photo src={PHOTO.trail} h={132} alt="trail" />
+
+          {/* note */}
+          <Micro style={{ marginTop: 28, marginBottom: 11 }}>Note</Micro>
+          <div style={{ borderBottom: `1px solid ${C.hair}`, paddingBottom: 10 }}>
+            <span className="serif" style={{ fontStyle: 'italic', fontSize: 16, color: C.muted }}>
+              How did it go?
+            </span>
+          </div>
+
+          {/* mood */}
+          <Micro style={{ marginTop: 28, marginBottom: 14 }}>Mood</Micro>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 4px' }}>
+            {moods.map((m, i) => (
+              <div key={i} style={{
+                fontSize: 22,
+                color: i === moodActive ? C.clay : C.hair,
+              }}>{m}</div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 34 }}>
+            <ClayButton>Log activity</ClayButton>
+          </div>
+          <p style={{ textAlign: 'center', fontSize: 12, color: C.muted, marginTop: 16, lineHeight: 1.5 }}>
+            Day completes gently when total ≥ 60 min
+          </p>
+        </div>
+      );
+    }
+
+    /* ============== Screen 3 — Follow Feed ============== */
+    function FeedCard({ user, activity, day, photo, title, body, cheers, comment }) {
+      return (
+        <div style={{ paddingBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', background: '#E3DCCD',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span className="serif" style={{ fontSize: 14, color: C.ink }}>{user[1].toUpperCase()}</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 14, color: C.ink, fontWeight: 500 }}>{user}</div>
+              <Micro style={{ fontSize: 9.5, marginTop: 2 }}>{activity} · Day {day}</Micro>
+            </div>
+          </div>
+
+          {photo && <div style={{ marginTop: 16 }}><Photo src={photo} h={186} alt={title} /></div>}
+
+          <p className="serif" style={{ fontSize: 17, color: C.ink, marginTop: 16, lineHeight: 1.45 }}>
+            {title}
+          </p>
+          {body && <p style={{ fontSize: 13.5, color: C.muted, marginTop: 6, lineHeight: 1.55 }}>{body}</p>}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 16 }}>
+            <span style={{ fontSize: 12.5, color: C.clay, letterSpacing: '0.04em' }}>Cheer · {cheers}</span>
+            {comment && <span style={{ fontSize: 12.5, color: C.muted }}>Comment</span>}
+          </div>
+        </div>
+      );
+    }
+
+    function Feed() {
+      return (
+        <div style={{ background: C.paper, minHeight: '100%', padding: '14px 26px 40px' }}>
+          <Micro style={{ marginTop: 4 }}>Following</Micro>
+          <h1 className="serif" style={{ fontSize: 26, fontWeight: 400, color: C.ink, marginTop: 9 }}>
+            Quiet company
+          </h1>
+
+          <div style={{ marginTop: 30 }}>
+            <FeedCard
+              user="@maya" activity="Run" day={31}
+              photo={PHOTO.rainRun}
+              title="Rainy 5k."
+              body="Almost stayed in. The cold air made it the best run of the week."
+              cheers={12} comment
+            />
+          </div>
+
+          <hr style={{ ...ritual.hair, margin: '32px 0' }} />
+
+          <FeedCard
+            user="@leo" activity="Read 30 min" day={9}
+            title="Finished chapter 4."
+            body="Slow morning, two more pages than planned."
+            cheers={4}
+          />
+          <Micro style={{ fontSize: 9.5, marginTop: 14, color: C.muted }}>
+            9-day streak, unbroken
+          </Micro>
+        </div>
+      );
+    }
+
+    /* ============== Screen 4 — Celebrate / Day-50 ============== */
+    function Celebrate() {
+      return (
+        <div style={{ background: C.paper, minHeight: '100%', padding: '34px 26px 40px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ textAlign: 'center' }}>
+            <Micro style={{ color: C.clay }}>50 days complete</Micro>
+            <h1 className="serif" style={{ fontSize: 30, fontWeight: 400, color: C.ink, marginTop: 14, lineHeight: 1.2 }}>
+              Work out<br/>1&nbsp;hr/day
+            </h1>
+          </div>
+
+          <p className="serif" style={{
+            fontStyle: 'italic', fontSize: 16, color: C.muted, textAlign: 'center',
+            marginTop: 18, lineHeight: 1.5, maxWidth: 250, alignSelf: 'center',
+          }}>
+            “What began as effort became a way of living.”
+          </p>
+
+          <div style={{ marginTop: 30 }}>
+            <Photo src={PHOTO.hero} h={210} alt="finish" />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 38, marginTop: 26 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div className="serif" style={{ fontSize: 24, color: C.ink }}>47<span style={{ fontSize: 14, color: C.muted }}>/50</span></div>
+              <Micro style={{ fontSize: 9.5, marginTop: 5 }}>Days</Micro>
+            </div>
+            <div style={{ width: 1, background: C.hair }} />
+            <div style={{ textAlign: 'center' }}>
+              <div className="serif" style={{ fontSize: 24, color: C.ink }}>211<span style={{ fontSize: 14, color: C.muted }}> km</span></div>
+              <Micro style={{ fontSize: 9.5, marginTop: 5 }}>Covered</Micro>
+            </div>
+          </div>
+
+          <hr style={{ ...ritual.hair, margin: '28px 0 22px' }} />
+
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <span className="serif" style={{ fontSize: 15, letterSpacing: '0.05em', color: C.ink }}>
+              project<span style={{ color: C.clay }}>50</span>
+            </span>
+          </div>
+
+          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <ClayButton>Save image</ClayButton>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1 }}><ClayButton outline>Public link</ClayButton></div>
+              <div style={{ flex: 1 }}><ClayButton outline>Share</ClayButton></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============== Overview tiling ============== */
+    const screens = [
+      ['Challenge dashboard', <Dashboard />],
+      ['Log activity', <LogActivity />],
+      ['Follow feed', <Feed />],
+      ['Day 50 — celebrate', <Celebrate />],
+    ];
+
+    function App() {
+      return (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 32, padding: 48,
+          alignItems: 'flex-start', justifyContent: 'center',
+          background: '#EDE6D9', minHeight: '100vh',
+        }}>
+          {screens.map(([cap, node], i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <div className="serif" style={{
+                fontStyle: 'italic', fontSize: 16, color: '#6E685C',
+                letterSpacing: '0.01em',
+              }}>{cap}</div>
+              <IosFrame battery={88}>{node}</IosFrame>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

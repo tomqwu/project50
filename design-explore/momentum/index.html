@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>project50 — Momentum</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; }
+    body {
+      font-family: 'Sora', -apple-system, sans-serif;
+      background: #E4E3DF;
+      color: #121013;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+    * { scrollbar-width: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    /* ============ IosFrame (inlined verbatim) ============ */
+    const iosFrameStyles = {
+      wrapper: {
+        display: 'inline-block',
+        padding: 12,
+        background: '#000',
+        borderRadius: 60,
+        boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.3)',
+        position: 'relative',
+      },
+      screen: {
+        position: 'relative',
+        borderRadius: 48,
+        overflow: 'hidden',
+        background: '#fff',
+      },
+      statusBar: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 54,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 32px 0 32px',
+        fontSize: 16,
+        fontWeight: 600,
+        fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+        zIndex: 20,
+        pointerEvents: 'none',
+      },
+      dynamicIsland: {
+        position: 'absolute',
+        top: 12,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 124,
+        height: 36,
+        background: '#000',
+        borderRadius: 999,
+        zIndex: 30,
+      },
+      statusIcons: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      },
+      signalIcon: {
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 2,
+        height: 12,
+      },
+      signalBar: {
+        width: 3,
+        background: 'currentColor',
+        borderRadius: 1,
+      },
+      wifiIcon: {
+        width: 16,
+        height: 12,
+        position: 'relative',
+      },
+      batteryIcon: {
+        width: 26,
+        height: 12,
+        border: '1.5px solid currentColor',
+        borderRadius: 3,
+        padding: 1,
+        position: 'relative',
+        opacity: 0.8,
+      },
+      batteryCap: {
+        position: 'absolute',
+        top: 3,
+        right: -3,
+        width: 2,
+        height: 6,
+        background: 'currentColor',
+        borderRadius: '0 1px 1px 0',
+      },
+      content: {
+        position: 'absolute',
+        top: 54,
+        left: 0,
+        right: 0,
+        bottom: 34,
+        overflow: 'auto',
+      },
+      homeIndicator: {
+        position: 'absolute',
+        bottom: 10,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 140,
+        height: 5,
+        background: 'rgba(0,0,0,0.3)',
+        borderRadius: 999,
+        zIndex: 10,
+      },
+      homeIndicatorDark: {
+        background: 'rgba(255,255,255,0.5)',
+      },
+    };
+
+    function IosFrame({
+      children,
+      width = 393,
+      height = 852,
+      time = '9:41',
+      battery = 100,
+      darkMode = false,
+      showStatusBar = true,
+      showDynamicIsland = true,
+      showHomeIndicator = true,
+    }) {
+      const textColor = darkMode ? '#fff' : '#000';
+
+      return (
+        <div style={iosFrameStyles.wrapper}>
+          <div style={{
+            ...iosFrameStyles.screen,
+            width,
+            height,
+            background: darkMode ? '#000' : '#fff',
+          }}>
+            {showStatusBar && (
+              <div style={{ ...iosFrameStyles.statusBar, color: textColor }}>
+                <span>{time}</span>
+                <div style={iosFrameStyles.statusIcons}>
+                  <div style={iosFrameStyles.signalIcon}>
+                    <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+                    <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+                  </div>
+                  <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: textColor }}>
+                    <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+                    <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+                    <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+                  </svg>
+                  <div style={iosFrameStyles.batteryIcon}>
+                    <div style={{
+                      width: `${battery}%`,
+                      height: '100%',
+                      background: 'currentColor',
+                      borderRadius: 1,
+                      opacity: 0.9,
+                    }} />
+                    <div style={iosFrameStyles.batteryCap} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showDynamicIsland && <div style={iosFrameStyles.dynamicIsland} />}
+
+            <div style={iosFrameStyles.content}>
+              {children}
+            </div>
+
+            {showHomeIndicator && (
+              <div style={{
+                ...iosFrameStyles.homeIndicator,
+                ...(darkMode ? iosFrameStyles.homeIndicatorDark : {}),
+              }} />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ Momentum design tokens ============ */
+    const C = {
+      bg: '#121013',
+      surface: '#1C1A1E',
+      surface2: '#232026',
+      text: '#F2F0EC',
+      muted: '#8C8A86',
+      volt: '#D6FF3F',
+      hairline: 'rgba(242,240,236,0.08)',
+    };
+    const display = "'Anton', sans-serif";
+    const body = "'Sora', sans-serif";
+
+    const IMG = {
+      run: 'https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800&q=80',
+      runHero: 'https://images.unsplash.com/photo-1486218119243-13883505764c?w=800&q=80',
+      mayaRun: 'https://images.unsplash.com/photo-1502904550040-7534597429ae?w=800&q=80',
+      fitness: 'https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=800&q=80',
+      celebrate: 'https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=800&q=80',
+    };
+
+    const momentumStyles = {
+      page: {
+        minHeight: '100vh',
+        background: '#E4E3DF',
+        padding: 48,
+      },
+      heading: {
+        fontFamily: display,
+        fontSize: 40,
+        letterSpacing: '0.01em',
+        color: '#121013',
+        textTransform: 'uppercase',
+      },
+      sub: {
+        fontFamily: body,
+        fontSize: 15,
+        color: '#56544F',
+        marginTop: 6,
+        marginBottom: 36,
+        maxWidth: 720,
+      },
+      grid: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 32,
+        alignItems: 'flex-start',
+      },
+      cell: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+      },
+      caption: {
+        fontFamily: body,
+        fontStyle: 'italic',
+        fontSize: 14,
+        color: '#56544F',
+        marginBottom: 14,
+        textAlign: 'center',
+      },
+      screen: {
+        width: '100%',
+        minHeight: '100%',
+        background: C.bg,
+        color: C.text,
+        fontFamily: body,
+        paddingTop: 8,
+      },
+      micro: {
+        fontFamily: body,
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.22em',
+        textTransform: 'uppercase',
+        color: C.muted,
+      },
+    };
+
+    /* shared micro label */
+    function Micro({ children, color, style }) {
+      return <div style={{ ...momentumStyles.micro, color: color || C.muted, ...style }}>{children}</div>;
+    }
+
+    /* tiny line icons */
+    function Icon({ name, size = 20, color = C.text, stroke = 1.8 }) {
+      const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: stroke, strokeLinecap: 'round', strokeLinejoin: 'round' };
+      const map = {
+        flame: <path d="M12 3c1 3 4 4 4 8a4 4 0 11-8 0c0-1 .5-2 1-2.5C9 11 8 13 8 13c-1-1.5-1-3-1-4 0-3 3-4 5-6z" />,
+        run: <g><circle cx="13" cy="5" r="1.6" /><path d="M5 19l3-4 3 2 1-5-3-2 4-2 2 3 3 1" /></g>,
+        bike: <g><circle cx="6" cy="17" r="3" /><circle cx="18" cy="17" r="3" /><path d="M6 17l4-7h5l3 7M10 10l2-4h3" /></g>,
+        gym: <path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10" />,
+        yoga: <g><circle cx="12" cy="5" r="1.6" /><path d="M12 7v6M6 20l6-7 6 7M9 11h6" /></g>,
+        plus: <path d="M12 5v14M5 12h14" />,
+        book: <path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5zM19 3v16" />,
+        check: <path d="M5 12l4 4 10-11" />,
+        camera: <g><path d="M3 8a2 2 0 012-2h2l1.5-2h5L20 6h-1a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" /><circle cx="12" cy="13" r="3.5" /></g>,
+        heart: <path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0112 7a3.5 3.5 0 017 3.5c0 5-7 9.5-7 9.5z" />,
+        comment: <path d="M4 5h16v11H9l-4 3v-3H4V5z" />,
+        link: <path d="M9 13a4 4 0 005.66 0l2.5-2.5a4 4 0 00-5.66-5.66l-1 1M15 11a4 4 0 00-5.66 0l-2.5 2.5a4 4 0 005.66 5.66l1-1" />,
+        save: <path d="M5 4h11l3 3v13H5V4zM8 4v6h7V4M8 20v-6h8v6" />,
+        share: <g><circle cx="6" cy="12" r="2.5" /><circle cx="17" cy="6" r="2.5" /><circle cx="17" cy="18" r="2.5" /><path d="M8.2 11l6.6-3.6M8.2 13l6.6 3.6" /></g>,
+        chevron: <path d="M9 6l6 6-6 6" />,
+        users: <g><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5M16 6a3 3 0 010 6M21 20c0-2.5-1.5-4-3.5-4.6" /></g>,
+        medal: <g><circle cx="12" cy="14" r="5" /><path d="M9 9L7 3h10l-2 6M12 12.5l1 2 2 .3-1.5 1.4.4 2-1.9-1-1.9 1 .4-2L9 14.8l2-.3 1-2z" /></g>,
+      };
+      return <svg {...p}>{map[name]}</svg>;
+    }
+
+    /* ============ Screen 1: Dashboard ============ */
+    function ProgressRing({ value, total }) {
+      const size = 230, sw = 16, r = (size - sw) / 2, c = 2 * Math.PI * r;
+      const pct = Math.min(value / total, 1);
+      const dash = c * pct;
+      return (
+        <div style={{ position: 'relative', width: size, height: size, margin: '4px auto 0' }}>
+          <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={size/2} cy={size/2} r={r} stroke="rgba(242,240,236,0.07)" strokeWidth={sw} fill="none" />
+            <circle
+              cx={size/2} cy={size/2} r={r}
+              stroke={C.volt} strokeWidth={sw} fill="none" strokeLinecap="round"
+              strokeDasharray={`${dash} ${c}`}
+              style={{ filter: 'drop-shadow(0 0 10px rgba(214,255,63,0.65)) drop-shadow(0 0 22px rgba(214,255,63,0.35))' }}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ fontFamily: display, fontSize: 88, lineHeight: 0.86, color: C.text }}>{value}</div>
+            <Micro style={{ marginTop: 8, color: C.volt }}>of {total} min today</Micro>
+          </div>
+        </div>
+      );
+    }
+
+    function Stat({ value, label }) {
+      return (
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontFamily: display, fontSize: 30, color: C.text, lineHeight: 1 }}>{value}</div>
+          <Micro style={{ marginTop: 7, fontSize: 10 }}>{label}</Micro>
+        </div>
+      );
+    }
+
+    function Dashboard() {
+      return (
+        <div style={{ ...momentumStyles.screen, padding: '14px 20px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <Micro>Day 23 / 50</Micro>
+              <div style={{ fontFamily: display, fontSize: 27, marginTop: 6, lineHeight: 0.95, textTransform: 'uppercase' }}>
+                Work out<br/>1 hr / day
+              </div>
+            </div>
+            <div style={{ width: 38, height: 38, borderRadius: 999, background: C.surface, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="flame" size={19} color={C.volt} />
+            </div>
+          </div>
+
+          <ProgressRing value={35} total={60} />
+
+          <div style={{ display: 'flex', marginTop: 22, padding: '16px 8px', background: C.surface, borderRadius: 18 }}>
+            <Stat value="22" label="Streak" />
+            <div style={{ width: 1, background: C.hairline }} />
+            <Stat value="2" label="Badges" />
+            <div style={{ width: 1, background: C.hairline }} />
+            <Stat value="5" label="Cheering" />
+          </div>
+
+          <button style={{
+            width: '100%', marginTop: 18, padding: '17px', border: 'none', borderRadius: 16,
+            background: C.volt, color: '#121013', fontFamily: body, fontWeight: 700, fontSize: 16,
+            letterSpacing: '0.01em', cursor: 'pointer',
+            boxShadow: '0 0 24px rgba(214,255,63,0.4)',
+          }}>
+            Log an activity
+          </button>
+
+          <Micro style={{ marginTop: 26, marginBottom: 12 }}>Today's activities</Micro>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: C.surface, borderRadius: 16, padding: 12 }}>
+            <img src={IMG.run} alt="run" style={{ width: 58, height: 58, borderRadius: 12, objectFit: 'cover' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 16 }}>Run</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>Morning loop · just now</div>
+            </div>
+            <div style={{ fontFamily: display, fontSize: 24, color: C.volt }}>35<span style={{ fontSize: 12, color: C.muted, marginLeft: 3 }}>min</span></div>
+          </div>
+
+          <Micro style={{ marginTop: 24, marginBottom: 12 }}>Your other challenges</Micro>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: C.surface, borderRadius: 16, padding: 14 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 11, background: C.surface2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="book" size={20} color={C.muted} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>Read 30 min</div>
+              <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Day 12 / 50</div>
+            </div>
+            <div style={{ width: 30, height: 30, borderRadius: 999, border: `1.5px solid ${C.hairline}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="check" size={17} color={C.muted} stroke={2.2} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ Screen 2: Log Activity ============ */
+    function TypePill({ icon, label, active }) {
+      return (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          padding: '14px 4px', borderRadius: 16,
+          background: active ? C.volt : C.surface,
+          color: active ? '#121013' : C.muted,
+          boxShadow: active ? '0 0 20px rgba(214,255,63,0.35)' : 'none',
+        }}>
+          <Icon name={icon} size={22} color={active ? '#121013' : C.text} />
+          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em' }}>{label}</div>
+        </div>
+      );
+    }
+
+    function LogActivity() {
+      const moods = ['◦','◦','◦','●','◦'];
+      return (
+        <div style={{ ...momentumStyles.screen, padding: '14px 20px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+            <Icon name="chevron" size={22} color={C.muted} stroke={2} />
+            <div style={{ fontFamily: display, fontSize: 26, textTransform: 'uppercase' }}>Log activity</div>
+          </div>
+
+          <Micro style={{ marginBottom: 12 }}>Activity type</Micro>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <TypePill icon="run" label="Run" active />
+            <TypePill icon="bike" label="Bike" />
+            <TypePill icon="gym" label="Gym" />
+            <TypePill icon="yoga" label="Yoga" />
+            <TypePill icon="plus" label="" />
+          </div>
+
+          <div style={{ marginTop: 22, background: C.surface, borderRadius: 18, padding: '18px 18px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <Micro>Duration</Micro>
+              <Micro style={{ color: C.volt }}>counts toward 60</Micro>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6 }}>
+              <span style={{ fontFamily: display, fontSize: 56, color: C.volt, lineHeight: 1 }}>25</span>
+              <span style={{ fontSize: 16, color: C.muted }}>min</span>
+            </div>
+            <div style={{ marginTop: 14, height: 6, borderRadius: 999, background: C.surface2, overflow: 'hidden' }}>
+              <div style={{ width: '42%', height: '100%', background: C.volt, boxShadow: '0 0 12px rgba(214,255,63,0.5)' }} />
+            </div>
+          </div>
+
+          <Micro style={{ marginTop: 22, marginBottom: 12 }}>Photo</Micro>
+          <div style={{ position: 'relative', borderRadius: 18, overflow: 'hidden', height: 150 }}>
+            <img src={IMG.fitness} alt="workout" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(18,16,19,0.6), rgba(18,16,19,0))' }} />
+            <div style={{ position: 'absolute', left: 14, bottom: 12, display: 'flex', alignItems: 'center', gap: 8, color: C.text }}>
+              <Icon name="camera" size={18} color={C.volt} />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Change photo</span>
+            </div>
+          </div>
+
+          <Micro style={{ marginTop: 22, marginBottom: 10 }}>Note</Micro>
+          <div style={{ background: C.surface, borderRadius: 16, padding: '14px 16px', fontSize: 14, color: '#B8B6B1' }}>
+            Negative splits the whole way back.
+          </div>
+
+          <Micro style={{ marginTop: 22, marginBottom: 12 }}>How did it feel</Micro>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+            {moods.map((m, i) => (
+              <div key={i} style={{
+                width: 44, height: 44, borderRadius: 999,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: i === 3 ? C.volt : C.surface,
+                color: i === 3 ? '#121013' : C.muted,
+                fontSize: 19, fontFamily: display,
+                boxShadow: i === 3 ? '0 0 18px rgba(214,255,63,0.4)' : 'none',
+              }}>{i + 1}</div>
+            ))}
+          </div>
+
+          <button style={{
+            width: '100%', marginTop: 26, padding: '17px', border: 'none', borderRadius: 16,
+            background: C.volt, color: '#121013', fontFamily: body, fontWeight: 700, fontSize: 16,
+            cursor: 'pointer', boxShadow: '0 0 24px rgba(214,255,63,0.4)',
+          }}>
+            Log activity
+          </button>
+          <div style={{ textAlign: 'center', fontSize: 12.5, color: C.muted, marginTop: 12 }}>
+            Day auto-marks done when total ≥ 60 min
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ Screen 3: Follow Feed ============ */
+    function FeedScreen() {
+      return (
+        <div style={{ ...momentumStyles.screen, padding: '14px 20px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+            <div style={{ fontFamily: display, fontSize: 30, textTransform: 'uppercase' }}>Feed</div>
+            <div style={{ width: 38, height: 38, borderRadius: 999, background: C.surface, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="users" size={19} color={C.muted} />
+            </div>
+          </div>
+
+          {/* maya card */}
+          <div style={{ background: C.surface, borderRadius: 20, overflow: 'hidden', marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '14px 16px' }}>
+              <div style={{ width: 38, height: 38, borderRadius: 999, background: 'linear-gradient(135deg,#3a3640,#23202650)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: display, fontSize: 16, color: C.volt }}>M</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 600 }}>@maya</div>
+                <Micro style={{ marginTop: 2, fontSize: 10 }}>Run · Day 31</Micro>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.volt }}>
+                <Icon name="flame" size={16} color={C.volt} />
+                <span style={{ fontFamily: display, fontSize: 16 }}>31</span>
+              </div>
+            </div>
+            <div style={{ position: 'relative', height: 200 }}>
+              <img src={IMG.mayaRun} alt="rainy 5k" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div style={{ position: 'absolute', left: 14, bottom: 12, fontFamily: display, fontSize: 30, color: C.text, textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>
+                RAINY 5K <span style={{ fontSize: 18, color: C.volt }}>· 5.2 KM</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '13px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.volt }}>
+                <Icon name="heart" size={19} color={C.volt} />
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>12</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.muted }}>
+                <Icon name="comment" size={19} color={C.muted} />
+                <span style={{ fontSize: 13.5 }}>3</span>
+              </div>
+            </div>
+          </div>
+
+          {/* leo card — text only */}
+          <div style={{ background: C.surface, borderRadius: 20, padding: '16px 18px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 999, background: 'linear-gradient(135deg,#3a3640,#23202650)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: display, fontSize: 16, color: C.text }}>L</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 600 }}>@leo</div>
+                <Micro style={{ marginTop: 2, fontSize: 10 }}>Read 30 min · Day 9</Micro>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.volt }}>
+                <Icon name="flame" size={16} color={C.volt} />
+                <span style={{ fontFamily: display, fontSize: 16 }}>9</span>
+              </div>
+            </div>
+            <div style={{ fontFamily: display, fontSize: 22, marginTop: 16, lineHeight: 1.05, textTransform: 'uppercase' }}>
+              Finished chapter 4
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 22, marginTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.muted }}>
+                <Icon name="heart" size={19} color={C.muted} />
+                <span style={{ fontSize: 13.5 }}>5</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: C.muted }}>
+                <Icon name="comment" size={19} color={C.muted} />
+                <span style={{ fontSize: 13.5 }}>1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ Screen 4: Celebrate ============ */
+    function CelebrateAction({ icon, label, primary }) {
+      return (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          padding: '15px 4px', borderRadius: 16,
+          background: primary ? C.volt : C.surface,
+          color: primary ? '#121013' : C.text,
+          boxShadow: primary ? '0 0 22px rgba(214,255,63,0.4)' : 'none',
+        }}>
+          <Icon name={icon} size={20} color={primary ? '#121013' : C.text} />
+          <div style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: '0.03em' }}>{label}</div>
+        </div>
+      );
+    }
+
+    function Celebrate() {
+      return (
+        <div style={{ ...momentumStyles.screen, padding: '14px 20px 24px', display: 'flex', flexDirection: 'column' }}>
+          <Micro style={{ textAlign: 'center', color: C.volt }}>Challenge complete</Micro>
+
+          <div style={{ marginTop: 18, borderRadius: 24, overflow: 'hidden', position: 'relative' }}>
+            <div style={{ position: 'relative', height: 290 }}>
+              <img src={IMG.celebrate} alt="finish" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(18,16,19,0.92) 6%, rgba(18,16,19,0.15) 55%, rgba(18,16,19,0.35))' }} />
+              <div style={{ position: 'absolute', top: 16, left: 16, border: `1.5px solid ${C.volt}`, color: C.volt, borderRadius: 999, padding: '5px 12px', fontFamily: body, fontSize: 11, fontWeight: 700, letterSpacing: '0.18em' }}>
+                PROJECT50
+              </div>
+              <div style={{ position: 'absolute', left: 18, right: 18, bottom: 18 }}>
+                <div style={{ fontFamily: display, fontSize: 54, lineHeight: 0.88, textTransform: 'uppercase', color: C.text }}>
+                  Day 50<br/><span style={{ color: C.volt }}>complete</span>
+                </div>
+                <Micro style={{ marginTop: 12 }}>Work out 1 hr / day</Micro>
+              </div>
+            </div>
+            <div style={{ display: 'flex', background: C.surface, borderTop: `1px solid ${C.hairline}` }}>
+              <div style={{ flex: 1, textAlign: 'center', padding: '16px 0' }}>
+                <div style={{ fontFamily: display, fontSize: 32, color: C.text, lineHeight: 1 }}>47<span style={{ fontSize: 15, color: C.muted }}>/50</span></div>
+                <Micro style={{ marginTop: 6, fontSize: 10 }}>Days done</Micro>
+              </div>
+              <div style={{ width: 1, background: C.hairline }} />
+              <div style={{ flex: 1, textAlign: 'center', padding: '16px 0' }}>
+                <div style={{ fontFamily: display, fontSize: 32, color: C.volt, lineHeight: 1 }}>211<span style={{ fontSize: 15, color: C.muted }}>km</span></div>
+                <Micro style={{ marginTop: 6, fontSize: 10 }}>Total distance</Micro>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'center', marginTop: 24, fontSize: 14, color: '#B8B6B1', lineHeight: 1.5, padding: '0 8px' }}>
+            Fifty days. One promise kept to yourself.
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 'auto', paddingTop: 26 }}>
+            <CelebrateAction icon="save" label="Save image" primary />
+            <CelebrateAction icon="link" label="Public link" />
+            <CelebrateAction icon="share" label="Share" />
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ Overview tiling ============ */
+    const SCREENS = [
+      { cap: 'Challenge Dashboard', el: <Dashboard />, battery: 88 },
+      { cap: 'Log Activity', el: <LogActivity />, battery: 84 },
+      { cap: 'Follow Feed', el: <FeedScreen />, battery: 80 },
+      { cap: 'Celebrate · Day 50', el: <Celebrate />, battery: 76 },
+    ];
+
+    function App() {
+      return (
+        <div style={momentumStyles.page}>
+          <div style={momentumStyles.heading}>project50 — Momentum</div>
+          <div style={momentumStyles.sub}>
+            Athletic motion-poetics. Warm charcoal, one electric-volt focal point per screen, oversized condensed numerals. Built to feel like crushing a streak.
+          </div>
+          <div style={momentumStyles.grid}>
+            {SCREENS.map((s, i) => (
+              <div key={i} style={momentumStyles.cell}>
+                <div style={momentumStyles.caption}>{s.cap}</div>
+                <IosFrame darkMode time="9:41" battery={s.battery}>
+                  <div style={{ minHeight: '100%', background: C.bg }}>{s.el}</div>
+                </IosFrame>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
