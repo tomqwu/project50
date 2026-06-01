@@ -4,8 +4,8 @@ A social progress-tracking app built around **50-day challenges** — track your
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
 
-> Status: **early development.** Phases 0–3 are merged; Phase 4 (sharing + PWA + full e2e) is
-> next. See the roadmap below.
+> Status: **first slice (A + B) is complete.** Phases 0–4 are merged; the sharing + PWA +
+> full e2e suite is green. See the roadmap below.
 
 ## What it does
 
@@ -78,7 +78,7 @@ Within the first slice, phased delivery:
 - [x] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
 - [x] **Phase 2 — Auth + API**.
 - [x] **Phase 3 — Web UI** (Momentum design system + screens).
-- [ ] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — in progress.
+- [x] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — complete. First slice (A + B) done.
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).
