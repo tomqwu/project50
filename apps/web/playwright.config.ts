@@ -21,6 +21,8 @@ export default defineConfig({
       S3_ACCESS_KEY: process.env.S3_ACCESS_KEY ?? "minioadmin",
       S3_SECRET_KEY: process.env.S3_SECRET_KEY ?? "minioadmin",
       S3_BUCKET: process.env.S3_BUCKET ?? "project50-media",
+      // Use the fake renderer in e2e/CI — no Chromium Remotion render, deterministic MP4
+      RECAP_FAKE: "1",
     },
   },
 });
