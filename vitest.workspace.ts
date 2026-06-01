@@ -1,1 +1,1 @@
-export default ["packages/core", "packages/ui", "apps/web"];
+export default ["packages/core", "packages/ui", "packages/recap", "apps/web"];
