@@ -59,7 +59,10 @@ export async function logActivity(
   });
 
   const completion = computeDayCompletion(
-    { goalType: challenge.goalType, dailyTarget: challenge.dailyTarget ?? undefined },
+    {
+      goalType: challenge.goalType,
+      dailyTarget: challenge.dailyTarget === null ? undefined : challenge.dailyTarget,
+    },
     dayActivities,
   );
 
