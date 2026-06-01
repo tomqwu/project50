@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
-  transpilePackages: ["@project50/core", "@project50/db"],
+  transpilePackages: ["@project50/core", "@project50/db", "@project50/ui"],
 };

@@ -110,3 +110,11 @@ export async function getChallenge(id: string, viewerId: string) {
     longestStreak: longest,
   };
 }
+
+/** Returns all milestones earned for a challenge (any kind). */
+export async function getMilestones(challengeId: string) {
+  return prisma.milestone.findMany({
+    where: { challengeId },
+    orderBy: { earnedAt: "asc" },
+  });
+}

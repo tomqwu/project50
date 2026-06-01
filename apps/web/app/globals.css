@@ -1,0 +1,15 @@
+/* App-level global styles — imports Momentum theme from @project50/ui */
+@import "../node_modules/@project50/ui/src/theme.css";
+
+/* Override font vars with the next/font CSS variables set on <body> */
+:root {
+  --font-display: var(--next-font-display, "Anton", sans-serif);
+  --font-body: var(--next-font-body, "Sora", system-ui, sans-serif);
+}
+
+/* Page wrapper utilities */
+.page-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
