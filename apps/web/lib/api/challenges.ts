@@ -59,7 +59,8 @@ export async function createChallenge(
 export async function listChallenges(ownerId: string) {
   return prisma.challenge.findMany({
     where: { ownerId },
-    orderBy: { createdAt: "desc" },
+    // Tie-break on id so rows sharing a createdAt millisecond stay deterministic.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 }
 

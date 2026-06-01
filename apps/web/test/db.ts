@@ -59,12 +59,14 @@ export async function createChallenge(
     visibility?: "PUBLIC" | "FOLLOWERS" | "PRIVATE";
   } = {},
 ) {
+  const goalType = overrides.goalType ?? "TARGET";
   return prisma.challenge.create({
     data: {
       ownerId,
       title: overrides.title ?? "Test",
-      goalType: overrides.goalType ?? "TARGET",
-      dailyTarget: overrides.dailyTarget ?? 60,
+      goalType,
+      dailyTarget:
+        overrides.dailyTarget ?? (goalType === "TARGET" ? 60 : null),
       startDate: overrides.startDate ?? "2026-06-01",
       lengthDays: overrides.lengthDays ?? 50,
       timezone: overrides.timezone ?? "UTC",
