@@ -20,6 +20,9 @@ export const sharedCoverageExclude = [
 
 export default defineConfig({
   test: {
+    // Workspace packages ship raw TS (main = src/index.ts). Inline them so vitest
+    // transforms their source instead of letting Node import .ts (fails on Node < 22).
+    server: { deps: { inline: [/^@project50\//] } },
     coverage: {
       provider: "v8",
       thresholds: coverageThresholds,
