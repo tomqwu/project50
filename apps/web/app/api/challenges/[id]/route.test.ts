@@ -6,6 +6,12 @@ vi.mock("@/lib/session", () => ({
   requireUser: vi.fn(),
   UnauthorizedError: class UnauthorizedError extends Error {},
 }));
+vi.mock("@/lib/storage", () => ({
+  presignGet: vi.fn().mockResolvedValue("https://signed-get"),
+  presignPut: vi.fn().mockResolvedValue("https://signed-put"),
+  newMediaKey: vi.fn(),
+  ensureBucket: vi.fn(),
+}));
 
 import { requireUser, UnauthorizedError } from "@/lib/session";
 import { GET } from "./route";

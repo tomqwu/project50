@@ -46,6 +46,10 @@ const sampleChallenge = {
   ],
   currentStreak: 7,
   longestStreak: 10,
+  badges: 3,
+  cheering: 12,
+  activities: [],
+  milestones: [],
 };
 
 describe("DashboardPage", () => {
@@ -73,12 +77,15 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("img", { name: /3 \/ 5/ })).toBeInTheDocument();
     // Streak stat
     expect(screen.getByText("7")).toBeInTheDocument();
+    // Real badge + cheering counts from getChallenge
+    expect(screen.getByText("3")).toBeInTheDocument(); // badges
+    expect(screen.getByText("12")).toBeInTheDocument(); // cheering
   });
 
   it("renders with no today dayStatus (today is null)", async () => {
     mockRequireUser.mockResolvedValue("u1");
     mockListChallenges.mockResolvedValue([{ id: "c1", title: "Run 5K", goalType: "TARGET" }]);
-    const noTodayCh = { ...sampleChallenge, dayStatuses: [] };
+    const noTodayCh = { ...sampleChallenge, dayStatuses: [], badges: 0, cheering: 0 };
     mockGetChallenge.mockResolvedValue(noTodayCh);
     mockLocalDayKey.mockReturnValue("2026-06-01");
     mockDayNumber.mockReturnValue(1);

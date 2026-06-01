@@ -35,9 +35,6 @@ export default async function DashboardPage() {
       }
     : null;
 
-  // Count earned badges (milestones) — not directly available from getChallenge; use dayStatuses count
-  // Badges and cheering counts aren't loaded by getChallenge; use 0 as placeholder until we have a
-  // dedicated service. This keeps the page thin.
   const primary: PrimaryChallenge = {
     id: full.id,
     title: full.title,
@@ -46,8 +43,8 @@ export default async function DashboardPage() {
     dayNumber: Math.max(1, dayNum),
     today: todayProgress,
     currentStreak: full.currentStreak,
-    badges: 0,
-    cheering: 0,
+    badges: full.badges,
+    cheering: full.cheering,
   };
 
   const challengeItems: ChallengeItem[] = challenges.map((c) => ({
