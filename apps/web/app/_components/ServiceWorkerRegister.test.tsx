@@ -34,7 +34,7 @@ describe("ServiceWorkerRegister", () => {
     const savedDescriptor = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
 
     // Delete the property to make 'serviceWorker' not in navigator
-    delete (navigator as Record<string, unknown>).serviceWorker;
+    delete (navigator as unknown as Record<string, unknown>).serviceWorker;
 
     await act(async () => {
       render(<ServiceWorkerRegister />);

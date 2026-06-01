@@ -1,4 +1,5 @@
 // project50 Service Worker — minimal app shell + network-first strategy
+/* global self, caches */
 
 const CACHE_NAME = "project50-v1";
 const APP_SHELL = ["/", "/signin"];

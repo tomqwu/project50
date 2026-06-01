@@ -17,7 +17,6 @@ export default async function PublicSharePage({
     notFound();
   }
 
-  const tz = challenge.timezone ?? "UTC";
   const todayKey = new Date().toISOString().slice(0, 10);
   const dayNum = Math.max(1, dayNumber(challenge.startDate, todayKey));
 

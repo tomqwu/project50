@@ -30,7 +30,7 @@ vi.mock("@project50/core", () => ({
 // Mock @/auth (needed transitively)
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
-import { GET } from "./route.tsx";
+import { GET } from "./route";
 import { ImageResponse } from "next/og";
 
 afterEach(() => {
