@@ -7,9 +7,145 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Phase 0: a sentinel model proving migrations + client generation work.
-// Real domain models arrive in Phase 1.
-model HealthCheck {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
+enum Provider {
+  GOOGLE
+  FACEBOOK
+}
+
+enum GoalType {
+  TARGET
+  BINARY
+}
+
+enum Visibility {
+  PUBLIC
+  FOLLOWERS
+  PRIVATE
+}
+
+enum ReactionKind {
+  CHEER
+  COMMENT
+}
+
+enum MilestoneKind {
+  COMPLETED_7
+  COMPLETED_25
+  COMPLETED_50
+  STREAK_7
+  STREAK_30
+}
+
+model User {
+  id          String      @id @default(cuid())
+  handle      String      @unique
+  displayName String
+  avatarUrl   String?
+  createdAt   DateTime    @default(now())
+  identities  Identity[]
+  challenges  Challenge[]
+  activities  Activity[]
+  reactions   Reaction[]
+  following   Follow[]    @relation("follower")
+  followers   Follow[]    @relation("followee")
+}
+
+model Identity {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          Provider
+  providerAccountId String
+  createdAt         DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+}
+
+model Follow {
+  followerId String
+  followeeId String
+  follower   User     @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User     @relation("followee", fields: [followeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([followerId, followeeId])
+}
+
+model Challenge {
+  id          String      @id @default(cuid())
+  ownerId     String
+  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title       String
+  goalType    GoalType
+  unit        String?
+  dailyTarget Float?
+  startDate   String
+  timezone    String      @default("UTC")
+  lengthDays  Int         @default(50)
+  visibility  Visibility  @default(PUBLIC)
+  shareId     String      @unique @default(cuid())
+  createdAt   DateTime    @default(now())
+  activities  Activity[]
+  dayStatuses DayStatus[]
+  milestones  Milestone[]
+}
+
+model Activity {
+  id           String          @id @default(cuid())
+  challengeId  String
+  challenge    Challenge       @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayKey       String
+  activityType String?
+  amount       Float?
+  done         Boolean         @default(false)
+  note         String?
+  mood         Int?
+  createdAt    DateTime        @default(now())
+  media        ActivityMedia[]
+  reactions    Reaction[]
+
+  @@index([challengeId, dayKey])
+}
+
+model ActivityMedia {
+  id         String   @id @default(cuid())
+  activityId String
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  objectKey  String
+  width      Int
+  height     Int
+  order      Int      @default(0)
+}
+
+model DayStatus {
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  dayKey      String
+  totalAmount Float     @default(0)
+  completed   Boolean   @default(false)
+
+  @@id([challengeId, dayKey])
+}
+
+model Reaction {
+  id         String       @id @default(cuid())
+  activityId String
+  activity   Activity     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       ReactionKind
+  text       String?
+  createdAt  DateTime     @default(now())
+}
+
+model Milestone {
+  id          String        @id @default(cuid())
+  challengeId String
+  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  kind        MilestoneKind
+  earnedAt    DateTime      @default(now())
+
+  @@unique([challengeId, kind])
 }
