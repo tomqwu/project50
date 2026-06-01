@@ -1,0 +1,11 @@
+{
+  "name": "@project50/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "eslint-preset.cjs",
+  "exports": {
+    "./eslint": "./eslint-preset.cjs",
+    "./vitest": "./vitest.base.mjs"
+  }
+}

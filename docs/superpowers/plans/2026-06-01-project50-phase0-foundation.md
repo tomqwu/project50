@@ -68,10 +68,10 @@ Create `package.json`:
   "engines": { "node": ">=20" },
   "scripts": {
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc -b --pretty",
+    "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "build": "pnpm -r --filter ./apps/web build",
+    "build": "pnpm --filter @project50/web build",
     "test:e2e": "pnpm --filter @project50/web exec playwright test",
     "format": "prettier --write ."
   },
@@ -99,12 +99,16 @@ Create `tsconfig.base.json`:
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": true,
-    "composite": true,
     "forceConsistentCasingInFileNames": true
   }
 }
 ```
+
+> Note: `composite`/`declaration` are intentionally NOT in the base — they conflict with
+> Next.js `noEmit` and we use per-package `typecheck: tsc --noEmit` (run via `pnpm -r
+> --if-present typecheck`) rather than `tsc -b` project references. DOM libs stay in the
+> base since the web app and UI package need them; pure server packages tolerate the extra
+> ambient types in Phase 0.
 
 - [ ] **Step 5: Install and commit**
 
@@ -256,9 +260,13 @@ Create `packages/core/package.json`:
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "scripts": { "test": "vitest run --coverage" }
+  "scripts": { "test": "vitest run --coverage", "typecheck": "tsc --noEmit" },
+  "devDependencies": { "@project50/config": "workspace:*" }
 }
 ```
+
+> After creating the package files, run `pnpm install` so the `@project50/config`
+> workspace link is created (the vitest config imports from it).
 
 - [ ] **Step 2: core tsconfig**
 
@@ -459,7 +467,8 @@ Create `apps/web/package.json`:
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@project50/core": "workspace:*",
@@ -469,9 +478,12 @@ Create `apps/web/package.json`:
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@project50/config": "workspace:*",
     "@playwright/test": "^1.47.0",
+    "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
     "jsdom": "^25.0.0"
   }
 }
@@ -482,7 +494,11 @@ Create `apps/web/package.json`:
 Create `apps/web/next.config.mjs`:
 ```js
 /** @type {import('next').NextConfig} */
-export default { reactStrictMode: true };
+export default {
+  reactStrictMode: true,
+  // Workspace packages ship raw TS (main = src/index.ts); Next must transpile them.
+  transpilePackages: ["@project50/core", "@project50/db"],
+};
 ```
 Create `apps/web/tsconfig.json`:
 ```json
@@ -507,18 +523,30 @@ export default mergeConfig(
     test: {
       environment: "jsdom",
       exclude: ["e2e/**", "node_modules/**"],
+      coverage: {
+        // Scope coverage to app source so the 99% gate is measured on our code,
+        // not on Playwright e2e specs (run by a different runner).
+        include: ["app/**/*.{ts,tsx}"],
+        exclude: ["e2e/**"],
+      },
     },
   }),
 );
 ```
 
+> Because the coverage gate is 99% and `coverage.all` includes every file under
+> `app/**`, `layout.tsx` and `page.tsx` MUST have tests (Steps 5a/5b below), not just
+> the health route — otherwise the gate fails on untested UI files.
+
 - [ ] **Step 4: Root layout + home page**
 
 Create `apps/web/app/layout.tsx`:
 ```tsx
+import type { ReactNode } from "react";
+
 export const metadata = { title: "project50", description: "50-day challenges" };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body style={{ background: "#121013", color: "#F2F0EC", margin: 0 }}>{children}</body>
@@ -526,6 +554,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 }
 ```
+(Import the `ReactNode` type rather than using the `React.*` UMD global, which errors under `tsc --noEmit` in a module.)
 Create `apps/web/app/page.tsx`:
 ```tsx
 import { coreVersion } from "@project50/core";
@@ -534,6 +563,50 @@ export default function HomePage() {
   return <main data-testid="home">project50 v{coreVersion()}</main>;
 }
 ```
+
+- [ ] **Step 4a: Test the home page (covers page.tsx)**
+
+Create `apps/web/app/page.test.tsx`:
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import HomePage from "./page";
+
+describe("HomePage", () => {
+  it("renders the app name and core version", () => {
+    render(<HomePage />);
+    expect(screen.getByTestId("home")).toHaveTextContent("project50 v0.0.0");
+  });
+});
+```
+Add the jsdom matchers setup — create `apps/web/vitest.setup.ts`:
+```ts
+import "@testing-library/jest-dom/vitest";
+```
+And wire it into `apps/web/vitest.config.ts` test block: add `setupFiles: ["./vitest.setup.ts"]`. Add `@testing-library/jest-dom` to web devDependencies.
+
+- [ ] **Step 4b: Test the root layout (covers layout.tsx)**
+
+Create `apps/web/app/layout.test.tsx`:
+```tsx
+import { describe, expect, it } from "vitest";
+import RootLayout, { metadata } from "./layout";
+
+describe("RootLayout", () => {
+  it("exposes page metadata", () => {
+    expect(metadata.title).toBe("project50");
+  });
+
+  it("wraps children in html/body", () => {
+    const tree = RootLayout({ children: "content" });
+    expect(tree.type).toBe("html");
+    const body = tree.props.children;
+    expect(body.type).toBe("body");
+    expect(body.props.children).toBe("content");
+  });
+});
+```
+(Calling the component as a function avoids invalid `<html>`-in-`<div>` DOM nesting.)
 
 - [ ] **Step 5: Write the failing health-route test**
 
@@ -643,18 +716,31 @@ git commit -m "test(web): playwright e2e for home + health"
 
 **Files:**
 - Create: `vitest.workspace.ts`
+- Modify: `package.json` (root `test` script)
 
-- [ ] **Step 1: Aggregate package suites**
+- [ ] **Step 1: Aggregate package suites for watch mode**
 
-Create `vitest.workspace.ts`:
+Create `vitest.workspace.ts` (used by `pnpm test:watch` / bare `vitest`):
 ```ts
 export default ["packages/core", "apps/web"];
 ```
 
+- [ ] **Step 1b: Make the root `test` script run each package's own coverage gate**
+
+In root `package.json`, change the `test` script from `"vitest run --coverage"` to:
+```json
+"test": "pnpm -r test",
+```
+Rationale: each package (`core`, `web`) has its own vitest coverage config with tailored
+`include`/`exclude` and the 99% thresholds. `pnpm -r test` runs each package's `test`
+(`vitest run --coverage`) so every package enforces its own gate honestly. Workspace-merged
+coverage would apply a single root config and blur the per-package include scopes. Packages
+with no `test` script (`config`, `db`) are skipped automatically.
+
 - [ ] **Step 2: Run the whole unit suite with coverage**
 
 Run: `pnpm test`
-Expected: all suites pass; combined coverage ≥ 99%; no threshold failure.
+Expected: core suite 100%, web suite 100%; both gates satisfied; no threshold failure.
 
 - [ ] **Step 3: Run lint + typecheck**
 
@@ -663,8 +749,8 @@ Expected: no errors, no warnings.
 
 - [ ] **Step 4: Commit**
 ```bash
-git add vitest.workspace.ts
-git commit -m "test: vitest workspace aggregating package suites"
+git add vitest.workspace.ts package.json
+git commit -m "test: per-package coverage via pnpm -r + vitest workspace"
 ```
 
 ---
