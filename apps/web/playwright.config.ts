@@ -16,6 +16,11 @@ export default defineConfig({
       DATABASE_URL:
         process.env.DATABASE_URL ??
         "postgresql://project50:project50@localhost:5432/project50?schema=public",
+      // S3 / MinIO — defaults to local docker-compose MinIO; overridden in CI via job env
+      S3_ENDPOINT: process.env.S3_ENDPOINT ?? "http://localhost:9000",
+      S3_ACCESS_KEY: process.env.S3_ACCESS_KEY ?? "minioadmin",
+      S3_SECRET_KEY: process.env.S3_SECRET_KEY ?? "minioadmin",
+      S3_BUCKET: process.env.S3_BUCKET ?? "project50-media",
     },
   },
 });

@@ -4,15 +4,17 @@ A social progress-tracking app built around **50-day challenges** — track your
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
 
-> Status: **first slice (A + B) is complete.** Phases 0–4 are merged; the sharing + PWA +
-> full e2e suite is green. See the roadmap below.
+> Status: **Increment 1 (media upload) in progress on `feat/inc1-media-upload`.** Phases 0–4
+> are merged; the sharing + PWA + full e2e suite is green. Photo upload is now live (Tasks 1–5
+> complete). See the roadmap below.
 
 ## What it does
 
 - Run one or more **50-day challenges** — either a daily **target** you accumulate toward
   (e.g. "work out 60 min/day", where a run counts toward the hour) or a simple **binary**
   habit (done / not done).
-- Log daily **activities** with a photo, note, numeric amount, and mood.
+- Log daily **activities** with a **photo** (PNG/JPEG/WebP, directly uploaded to MinIO/S3 via
+  presigned URLs), note, numeric amount, and mood. Photos render in the feed and celebrate view.
 - Earn **streaks**, **badges**, and a **day-50 finale**.
 - **Follow** friends, see their progress in a feed, and cheer/comment.
 - **Share** milestones via a generated image card, a public link, and the Web Share API.
@@ -79,6 +81,8 @@ Within the first slice, phased delivery:
 - [x] **Phase 2 — Auth + API**.
 - [x] **Phase 3 — Web UI** (Momentum design system + screens).
 - [x] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — complete. First slice (A + B) done.
+- [x] **Increment 1 — Photo upload end-to-end:** presigned S3/MinIO upload, media stored in DB,
+  feed + celebrate render real photos, full e2e round-trip, MinIO in CI.
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).

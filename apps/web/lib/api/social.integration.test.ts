@@ -2,6 +2,12 @@
 import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/storage", () => ({
+  presignGet: vi.fn().mockResolvedValue("https://signed-get"),
+  presignPut: vi.fn().mockResolvedValue("https://signed-put"),
+  newMediaKey: vi.fn(),
+  ensureBucket: vi.fn(),
+}));
 
 import { prisma, resetDb, createUser, createChallenge } from "../../test/db";
 import { follow, unfollow, feed, react } from "./social";
@@ -156,6 +162,69 @@ describe("feed", () => {
     const alice = await createUser({ handle: "alice" });
     const result = await feed(alice.id);
     expect(result).toHaveLength(0);
+  });
+
+  it("includes cheerCount = count of CHEER reactions per activity", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    const fan = await createUser({ handle: "carol" });
+
+    await follow(alice.id, bob.id);
+
+    const challenge = await createChallenge(bob.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
+    });
+
+    // Two cheers, one comment
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: alice.id, kind: "CHEER" } });
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan.id, kind: "CHEER" } });
+    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan.id, kind: "COMMENT", text: "Nice" } });
+
+    const result = await feed(alice.id);
+    const found = result.find((a) => a.id === activity.id);
+    expect(found).toBeDefined();
+    expect(found!.cheerCount).toBe(2);
+  });
+
+  it("includes hasPhoto = true when activity has media", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    await follow(alice.id, bob.id);
+
+    const challenge = await createChallenge(bob.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
+    });
+    await prisma.activityMedia.create({
+      data: { activityId: activity.id, objectKey: `media/${bob.id}/img.jpg`, width: 800, height: 600, order: 0 },
+    });
+
+    const result = await feed(alice.id);
+    const found = result.find((a) => a.id === activity.id);
+    expect(found).toBeDefined();
+    expect(found!.hasPhoto).toBe(true);
+    expect(found!.media[0]!.url).toBe("https://signed-get");
+  });
+
+  it("includes hasPhoto = false when activity has no media", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    await follow(alice.id, bob.id);
+
+    const challenge = await createChallenge(bob.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
+    });
+
+    const result = await feed(alice.id);
+    const found = result.find((a) => a.id === activity.id);
+    expect(found).toBeDefined();
+    expect(found!.hasPhoto).toBe(false);
+    expect(found!.media).toHaveLength(0);
+    expect(found!.cheerCount).toBe(0);
   });
 });
 

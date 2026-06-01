@@ -1,19 +1,57 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Label } from "@project50/ui";
 
 const ACTIVITY_TYPES = ["Run", "Bike", "Gym", "Yoga"] as const;
 type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
+const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+export interface SelectedMedia {
+  objectKey: string;
+  width: number;
+  height: number;
+  previewUrl: string;
+}
+
+/**
+ * Read the natural dimensions of an image from a File.
+ * Extracted as a named export so tests can mock it.
+ */
+export function readImageDimensions(
+  file: File,
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load image"));
+    };
+    img.src = url;
+  });
+}
+
 export interface LogActivityFormProps {
   challengeId: string;
   goalType: "TARGET" | "BINARY";
   unit?: string | null;
+  /** Injectable for testing — defaults to readImageDimensions */
+  readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
 
-export function LogActivityForm({ challengeId, goalType, unit }: LogActivityFormProps) {
+export function LogActivityForm({
+  challengeId,
+  goalType,
+  unit,
+  readDimensions = readImageDimensions,
+}: LogActivityFormProps) {
   const router = useRouter();
 
   const [activityType, setActivityType] = useState<ActivityType | null>(null);
@@ -23,6 +61,81 @@ export function LogActivityForm({ challengeId, goalType, unit }: LogActivityForm
   const [mood, setMood] = useState<number | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  // Photo upload state
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.has(file.type)) {
+      setUploadError("Only PNG, JPEG, and WebP images are supported.");
+      return;
+    }
+
+    setUploadError(null);
+    setUploading(true);
+
+    try {
+      // Read image dimensions
+      const { width, height } = await readDimensions(file);
+
+      // Derive a safe suffix from the filename (strip extension, sanitize)
+      const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "upload";
+
+      // POST /api/uploads/presign
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file.type, suffix: baseName }),
+      });
+
+      if (!presignRes.ok) {
+        setUploadError("Failed to get upload URL. You can still submit without a photo.");
+        return;
+      }
+
+      const { uploadUrl, objectKey } = (await presignRes.json()) as {
+        uploadUrl: string;
+        objectKey: string;
+      };
+
+      // PUT the file bytes to the presigned URL
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": file.type },
+      });
+
+      if (!putRes.ok) {
+        setUploadError("Photo upload failed. You can still submit without a photo.");
+        return;
+      }
+
+      // Success — keep the object URL as preview (will be revoked on unmount/clear)
+      const previewUrl = URL.createObjectURL(file);
+      setSelectedMedia({ objectKey, width, height, previewUrl });
+    } catch {
+      setUploadError("Photo upload failed. You can still submit without a photo.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleRemovePhoto() {
+    if (selectedMedia?.previewUrl) {
+      URL.revokeObjectURL(selectedMedia.previewUrl);
+    }
+    setSelectedMedia(null);
+    setUploadError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +153,17 @@ export function LogActivityForm({ challengeId, goalType, unit }: LogActivityForm
       body.amount = amount ? Number(amount) : undefined;
     } else {
       body.done = done;
+    }
+
+    // Include media if a photo was successfully uploaded
+    if (selectedMedia) {
+      body.media = [
+        {
+          objectKey: selectedMedia.objectKey,
+          width: selectedMedia.width,
+          height: selectedMedia.height,
+        },
+      ];
     }
 
     try {
@@ -200,6 +324,91 @@ export function LogActivityForm({ challengeId, goalType, unit }: LogActivityForm
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Photo upload */}
+      <div>
+        <Label>Photo (optional)</Label>
+        {/* The file input stays mounted (hidden) so its ref persists across
+            select/remove cycles and the same file can be re-selected. */}
+        <input
+          id="photo-input"
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={handleFileChange}
+          data-testid="photo-input"
+          disabled={uploading}
+          style={{ display: "none" }}
+        />
+        {selectedMedia ? (
+          <div style={{ marginTop: "10px" }}>
+            {/* Thumbnail preview */}
+            <img
+              src={selectedMedia.previewUrl}
+              alt="Selected photo preview"
+              data-testid="photo-preview"
+              style={{
+                display: "block",
+                width: "100%",
+                maxHeight: "200px",
+                objectFit: "cover",
+                borderRadius: "10px",
+                marginBottom: "8px",
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleRemovePhoto}
+              data-testid="remove-photo-btn"
+              style={{
+                fontFamily: "var(--font-body, system-ui)",
+                fontSize: "13px",
+                color: "var(--danger)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              Remove photo
+            </button>
+          </div>
+        ) : (
+          <div style={{ marginTop: "10px" }}>
+            <label
+              htmlFor="photo-input"
+              style={{
+                display: "inline-block",
+                padding: "10px 18px",
+                borderRadius: "10px",
+                border: "1px dashed var(--hairline)",
+                background: "var(--card)",
+                color: "var(--muted)",
+                fontFamily: "var(--font-body, system-ui)",
+                fontSize: "14px",
+                cursor: uploading ? "wait" : "pointer",
+              }}
+            >
+              {uploading ? "Uploading…" : "Choose photo"}
+            </label>
+          </div>
+        )}
+
+        {/* Upload error */}
+        {uploadError && (
+          <p
+            data-testid="upload-error"
+            style={{
+              marginTop: "8px",
+              fontFamily: "var(--font-body, system-ui)",
+              fontSize: "13px",
+              color: "var(--danger)",
+            }}
+          >
+            {uploadError}
+          </p>
+        )}
       </div>
 
       {/* Inline validation errors */}

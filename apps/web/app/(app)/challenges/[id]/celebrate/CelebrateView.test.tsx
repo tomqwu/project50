@@ -126,3 +126,24 @@ describe("CelebrateView — day 50 complete", () => {
     expect(screen.getByText("200")).toBeInTheDocument();
   });
 });
+
+describe("CelebrateView — photo rendering", () => {
+  it("renders photo img with signed URL when photoUrl is provided", () => {
+    const photoUrl = "https://minio.example.com/bucket/media/u1/photo.jpg?X-Amz-Signature=xyz";
+    render(<CelebrateView {...makeProps()} photoUrl={photoUrl} />);
+    const img = screen.getByTestId("celebrate-photo");
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("src", photoUrl);
+    expect(img).toHaveAttribute("alt", "Run 5K activity photo");
+  });
+
+  it("does NOT render photo img when photoUrl is null", () => {
+    render(<CelebrateView {...makeProps()} photoUrl={null} />);
+    expect(screen.queryByTestId("celebrate-photo")).toBeNull();
+  });
+
+  it("does NOT render photo img when photoUrl is undefined (default)", () => {
+    render(<CelebrateView {...makeProps()} />);
+    expect(screen.queryByTestId("celebrate-photo")).toBeNull();
+  });
+});

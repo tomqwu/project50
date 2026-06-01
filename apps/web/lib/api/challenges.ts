@@ -1,6 +1,7 @@
 import { prisma } from "@project50/db";
 import { currentStreak, longestStreak } from "@project50/core";
 import { notFound, unprocessable } from "./http";
+import { withMediaUrls } from "./media";
 
 export interface CreateChallengeInput {
   title: string;
@@ -67,7 +68,16 @@ export async function listChallenges(ownerId: string) {
 export async function getChallenge(id: string, viewerId: string) {
   const challenge = await prisma.challenge.findUnique({
     where: { id },
-    include: { dayStatuses: true },
+    include: {
+      dayStatuses: true,
+      activities: {
+        include: {
+          media: { orderBy: { order: "asc" } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      milestones: true,
+    },
   });
 
   if (!challenge) notFound("CHALLENGE_NOT_FOUND");
@@ -104,10 +114,30 @@ export async function getChallenge(id: string, viewerId: string) {
     : 0;
   const longest = longestStreak(completedDayKeys);
 
+  // Real badges count = number of earned milestones
+  const badges = challenge.milestones.length;
+
+  // Real cheering count = CHEER reactions on the owner's activities for this challenge
+  const cheering = await prisma.reaction.count({
+    where: {
+      kind: "CHEER",
+      activity: {
+        challengeId: id,
+        userId: challenge.ownerId,
+      },
+    },
+  });
+
+  // Attach signed URLs to activity media
+  const activitiesWithUrls = await withMediaUrls(challenge.activities);
+
   return {
     ...challenge,
+    activities: activitiesWithUrls,
     currentStreak: streak,
     longestStreak: longest,
+    badges,
+    cheering,
   };
 }
 

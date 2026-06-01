@@ -24,6 +24,7 @@ const sampleItems: FeedActivity[] = [
     note: "Great run!",
     hasPhoto: false,
     cheerCount: 3,
+    media: [],
   },
   {
     id: "a2",
@@ -33,6 +34,7 @@ const sampleItems: FeedActivity[] = [
     note: null,
     hasPhoto: true,
     cheerCount: 0,
+    media: [],
   },
 ];
 
@@ -62,14 +64,48 @@ describe("FeedView", () => {
     expect(screen.queryByTestId("feed-item-note")).toBeNull();
   });
 
-  it("renders photo placeholder when hasPhoto is true", () => {
+  it("renders photo placeholder when hasPhoto is true but no media URL", () => {
     render(<FeedView items={sampleItems} />);
+    // a2 has hasPhoto:true but media:[] so placeholder renders
     expect(screen.getByTestId("photo-placeholder")).toBeInTheDocument();
   });
 
-  it("does NOT render photo placeholder when hasPhoto is false", () => {
-    const noPhoto: FeedActivity[] = [{ ...sampleItems[0]!, hasPhoto: false }];
+  it("does NOT render photo placeholder when hasPhoto is false and no media", () => {
+    const noPhoto: FeedActivity[] = [{ ...sampleItems[0]!, hasPhoto: false, media: [] }];
     render(<FeedView items={noPhoto} />);
+    expect(screen.queryByTestId("photo-placeholder")).toBeNull();
+    expect(screen.queryByTestId("feed-photo")).toBeNull();
+  });
+
+  it("renders real img with signed URL when media has a URL", () => {
+    const withMedia: FeedActivity[] = [
+      {
+        id: "a3",
+        userHandle: "@carol",
+        challengeTitle: "Yoga",
+        dayKey: "2026-06-01",
+        note: null,
+        hasPhoto: true,
+        cheerCount: 1,
+        media: [
+          {
+            objectKey: "media/u1/photo.jpg",
+            width: 800,
+            height: 600,
+            url: "https://minio.example.com/bucket/media/u1/photo.jpg?X-Amz-Signature=abc",
+          },
+        ],
+      },
+    ];
+    render(<FeedView items={withMedia} />);
+    const img = screen.getByTestId("feed-photo");
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute(
+      "src",
+      "https://minio.example.com/bucket/media/u1/photo.jpg?X-Amz-Signature=abc",
+    );
+    expect(img).toHaveAttribute("alt", "Activity photo by @carol");
+    // No placeholder when real image is present
     expect(screen.queryByTestId("photo-placeholder")).toBeNull();
   });
 
@@ -77,5 +113,20 @@ describe("FeedView", () => {
     render(<FeedView items={sampleItems} />);
     const cheerButtons = screen.getAllByTestId("cheer-button");
     expect(cheerButtons).toHaveLength(2);
+  });
+
+  it("renders no photo element when media is undefined and hasPhoto is false", () => {
+    const item: FeedActivity = {
+      id: "a4",
+      userHandle: "@dave",
+      challengeTitle: "Swim",
+      dayKey: "2026-06-02",
+      note: null,
+      hasPhoto: false,
+      cheerCount: 0,
+    };
+    render(<FeedView items={[item]} />);
+    expect(screen.queryByTestId("feed-photo")).toBeNull();
+    expect(screen.queryByTestId("photo-placeholder")).toBeNull();
   });
 });

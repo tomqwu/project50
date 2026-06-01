@@ -13,8 +13,14 @@ export default async function FeedPage() {
     challengeTitle: (a.challenge as { title: string }).title,
     dayKey: a.dayKey,
     note: a.note ?? null,
-    hasPhoto: false, // photo upload is Phase 4
-    cheerCount: 0, // reaction counts need a dedicated query (Phase 4)
+    hasPhoto: a.hasPhoto,
+    cheerCount: a.cheerCount,
+    media: a.media.map((m) => ({
+      objectKey: m.objectKey,
+      width: m.width,
+      height: m.height,
+      url: m.url,
+    })),
   }));
 
   return <FeedView items={items} />;

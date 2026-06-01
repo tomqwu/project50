@@ -2,6 +2,12 @@
 import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/storage", () => ({
+  presignGet: vi.fn().mockResolvedValue("https://signed-get"),
+  presignPut: vi.fn().mockResolvedValue("https://signed-put"),
+  newMediaKey: vi.fn(),
+  ensureBucket: vi.fn(),
+}));
 
 import { prisma, resetDb, createUser, createChallenge } from "../../test/db";
 import { logActivity } from "./activities";
@@ -160,6 +166,131 @@ describe("logActivity — authorization", () => {
     await expect(
       logActivity(other.id, challenge.id, { dayKey: "2026-06-01", done: true }, "2026-06-01"),
     ).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+  });
+});
+
+describe("logActivity — media", () => {
+  it("creates ActivityMedia rows with correct order when media is provided", async () => {
+    const user = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(user.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+
+    const { activity } = await logActivity(
+      user.id,
+      challenge.id,
+      {
+        dayKey: "2026-06-01",
+        done: true,
+        media: [
+          { objectKey: `media/${user.id}/img0.jpg`, width: 800, height: 600 },
+          { objectKey: `media/${user.id}/img1.jpg`, width: 1024, height: 768 },
+        ],
+      },
+      "2026-06-01",
+    );
+
+    const mediaRows = await prisma.activityMedia.findMany({
+      where: { activityId: activity.id },
+      orderBy: { order: "asc" },
+    });
+
+    expect(mediaRows).toHaveLength(2);
+    expect(mediaRows[0]!.order).toBe(0);
+    expect(mediaRows[0]!.objectKey).toBe(`media/${user.id}/img0.jpg`);
+    expect(mediaRows[0]!.width).toBe(800);
+    expect(mediaRows[0]!.height).toBe(600);
+    expect(mediaRows[1]!.order).toBe(1);
+    expect(mediaRows[1]!.objectKey).toBe(`media/${user.id}/img1.jpg`);
+  });
+
+  it("creates no ActivityMedia rows when media is not provided", async () => {
+    const user = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(user.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+
+    const { activity } = await logActivity(
+      user.id,
+      challenge.id,
+      { dayKey: "2026-06-01", done: true },
+      "2026-06-01",
+    );
+
+    const mediaRows = await prisma.activityMedia.findMany({
+      where: { activityId: activity.id },
+    });
+    expect(mediaRows).toHaveLength(0);
+  });
+
+  it("creates no ActivityMedia rows when media is empty array", async () => {
+    const user = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(user.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+
+    const { activity } = await logActivity(
+      user.id,
+      challenge.id,
+      { dayKey: "2026-06-01", done: true, media: [] },
+      "2026-06-01",
+    );
+
+    const mediaRows = await prisma.activityMedia.findMany({
+      where: { activityId: activity.id },
+    });
+    expect(mediaRows).toHaveLength(0);
+  });
+
+  it("throws 422 INVALID_MEDIA_KEY when objectKey is under another user's prefix", async () => {
+    const owner = await createUser({ handle: "alice" });
+    const other = await createUser({ handle: "bob" });
+    const challenge = await createChallenge(owner.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+
+    await expect(
+      logActivity(
+        owner.id,
+        challenge.id,
+        {
+          dayKey: "2026-06-01",
+          done: true,
+          media: [{ objectKey: `media/${other.id}/img.jpg`, width: 800, height: 600 }],
+        },
+        "2026-06-01",
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "INVALID_MEDIA_KEY" });
+  });
+
+  it("throws 422 INVALID_MEDIA_KEY when objectKey does not start with media/ prefix", async () => {
+    const user = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(user.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+
+    await expect(
+      logActivity(
+        user.id,
+        challenge.id,
+        {
+          dayKey: "2026-06-01",
+          done: true,
+          media: [{ objectKey: "uploads/evil.jpg", width: 100, height: 100 }],
+        },
+        "2026-06-01",
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "INVALID_MEDIA_KEY" });
   });
 });
 

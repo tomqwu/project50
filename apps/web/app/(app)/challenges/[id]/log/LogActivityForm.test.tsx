@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 const { mockPush, mockFetch } = vi.hoisted(() => ({
@@ -13,12 +13,39 @@ vi.mock("next/navigation", () => ({
 // Override global fetch
 globalThis.fetch = mockFetch;
 
-import { LogActivityForm } from "./LogActivityForm";
+// Mock URL.createObjectURL and URL.revokeObjectURL (jsdom doesn't implement them)
+const mockObjectUrl = "blob:http://localhost/fake-object-url";
+Object.defineProperty(URL, "createObjectURL", {
+  value: vi.fn(() => mockObjectUrl),
+  writable: true,
+});
+Object.defineProperty(URL, "revokeObjectURL", {
+  value: vi.fn(),
+  writable: true,
+});
+
+import { LogActivityForm, readImageDimensions } from "./LogActivityForm";
+
+beforeEach(() => {
+  mockReadDimensions.mockResolvedValue({ width: 800, height: 600 });
+  // vi.resetAllMocks() in afterEach clears these implementations; re-establish them
+  // so createObjectURL returns a truthy preview URL for every test.
+  (URL.createObjectURL as ReturnType<typeof vi.fn>).mockReturnValue(mockObjectUrl);
+});
 
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
+
+// A mock readDimensions that returns fixed dimensions without touching Image/DOM.
+// Re-implement after each reset because vi.resetAllMocks() clears mockResolvedValue.
+const mockReadDimensions = vi.fn();
+
+// Helper to create a fake File for upload tests
+function makeImageFile(name = "photo.jpg", type = "image/jpeg") {
+  return new File(["fake-image-bytes"], name, { type });
+}
 
 describe("LogActivityForm — TARGET", () => {
   it("renders amount input and activity type chips", () => {
@@ -86,6 +113,8 @@ describe("LogActivityForm — TARGET", () => {
     expect(body.note).toBe("Great run");
     expect(body.mood).toBe(4);
     expect(body.dayKey).toMatch(/\d{4}-\d{2}-\d{2}/);
+    // No media when no photo selected
+    expect(body.media).toBeUndefined();
 
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("/");
@@ -227,5 +256,463 @@ describe("LogActivityForm — BINARY", () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("/");
     });
+  });
+});
+
+describe("LogActivityForm — Photo upload", () => {
+  it("renders the photo file input", () => {
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+    expect(screen.getByTestId("photo-input")).toBeInTheDocument();
+  });
+
+  it("presigns, PUTs, and shows thumbnail after selecting a file", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        // presign response
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/bucket/key?sig=x", objectKey: "media/u1/photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({
+        // PUT response
+        ok: true,
+      });
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    const file = makeImageFile("my run.jpg", "image/jpeg");
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // Should show thumbnail
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    // presign called with correct content type + sanitized suffix
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/uploads/presign",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("image/jpeg"),
+      }),
+    );
+
+    // PUT called with upload URL
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      "https://minio/bucket/key?sig=x",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    // readDimensions was called with the file
+    expect(mockReadDimensions).toHaveBeenCalledWith(file);
+  });
+
+  it("includes media in submit body after successful upload", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({ ok: true }) // PUT
+      .mockResolvedValueOnce({ ok: true, status: 201 }); // POST activity
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    // Wait for upload to complete
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    // Submit
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+
+    // The third fetch call is the activity POST
+    const activityCall = mockFetch.mock.calls[2] as [string, { body: string }];
+    const body = JSON.parse(activityCall[1].body);
+    expect(body.media).toEqual([
+      { objectKey: "media/u1/photo_jpg.jpg", width: 800, height: 600 },
+    ]);
+  });
+
+  it("shows upload error and no thumbnail when presign fails", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 422 });
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+  });
+
+  it("shows upload error and no thumbnail when PUT fails", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 500 }); // PUT fails
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+  });
+
+  it("shows upload error when readDimensions throws", async () => {
+    const failDimensions = vi.fn().mockRejectedValue(new Error("cannot load"));
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={failDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+  });
+
+  it("allows text-only submit even after presign failure", async () => {
+    // presign fails
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 422 })
+      // activity submit succeeds
+      .mockResolvedValueOnce({ ok: true, status: 201 });
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    // Trigger upload failure
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+
+    // Submit text-only (no media selected)
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+
+    // Check that media is NOT in the submit body
+    const activityCall = mockFetch.mock.calls[1] as [string, { body: string }];
+    const body = JSON.parse(activityCall[1].body);
+    expect(body.media).toBeUndefined();
+  });
+
+  it("allows text-only submit after PUT failure", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 500 }) // PUT fails
+      .mockResolvedValueOnce({ ok: true, status: 201 }); // activity submit
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+
+    const activityCall = mockFetch.mock.calls[2] as [string, { body: string }];
+    const body = JSON.parse(activityCall[1].body);
+    expect(body.media).toBeUndefined();
+  });
+
+  it("removes photo when remove button is clicked and clears upload error", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({ ok: true }); // PUT
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    // Click remove
+    fireEvent.click(screen.getByTestId("remove-photo-btn"));
+
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+    expect(screen.queryByTestId("remove-photo-btn")).toBeNull();
+    expect(screen.getByTestId("photo-input")).toBeInTheDocument();
+  });
+
+  it("suffix in presign body is sanitized from filename", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/my_run_photo_jpg.jpg" }),
+      })
+      .mockResolvedValueOnce({ ok: true });
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    fireEvent.change(fileInput, { target: { files: [makeImageFile("my run photo.jpg")] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    const presignCall = mockFetch.mock.calls[0] as [string, { body: string }];
+    const presignBody = JSON.parse(presignCall[1].body) as { suffix: string };
+    // The suffix should have spaces replaced by underscores
+    expect(presignBody.suffix).toBe("my_run_photo");
+  });
+
+  it("shows upload error for unsupported file type", async () => {
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    const gifFile = new File(["gif"], "anim.gif", { type: "image/gif" });
+    fireEvent.change(fileInput, { target: { files: [gifFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("upload-error")).toBeInTheDocument();
+    });
+    // No fetch calls made
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("submit without photo does not include media key", async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 201 });
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/");
+    });
+
+    const call = mockFetch.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(call[1].body);
+    expect(body.media).toBeUndefined();
+  });
+
+  it("does nothing when the change event has no file selected", async () => {
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    // Fire change with an empty file list → handler should early-return.
+    fireEvent.change(fileInput, { target: { files: [] } });
+
+    // No upload error, no preview, no fetch, no dimension read.
+    expect(screen.queryByTestId("upload-error")).toBeNull();
+    expect(screen.queryByTestId("photo-preview")).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockReadDimensions).not.toHaveBeenCalled();
+  });
+
+  it("falls back to 'upload' suffix when filename sanitizes to empty", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/upload.png" }),
+      })
+      .mockResolvedValueOnce({ ok: true }); // PUT
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    const fileInput = screen.getByTestId("photo-input");
+    // Filename whose stem is empty after stripping the extension → "" → "upload".
+    const file = new File(["bytes"], ".png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    const presignCall = mockFetch.mock.calls[0] as [string, { body: string }];
+    const presignBody = JSON.parse(presignCall[1].body) as { suffix: string };
+    expect(presignBody.suffix).toBe("upload");
+  });
+});
+
+describe("readImageDimensions", () => {
+  // Save/restore the real globals around these tests.
+  const RealImage = globalThis.Image;
+
+  afterEach(() => {
+    globalThis.Image = RealImage;
+    vi.resetAllMocks();
+    (URL.createObjectURL as ReturnType<typeof vi.fn>).mockReturnValue(mockObjectUrl);
+    (URL.revokeObjectURL as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("resolves with naturalWidth/naturalHeight on image load and revokes the object URL", async () => {
+    let loadHandler: (() => void) | null = null;
+    // Minimal fake Image: capture onload, expose natural dimensions.
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      set src(_value: string) {
+        this.naturalWidth = 320;
+        this.naturalHeight = 240;
+        // Stash the handler so the test can fire it after src assignment.
+        loadHandler = () => this.onload?.();
+      }
+    }
+    globalThis.Image = FakeImage as unknown as typeof Image;
+
+    const file = new File(["bytes"], "p.png", { type: "image/png" });
+    const promise = readImageDimensions(file);
+
+    // Trigger onload.
+    loadHandler!();
+
+    const dims = await promise;
+    expect(dims).toEqual({ width: 320, height: 240 });
+    expect(URL.createObjectURL).toHaveBeenCalledWith(file);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(mockObjectUrl);
+  });
+
+  it("rejects and revokes the object URL when the image fails to load", async () => {
+    let errorHandler: (() => void) | null = null;
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      set src(_value: string) {
+        errorHandler = () => this.onerror?.();
+      }
+    }
+    globalThis.Image = FakeImage as unknown as typeof Image;
+
+    const file = new File(["bytes"], "p.png", { type: "image/png" });
+    const promise = readImageDimensions(file);
+
+    // Trigger onerror.
+    errorHandler!();
+
+    await expect(promise).rejects.toThrow("Failed to load image");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(mockObjectUrl);
   });
 });
