@@ -6,10 +6,22 @@
  * first login. All completion/streak/milestone values are computed via
  * @project50/core — no hand-faked numbers.
  *
+ * Also uploads bundled seed photos to MinIO and creates ActivityMedia rows
+ * so the feed + celebrate screens show real pictures.
+ *
  * Run: pnpm --filter @project50/db seed   (or: make seed)
  * Re-runnable: deletes demo/maya/leo then recreates.
  */
 
+import {
+  S3Client,
+  PutObjectCommand,
+  HeadBucketCommand,
+  CreateBucketCommand,
+} from "@aws-sdk/client-s3";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import {
   addDays,
@@ -21,6 +33,119 @@ import {
 } from "@project50/core";
 
 const prisma = new PrismaClient();
+
+// ---------------------------------------------------------------------------
+// S3 helpers (self-contained, mirrors apps/web/lib/storage.ts pattern)
+// ---------------------------------------------------------------------------
+
+const S3_BUCKET = process.env.S3_BUCKET ?? "project50-media";
+
+let _s3Client: S3Client | null = null;
+function getS3Client(): S3Client {
+  if (_s3Client) return _s3Client;
+  _s3Client = new S3Client({
+    endpoint: process.env.S3_ENDPOINT ?? "http://localhost:9000",
+    region: "us-east-1",
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY ?? "minioadmin",
+      secretAccessKey: process.env.S3_SECRET_KEY ?? "minioadmin",
+    },
+    forcePathStyle: true,
+  });
+  return _s3Client;
+}
+
+/** Idempotent bucket creation (mirrors apps/web/lib/storage.ts). */
+async function ensureBucket(): Promise<void> {
+  const client = getS3Client();
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: S3_BUCKET }));
+  } catch (err: unknown) {
+    const code =
+      (err as { name?: string; Code?: string })?.name ||
+      (err as { name?: string; Code?: string })?.Code;
+    if (
+      code === "NotFound" ||
+      code === "NoSuchBucket" ||
+      (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
+        ?.httpStatusCode === 404
+    ) {
+      try {
+        await client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }));
+      } catch (createErr: unknown) {
+        const createCode =
+          (createErr as { name?: string; Code?: string })?.name ||
+          (createErr as { name?: string; Code?: string })?.Code;
+        if (
+          createCode !== "BucketAlreadyOwnedByYou" &&
+          createCode !== "BucketAlreadyExists"
+        ) {
+          throw createErr;
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
+/** Upload a local file to MinIO under the given objectKey. Idempotent (overwrite). */
+async function uploadSeedPhoto(localPath: string, objectKey: string): Promise<void> {
+  const body = readFileSync(localPath);
+  await getS3Client().send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: objectKey,
+      Body: body,
+      ContentType: "image/jpeg",
+    }),
+  );
+}
+
+/**
+ * Parse JPEG dimensions from the SOF0/SOF2 marker without any extra dependency.
+ * Reads height and width from the Start Of Frame segment.
+ */
+function readJpegDimensions(filePath: string): { width: number; height: number } {
+  const buf = readFileSync(filePath);
+  // Walk through JPEG markers to find SOFn (0xFFC0..0xFFC3, 0xFFC5..0xFFC7, etc.)
+  let i = 2; // skip initial FFD8
+  while (i < buf.length - 4) {
+    if (buf[i] !== 0xff) break;
+    const marker = buf[i + 1]!;
+    // SOF markers: C0, C1, C2, C3, C5, C6, C7, C9, CA, CB, CD, CE, CF
+    const isSOF =
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 && // DHT
+      marker !== 0xc8 && // JPG
+      marker !== 0xcc; // DAC
+    if (isSOF) {
+      // SOF segment: FF Cn [length 2 bytes] [precision 1 byte] [height 2 bytes] [width 2 bytes]
+      const height = (buf[i + 5]! << 8) | buf[i + 6]!;
+      const width = (buf[i + 7]! << 8) | buf[i + 8]!;
+      return { width, height };
+    }
+    // Move to next marker
+    const segLen = (buf[i + 2]! << 8) | buf[i + 3]!;
+    i += 2 + segLen;
+  }
+  throw new Error(`Could not parse JPEG dimensions from ${filePath}`);
+}
+
+// ---------------------------------------------------------------------------
+// Bundled seed assets
+// ---------------------------------------------------------------------------
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ASSETS_DIR = join(__dirname, "seed-assets");
+
+// Cycle through these for variety
+const SEED_IMAGES = ["run.jpg", "gym.jpg", "trail.jpg", "bike.jpg"] as const;
+
+function seedImagePath(name: string): string {
+  return join(ASSETS_DIR, name);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,6 +176,11 @@ async function main() {
   await prisma.user.deleteMany({ where: { handle: { in: ["demo", "maya", "leo"] } } });
 
   console.log("[seed] Deleted. Recreating...");
+
+  // Ensure MinIO bucket exists before we try to upload
+  console.log("[seed] Ensuring MinIO bucket...");
+  await ensureBucket();
+  console.log(`[seed] Bucket '${S3_BUCKET}' ready.`);
 
   // ---------------------------------------------------------------------------
   // 1. Create users
@@ -136,9 +266,12 @@ async function main() {
   ];
 
   const completedPrimaryDays: DayKey[] = [];
+  // Track all created primary challenge activity ids + their day indices (for photo attachment)
+  const allPrimaryActivityIds: Array<{ id: string; dayIdx: number }> = [];
   const activityIds: string[] = []; // track recent for cheers
 
   let patternIdx = 0;
+  let dayIdx = 0;
   for (const dayKey of primaryDays) {
     if (gapDays.has(dayKey)) {
       // Gap day: upsert DayStatus with 0/false
@@ -147,6 +280,7 @@ async function main() {
         update: { totalAmount: 0, completed: false },
         create: { challengeId: primaryChallenge.id, dayKey, totalAmount: 0, completed: false },
       });
+      dayIdx++;
       continue;
     }
 
@@ -170,6 +304,7 @@ async function main() {
       });
       dayActivities.push({ amount: act.amount });
       activityIds.push(created.id);
+      allPrimaryActivityIds.push({ id: created.id, dayIdx });
     }
 
     // Compute completion via core
@@ -185,6 +320,7 @@ async function main() {
     });
 
     if (completed) completedPrimaryDays.push(dayKey);
+    dayIdx++;
   }
 
   // Milestones for primary challenge
@@ -311,14 +447,15 @@ async function main() {
     },
   });
 
-  const mayaActivities = [
+  const mayaActivityInputs = [
     { dayKey: addDays(today, -2), note: "Rainy 5k — pushed through!", activityType: "Run", amount: 12, mood: 4 },
     { dayKey: addDays(today, -1), note: "Track intervals, 10x400m", activityType: "Run", amount: 10, mood: 5 },
     { dayKey: today, note: "Easy long run, 18k", activityType: "Run", amount: 18, mood: 5 },
   ];
 
-  for (const act of mayaActivities) {
-    await prisma.activity.create({
+  const mayaActivityIds: string[] = [];
+  for (const act of mayaActivityInputs) {
+    const created = await prisma.activity.create({
       data: {
         challengeId: mayaChallenge.id,
         userId: maya.id,
@@ -330,6 +467,7 @@ async function main() {
         mood: act.mood,
       },
     });
+    mayaActivityIds.push(created.id);
     const { totalAmount, completed } = computeDayCompletion(
       { goalType: "TARGET", dailyTarget: 10 },
       [{ amount: act.amount }],
@@ -414,6 +552,52 @@ async function main() {
   console.log(`[seed] ${cheerData.length} CHEER reactions created.`);
 
   // ---------------------------------------------------------------------------
+  // 7. Upload seed photos + create ActivityMedia rows
+  // ---------------------------------------------------------------------------
+  console.log("[seed] Uploading seed photos to MinIO...");
+
+  // Attach photos to demo's last 5 primary challenge activities (one per activity)
+  // and all 3 of maya's activities
+  const demoRecentActivities = allPrimaryActivityIds.slice(-5);
+
+  let photoCount = 0;
+  let imgIdx = 0;
+
+  for (const { id: activityId } of demoRecentActivities) {
+    const imgName = SEED_IMAGES[imgIdx % SEED_IMAGES.length]!;
+    const localPath = seedImagePath(imgName);
+    const objectKey = `media/${demo.id}/seed-${activityId}.jpg`;
+    const { width, height } = readJpegDimensions(localPath);
+
+    await uploadSeedPhoto(localPath, objectKey);
+    await prisma.activityMedia.create({
+      data: { activityId, objectKey, width, height, order: 0 },
+    });
+
+    console.log(`[seed]   demo activity ${activityId} → ${objectKey} (${width}x${height})`);
+    imgIdx++;
+    photoCount++;
+  }
+
+  for (const activityId of mayaActivityIds) {
+    const imgName = SEED_IMAGES[imgIdx % SEED_IMAGES.length]!;
+    const localPath = seedImagePath(imgName);
+    const objectKey = `media/${maya.id}/seed-${activityId}.jpg`;
+    const { width, height } = readJpegDimensions(localPath);
+
+    await uploadSeedPhoto(localPath, objectKey);
+    await prisma.activityMedia.create({
+      data: { activityId, objectKey, width, height, order: 0 },
+    });
+
+    console.log(`[seed]   maya activity ${activityId} → ${objectKey} (${width}x${height})`);
+    imgIdx++;
+    photoCount++;
+  }
+
+  console.log(`[seed] ${photoCount} ActivityMedia rows created + photos uploaded.`);
+
+  // ---------------------------------------------------------------------------
   // Summary
   // ---------------------------------------------------------------------------
   console.log("\n[seed] Done! Summary:");
@@ -423,6 +607,7 @@ async function main() {
   console.log(`  maya: 3 recent activities on "Marathon Prep"`);
   console.log(`  leo:  2 recent activities on "Daily Pages"`);
   console.log(`  cheers: ${cheerData.length} CHEER reactions on demo's activities`);
+  console.log(`  photos: ${photoCount} ActivityMedia rows (demo: 5, maya: 3)`);
 }
 
 main()
