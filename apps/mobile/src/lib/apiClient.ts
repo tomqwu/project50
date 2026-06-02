@@ -9,6 +9,9 @@ import type {
   DayKey,
 } from "@project50/core";
 
+// Re-export core types used by callers of this module
+export type { GoalType, DayKey } from "@project50/core";
+
 // ─── Request / Response interfaces ──────────────────────────────────────────
 
 export interface CreateChallengeInput {

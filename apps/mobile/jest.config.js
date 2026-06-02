@@ -17,8 +17,18 @@ const config = {
       functions: 99,
       statements: 99,
     },
-    // src/viewmodels/** threshold added in Task 3 when that dir is created.
-    // src/screens/** threshold added in Task 3 when that dir is created.
+    "src/viewmodels/**": {
+      lines: 99,
+      branches: 99,
+      functions: 99,
+      statements: 99,
+    },
+    "src/screens/**": {
+      lines: 99,
+      branches: 99,
+      functions: 99,
+      statements: 99,
+    },
   },
   // jest-expo transformIgnorePatterns: transform RN/Expo modules that ship as Flow/ESM.
   //
