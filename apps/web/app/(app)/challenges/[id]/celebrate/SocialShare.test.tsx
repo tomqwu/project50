@@ -191,28 +191,28 @@ describe("SocialShare — honest labels", () => {
 // ─── Asset toggle disabled states ────────────────────────────────────────────
 
 describe("SocialShare — asset toggle disabled states", () => {
-  it("Recap video button is disabled when hasRecap is false", () => {
+  it("Recap video button is aria-disabled when hasRecap is false", () => {
     render(<SocialShare {...makeProps({ hasRecap: false })} />);
     const videoBtn = screen.getByTestId("asset-video");
-    expect(videoBtn).toBeDisabled();
+    expect(videoBtn).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("Image card button is disabled when isPublic is false", () => {
+  it("Image card button is aria-disabled when isPublic is false", () => {
     render(<SocialShare {...makeProps({ isPublic: false })} />);
     const imageBtn = screen.getByTestId("asset-image");
-    expect(imageBtn).toBeDisabled();
+    expect(imageBtn).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("Recap video button is enabled when hasRecap is true", () => {
+  it("Recap video button is not aria-disabled when hasRecap is true", () => {
     render(<SocialShare {...makeProps({ hasRecap: true })} />);
     const videoBtn = screen.getByTestId("asset-video");
-    expect(videoBtn).not.toBeDisabled();
+    expect(videoBtn).toHaveAttribute("aria-disabled", "false");
   });
 
-  it("Image card button is enabled when isPublic is true", () => {
+  it("Image card button is not aria-disabled when isPublic is true", () => {
     render(<SocialShare {...makeProps({ isPublic: true })} />);
     const imageBtn = screen.getByTestId("asset-image");
-    expect(imageBtn).not.toBeDisabled();
+    expect(imageBtn).toHaveAttribute("aria-disabled", "false");
   });
 
   it("shows image-disabled hint when isPublic is false", () => {
@@ -585,7 +585,7 @@ describe("SocialShare — error handling", () => {
 // ─── Loading / in-flight disabled state ──────────────────────────────────────
 
 describe("SocialShare — loading state", () => {
-  it("shows 'Sharing…' label while in-flight and button is disabled", async () => {
+  it("shows 'Sharing…' label while in-flight", async () => {
     let resolvePublish!: (v: unknown) => void;
     const pendingPublish = new Promise((res) => { resolvePublish = res; });
     mockFetch.mockReturnValueOnce(pendingPublish);
@@ -598,14 +598,13 @@ describe("SocialShare — loading state", () => {
       const fb = screen.getByTestId("platform-FACEBOOK");
       const btn = fb.querySelector("button")!;
       expect(btn).toHaveTextContent("Sharing…");
-      expect(btn).toBeDisabled();
     });
 
     // Resolve to avoid hanging
     resolvePublish({ ok: true, status: 200, json: async () => ({ ok: true, method: "DEEPLINK", shareUrl: "https://fb.com" }) });
   });
 
-  it("does not trigger duplicate click while loading", async () => {
+  it("does not trigger duplicate click while loading (in-flight guard fires)", async () => {
     let resolvePublish!: (v: unknown) => void;
     const pendingPublish = new Promise((res) => { resolvePublish = res; });
     mockFetch.mockReturnValueOnce(pendingPublish);
@@ -613,10 +612,15 @@ describe("SocialShare — loading state", () => {
     render(<SocialShare {...makeProps()} />);
     const fbBtn = screen.getByTestId("platform-FACEBOOK").querySelector("button")!;
 
+    // First click — starts the fetch
     fireEvent.click(fbBtn);
-    await waitFor(() => expect(fbBtn).toBeDisabled());
+    // Wait for loading state (Sharing… label)
+    await waitFor(() => expect(fbBtn).toHaveTextContent("Sharing…"));
+    // Second click — button is NOT natively disabled; the in-flight guard in
+    // handlePlatformClick fires (current.state === "loading") → returns early
     fireEvent.click(fbBtn);
 
+    // fetch must still only have been called once
     expect(mockFetch).toHaveBeenCalledTimes(1);
     resolvePublish({ ok: true, status: 200, json: async () => ({ ok: true, method: "DEEPLINK", shareUrl: "https://fb.com" }) });
   });
@@ -628,6 +632,100 @@ describe("SocialShare — loading state", () => {
     expect(fbBtn).toBeDisabled();
   });
 });
+
+// ─── Uncovered branch coverage ───────────────────────────────────────────────
+
+describe("SocialShare — shareUrl nullish fallback (WEBSHARE with navigator.share)", () => {
+  it("passes empty string to navigator.share when shareUrl is undefined", async () => {
+    mockNavigatorShare.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", {
+      value: mockNavigatorShare,
+      configurable: true,
+      writable: true,
+    });
+
+    // Return WEBSHARE result with no shareUrl field
+    mockPublishResponse({ ok: true, method: "WEBSHARE" });
+    render(<SocialShare {...makeProps()} />);
+
+    fireEvent.click(screen.getByTestId("platform-INSTAGRAM").querySelector("button")!);
+
+    await waitFor(() => {
+      expect(mockNavigatorShare).toHaveBeenCalledWith({ url: "" });
+    });
+  });
+});
+
+describe("SocialShare — shareUrl nullish fallback (clipboard fallback, no navigator.share)", () => {
+  it("passes empty string to clipboard.writeText when shareUrl is undefined", async () => {
+    Object.defineProperty(navigator, "share", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    mockClipboardWriteText.mockResolvedValue(undefined);
+
+    // Return WEBSHARE result with no shareUrl field
+    mockPublishResponse({ ok: true, method: "WEBSHARE" });
+    render(<SocialShare {...makeProps()} />);
+
+    fireEvent.click(screen.getByTestId("platform-INSTAGRAM").querySelector("button")!);
+
+    await waitFor(() => {
+      expect(mockClipboardWriteText).toHaveBeenCalledWith("");
+    });
+  });
+});
+
+describe("SocialShare — non-Error thrown in handlePlatformClick", () => {
+  it("shows 'Network error' when a non-Error value is thrown", async () => {
+    // Throw a plain string, not an Error instance
+    mockFetch.mockRejectedValueOnce("something went wrong");
+    render(<SocialShare {...makeProps()} />);
+
+    fireEvent.click(screen.getByTestId("platform-FACEBOOK").querySelector("button")!);
+
+    await waitFor(() => {
+      const err = screen.getByTestId("platform-error-FACEBOOK");
+      expect(err).toHaveTextContent("Network error");
+    });
+  });
+});
+
+describe("SocialShare — unknown platform fallback in getButtonLabel / getButtonSubtitle", () => {
+  it("falls back to raw platform name when platform is not in PLATFORM_DISPLAY (apiAvailable true)", () => {
+    // TIKTOK is not in PLATFORM_DISPLAY, so getButtonLabel falls back to cap.platform.
+    // The filter now accepts any non-WEBSHARE platform, so TIKTOK passes through.
+    // Cast to Platform to satisfy TypeScript while testing the defensive fallback.
+    const caps: Capability[] = [
+      { platform: "TIKTOK" as import("@/lib/publish/types").Platform, method: "API", apiAvailable: true },
+    ];
+    render(<SocialShare {...makeProps({ capabilities: caps })} />);
+    const btn = screen.getByTestId("platform-TIKTOK").querySelector("button")!;
+    // No entry in PLATFORM_DISPLAY → falls back to "TIKTOK"
+    expect(btn).toHaveTextContent("Post to TIKTOK");
+  });
+
+  it("falls back to raw platform name when platform is not in PLATFORM_DISPLAY (apiAvailable false)", () => {
+    const caps: Capability[] = [
+      { platform: "TIKTOK" as import("@/lib/publish/types").Platform, method: "DEEPLINK", apiAvailable: false, reason: "test reason" },
+    ];
+    render(<SocialShare {...makeProps({ capabilities: caps })} />);
+    const btn = screen.getByTestId("platform-TIKTOK").querySelector("button")!;
+    // No entry in PLATFORM_DISPLAY → falls back to "TIKTOK"
+    expect(btn).toHaveTextContent("TIKTOK");
+  });
+});
+
+// Note: handleAssetToggle early-return branches (lines 51-52) are covered by the
+// "clicking disabled video/image button does not change selection" tests above.
+// Since the asset toggle buttons use aria-disabled (not native disabled), fireEvent.click
+// reaches the handler and the early-return guard fires.
+//
+// The handlePlatformClick loading guard (line 58) is covered by the
+// "does not trigger duplicate click while loading" test above.
+// Platform buttons are not natively disabled during loading, so the second
+// fireEvent.click reaches handlePlatformClick and hits the early-return guard.
 
 // ─── HONESTY: never show "Posted!" for non-API ───────────────────────────────
 

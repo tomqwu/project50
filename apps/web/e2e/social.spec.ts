@@ -18,11 +18,12 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 test("social: celebrate page shows SocialShare panel with honest labels; Facebook deeplink opens sharer", async ({
   page,
 }) => {
-  const run = `${Date.now()}`;
+  const run = randomUUID();
   const handle = `e2e-social-${run}`;
   const todayKey = new Date().toISOString().slice(0, 10);
 

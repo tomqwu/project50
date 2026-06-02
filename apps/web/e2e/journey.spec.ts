@@ -17,12 +17,13 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 test("auth + API journey: create challenge, log activity, verify completion + streak", async ({
   request,
 }, testInfo) => {
   // Unique handle per run to avoid collisions with prior runs in the same DB.
-  const handle = `e2e-${testInfo.workerIndex}-journey-${Date.now()}`;
+  const handle = `e2e-${testInfo.workerIndex}-journey-${randomUUID()}`;
 
   // ─── Step 1: Obtain CSRF token ────────────────────────────────────────────
   const csrfRes = await request.get("/api/auth/csrf");

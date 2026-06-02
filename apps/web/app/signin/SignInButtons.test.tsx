@@ -51,7 +51,7 @@ describe("SignInButtons", () => {
       "e2e",
       expect.objectContaining({
         callbackUrl: "/",
-        handle: expect.stringMatching(/^e2e-\d+$/),
+        handle: expect.stringMatching(/^e2e-[0-9a-f-]{36}$/),
       }),
     );
   });

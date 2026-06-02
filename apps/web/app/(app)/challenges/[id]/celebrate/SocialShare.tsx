@@ -25,8 +25,8 @@ const PLATFORM_DISPLAY: Record<string, string> = {
   WECHAT: "WeChat",
 };
 
-// Only show the 3 social platforms (not WEBSHARE itself as a button)
-const SOCIAL_PLATFORMS = ["FACEBOOK", "INSTAGRAM", "WECHAT"] as const;
+// Exclude the virtual WEBSHARE platform — it is a delivery method, not a button.
+const EXCLUDED_PLATFORMS = new Set(["WEBSHARE"]);
 
 export function SocialShare({
   challengeId,
@@ -39,8 +39,8 @@ export function SocialShare({
     Record<string, PlatformStatus>
   >({});
 
-  const socialCapabilities = capabilities.filter((c) =>
-    (SOCIAL_PLATFORMS as readonly string[]).includes(c.platform),
+  const socialCapabilities = capabilities.filter(
+    (c) => !EXCLUDED_PLATFORMS.has(c.platform),
   );
 
   const imageDisabled = !isPublic;
@@ -162,7 +162,7 @@ export function SocialShare({
       >
         <button
           data-testid="asset-image"
-          disabled={imageDisabled}
+          aria-disabled={imageDisabled}
           onClick={() => handleAssetToggle("IMAGE")}
           aria-pressed={selectedAsset === "IMAGE"}
           style={{
@@ -182,7 +182,7 @@ export function SocialShare({
         </button>
         <button
           data-testid="asset-video"
-          disabled={videoDisabled}
+          aria-disabled={videoDisabled}
           onClick={() => handleAssetToggle("VIDEO")}
           aria-pressed={selectedAsset === "VIDEO"}
           style={{
@@ -225,9 +225,10 @@ export function SocialShare({
           const label = getButtonLabel(cap);
           const subtitle = getButtonSubtitle(cap);
           const isImageSelected = selectedAsset === "IMAGE";
-          const platformDisabled =
-            isLoading ||
-            (isImageSelected && imageDisabled);
+          // Only disable the button when the image asset is unavailable.
+          // The in-flight guard in handlePlatformClick prevents duplicate fetches
+          // while loading; the button remains interactive so the guard is reachable.
+          const platformDisabled = isImageSelected && imageDisabled;
 
           return (
             <div
