@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "project50",
+    "slug": "project50",
+    "scheme": "project50",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#121013"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#121013"
+      }
+    },
+    "platforms": ["ios", "android"]
+  }
+}
