@@ -76,12 +76,36 @@ export async function onSignIn({
         : null;
   if (!provider) return false;
 
+  user.id = await resolveOAuthUser({
+    provider,
+    providerAccountId: account.providerAccountId,
+    name: user.name,
+    email: user.email,
+    image: user.image,
+  });
+  return true;
+}
+
+/**
+ * Resolve (or create) the local user for an OAuth identity, returning the uid.
+ *
+ * Shared by the NextAuth `onSignIn` callback (web) and the mobile code-exchange
+ * endpoint. Resolves by the GLOBALLY-UNIQUE `provider + providerAccountId` key
+ * (never the email-derived handle, which is not unique across providers and
+ * would allow account takeover).
+ */
+export async function resolveOAuthUser(params: {
+  provider: "GOOGLE" | "FACEBOOK";
+  providerAccountId: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+}): Promise<string> {
+  const { provider, providerAccountId, name, email, image } = params;
+
   const existing = await prisma.identity.findUnique({
     where: {
-      provider_providerAccountId: {
-        provider,
-        providerAccountId: account.providerAccountId,
-      },
+      provider_providerAccountId: { provider, providerAccountId },
     },
     include: { user: true },
   });
@@ -90,16 +114,15 @@ export async function onSignIn({
     await prisma.user.update({
       where: { id: existing.user.id },
       data: {
-        displayName: user.name ?? existing.user.displayName,
-        avatarUrl: user.image ?? undefined,
+        displayName: name ?? existing.user.displayName,
+        avatarUrl: image ?? undefined,
       },
     });
-    user.id = existing.user.id;
-    return true;
+    return existing.user.id;
   }
 
-  const rawHandle = user.email ?? user.name ?? account.providerAccountId;
-  const base = (rawHandle.split("@")[0] || account.providerAccountId).replace(
+  const rawHandle = email ?? name ?? providerAccountId;
+  const base = (rawHandle.split("@")[0] || providerAccountId).replace(
     /[^a-zA-Z0-9_-]/g,
     "_",
   );
@@ -108,19 +131,14 @@ export async function onSignIn({
   const dbUser = await prisma.user.create({
     data: {
       handle,
-      displayName: user.name ?? handle,
-      avatarUrl: user.image ?? undefined,
+      displayName: name ?? handle,
+      avatarUrl: image ?? undefined,
     },
   });
 
   await prisma.identity.create({
-    data: {
-      userId: dbUser.id,
-      provider,
-      providerAccountId: account.providerAccountId,
-    },
+    data: { userId: dbUser.id, provider, providerAccountId },
   });
 
-  user.id = dbUser.id;
-  return true;
+  return dbUser.id;
 }
