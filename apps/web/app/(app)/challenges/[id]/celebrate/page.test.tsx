@@ -8,6 +8,7 @@ const {
   mockListRecaps,
   mockLocalDayKey,
   mockDayNumber,
+  mockGetCapabilities,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockGetChallenge: vi.fn(),
@@ -15,6 +16,7 @@ const {
   mockListRecaps: vi.fn(),
   mockLocalDayKey: vi.fn(),
   mockDayNumber: vi.fn(),
+  mockGetCapabilities: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
@@ -23,6 +25,9 @@ vi.mock("@/lib/api/challenges", () => ({
   getMilestones: mockGetMilestones,
 }));
 vi.mock("@/lib/api/recap", () => ({ listRecaps: mockListRecaps }));
+vi.mock("@/lib/publish/registry", () => ({
+  getCapabilities: mockGetCapabilities,
+}));
 vi.mock("@project50/core", () => ({
   localDayKey: mockLocalDayKey,
   dayNumber: mockDayNumber,
@@ -41,12 +46,32 @@ vi.mock("./RecapPanel", () => ({
     />
   ),
 }));
+vi.mock("./SocialShare", () => ({
+  SocialShare: ({
+    challengeId,
+    hasRecap,
+    isPublic,
+  }: {
+    challengeId: string;
+    hasRecap: boolean;
+    isPublic: boolean;
+  }) => (
+    <div
+      data-testid="social-share"
+      data-challenge-id={challengeId}
+      data-has-recap={String(hasRecap)}
+      data-is-public={String(isPublic)}
+    />
+  ),
+}));
 
 import CelebratePage from "./page";
 
 beforeEach(() => {
   // Default: no existing recaps
   mockListRecaps.mockResolvedValue([]);
+  // Default: empty capabilities
+  mockGetCapabilities.mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -270,5 +295,67 @@ describe("CelebratePage", () => {
     await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
 
     expect(mockListRecaps).toHaveBeenCalledWith("c1", "u1");
+  });
+
+  it("renders SocialShare with hasRecap=false when no recaps", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockListRecaps.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const ss = screen.getByTestId("social-share");
+    expect(ss).toHaveAttribute("data-challenge-id", "c1");
+    expect(ss).toHaveAttribute("data-has-recap", "false");
+    expect(ss).toHaveAttribute("data-is-public", "true");
+  });
+
+  it("renders SocialShare with hasRecap=true when recaps exist", async () => {
+    const initialRecaps = [
+      { id: "r1", kind: "DAY" as const, url: "https://example.com/day.mp4", createdAt: new Date() },
+    ];
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockListRecaps.mockResolvedValue(initialRecaps);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const ss = screen.getByTestId("social-share");
+    expect(ss).toHaveAttribute("data-has-recap", "true");
+  });
+
+  it("renders SocialShare with isPublic=false when challenge is PRIVATE", async () => {
+    const privateCh = { ...baseChallenge, visibility: "PRIVATE" };
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(privateCh);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    const ss = screen.getByTestId("social-share");
+    expect(ss).toHaveAttribute("data-is-public", "false");
+  });
+
+  it("calls getCapabilities and passes to SocialShare", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+
+    expect(mockGetCapabilities).toHaveBeenCalled();
   });
 });
