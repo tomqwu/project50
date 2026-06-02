@@ -25,6 +25,10 @@ The following patterns are excluded from coverage with documented reasons. Each 
 | `src/lib/session.ts` — `buildFacebookAuthRequest()` | Whole function (`/* istanbul ignore next */`) | Same reason as `buildGoogleAuthRequest`. Pure hook wiring, no branching logic. |
 | `src/lib/photo.ts` — picker call sites | Line-level `/* istanbul ignore next */` | `expo-image-picker`'s `.launchImageLibraryAsync()` / `.launchCameraAsync()` are one-liner native bridge calls. The surrounding logic (presign, upload, submit) is fully unit-tested with the picker mocked. |
 | `src/screens/CelebrateScreen.tsx` share call site | Line-level `/* istanbul ignore next */` | `expo-sharing` / `Linking.openURL` is a one-liner native call. Surrounding view logic is tested. |
+| `src/lib/share.ts` — `shareAsync` and `openURL` call sites | Line-level `/* istanbul ignore next */` | `expo-sharing`'s `.shareAsync()` and RN `Linking.openURL()` are single-expression native bridge calls. The surrounding logic (`isAvailableAsync` branch) is fully tested. |
+| `src/screens/CelebrateScreen.tsx` — `handleShare` early-return guard | Line-level `/* istanbul ignore next */` | `if (!generatedUrl) return` is a safety guard that is unreachable via the rendered UI — the Share button is only rendered when `generatedUrl` is non-null. No branching logic of our own beyond the guard. |
+| `src/navigation/AppNavigator.tsx` | Whole file (excluded via `coveragePathIgnorePatterns`) | Pure declarative React Navigation stack wiring — `NavigationContainer` + `createStackNavigator` exercise the native bridge; zero branching logic of our own. Screens are tested directly via RNTL. |
+| `App.tsx` | Whole file (excluded via `coveragePathIgnorePatterns`) | `registerRootComponent` is a single native bridge call with no logic. |
 
 ## Why the split is honest
 
@@ -45,6 +49,15 @@ No additional exclusions. The 99% gate was established on `src/components/**`.
 ### Task 3 (Dashboard + Log)
 - Added 99% gate on `src/viewmodels/**` and `src/screens/**`.
 - Added line-level exclusions for `expo-image-picker` picker call sites in `src/lib/photo.ts`.
+
+### Task 4 (Feed + Celebrate + share)
+- Added `src/lib/share.ts` line-level exclusions for `Sharing.shareAsync` and `Linking.openURL` native call sites. The `isAvailableAsync()` capability-check branch is fully tested.
+- `src/screens/FeedScreen.tsx`: all view logic (state, handlers, optimistic update, revert) is tested; no exclusions needed.
+- `src/screens/CelebrateScreen.tsx`: `handleShare` early-return guard (`if (!generatedUrl) return`) is excluded with `/* istanbul ignore next */` — the share button is only rendered when `generatedUrl` is non-null, making this guard unreachable through the rendered UI. All other logic is fully tested.
+
+### Task 5 (Navigation + App entry)
+- Added whole-file exclusion for `src/navigation/AppNavigator.tsx` via `coveragePathIgnorePatterns` (React Navigation native bridge wiring, zero own logic).
+- Added whole-file exclusion for `App.tsx` via `coveragePathIgnorePatterns` (`registerRootComponent` native call, zero own logic).
 
 ## Device verification
 

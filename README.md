@@ -4,9 +4,9 @@ A social progress-tracking app built around **50-day challenges** — track your
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
 
-> Status: **Increment 3 (hybrid social publishing) in progress on `feat/inc3-social-publishing`.** Phases 0–4 +
-> Increments 1–2 (photo upload, recap engine) are merged. Hybrid social sharing to Facebook, Instagram,
-> and WeChat is live — see the roadmap below.
+> Status: **Increment 4 (native Expo app) complete on `feat/inc4-native-expo`.** Phases 0–4 +
+> Increments 1–3 are merged. Native app (Feed, Celebrate, share, navigation) is code-complete
+> and unit-tested. A–E program complete at the code level — see the roadmap below.
 
 ## What it does
 
@@ -39,10 +39,41 @@ TypeScript monorepo (pnpm workspaces):
 | `packages/config` | Shared ESLint + Vitest config (incl. the 99% coverage gate). |
 | `packages/recap` | Remotion compositions + render pipeline for day/week/50-day recap MP4s. |
 | `apps/web` | Next.js (App Router) PWA + API route handlers. |
+| `apps/mobile` | React Native (Expo SDK 52) app — reuses `@project50/core` + REST API. |
 
 Auth: Google/Facebook OAuth (Auth.js). Media: S3-compatible object storage (MinIO in dev).
 Visual design direction: **"Momentum"** (charcoal + electric-volt accent) — see
 `design-explore/momentum/`.
+
+## Native app (Expo)
+
+`apps/mobile` is a React Native (Expo SDK 52) app that delivers the core project50 flows on mobile.
+
+**Status:** Code-complete + unit-tested with Jest/RNTL. Reuses `@project50/core` domain logic and the same REST API as the web app. On-device run and device/e2e verification are pending simulator access.
+
+| Feature | Status |
+|---------|--------|
+| API client (all endpoints) | Tested (Jest, fetch mocked) |
+| Session / auth | Tested (SecureStore + OAuth wired) |
+| Dashboard screen | Tested (RNTL) |
+| Log Activity screen (photo upload) | Tested (RNTL) |
+| Feed screen (cheer + optimistic update) | Tested (RNTL) |
+| Celebrate screen (recap generate + share) | Tested (RNTL) |
+| React Navigation stack | Wired (native-glue exclusion) |
+
+**Run on device / simulator:**
+
+```bash
+pnpm --filter @project50/mobile start   # opens Expo Go / development build
+```
+
+**Tests (headless Jest, no simulator required):**
+
+```bash
+pnpm --filter @project50/mobile test
+```
+
+Coverage gate: 99% on `src/lib/**`, `src/viewmodels/**`, `src/components/**`, `src/screens/**`. Native-only glue (navigator container, `registerRootComponent`, picker/share native call sites) is excluded and documented in [`apps/mobile/COVERAGE.md`](apps/mobile/COVERAGE.md).
 
 ## Getting started
 
@@ -103,6 +134,9 @@ Within the first slice, phased delivery:
   `GET /api/publish/capabilities` + `POST /api/challenges/:id/publish`. `SocialShare` panel on the
   celebrate screen with asset toggle (Image card / Recap video) and honest capability labels.
   Full e2e: assert panel renders, honest labels visible, Facebook deeplink (`window.open` stubbed).
+- [x] **Sub-project C — Native iOS/Android (Expo):** `apps/mobile` — code-complete + unit-tested (207 tests, 100% coverage on testable dirs); screens: Dashboard, Log Activity (photo), Feed (cheer + optimistic update), Celebrate (recap generate + share); React Navigation stack wired; device verification pending simulator access.
+
+**A–E program: COMPLETE at the code level.** All sub-projects (A: backend + data model, B: web PWA, C: native Expo app, D: social publishing, E: recap animation engine) are implemented and unit-tested. On-device / e2e verification of the native app (C) is the one remaining open item pending simulator access.
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).
