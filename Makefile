@@ -8,7 +8,7 @@ RECAP := @project50/recap
 UI := @project50/ui
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install env services migrate generate dev mobile db-studio \
+.PHONY: help setup install env services migrate generate seed dev mobile db-studio \
         test test-web test-mobile test-core test-recap test-ui \
         e2e e2e-install typecheck lint build ci recap-sample down clean reset
 
@@ -33,6 +33,9 @@ migrate: env services ## Apply database migrations
 
 generate: env ## Regenerate the Prisma client
 	pnpm --filter $(DB) generate
+
+seed: env services migrate ## Seed a rich demo account
+	pnpm --filter $(DB) seed
 
 # ---- Run ----
 dev: env services ## Run the web app (http://localhost:3000)
