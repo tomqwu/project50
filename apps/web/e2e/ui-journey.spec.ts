@@ -2,7 +2,7 @@
  * UI e2e journey: browser-driven flow through the real Next.js app.
  *
  * Sign-in method: click the e2e button on the /signin page.  The button calls
- * signIn("e2e", { callbackUrl: "/", handle: `e2e-${Date.now()}` }), which goes
+ * signIn("e2e", { callbackUrl: "/", handle: `e2e-${crypto.randomUUID()}` }), which goes
  * through the Credentials provider in auth.ts and lands on the dashboard.
  *
  * Challenge creation: there is no create-challenge UI screen yet (Phase 4 gap),
@@ -25,7 +25,7 @@ test("UI journey: sign-in → seed challenge → log activity → verify complet
   await expect(e2eButton).toBeVisible();
 
   // ─── Step 2: Click the e2e button → navigate to dashboard ────────────────
-  // The button generates a unique handle (e2e-<timestamp>) at click time.
+  // The button generates a unique handle (e2e-<uuid>) at click time.
   await e2eButton.click();
   // Wait for navigation to complete and land on the dashboard.
   await page.waitForURL("/", { timeout: 15_000 });

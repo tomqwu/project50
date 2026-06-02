@@ -1,10 +1,12 @@
 import { requireUser } from "@/lib/session";
 import { getChallenge, getMilestones } from "@/lib/api/challenges";
 import { listRecaps } from "@/lib/api/recap";
+import { getCapabilities } from "@/lib/publish/registry";
 import { localDayKey, dayNumber } from "@project50/core";
 import { CelebrateView } from "./CelebrateView";
 import type { MilestoneKind } from "./CelebrateView";
 import { RecapPanel } from "./RecapPanel";
+import { SocialShare } from "./SocialShare";
 
 export default async function CelebratePage({
   params,
@@ -38,6 +40,11 @@ export default async function CelebratePage({
   // Load existing recaps (visibility-gated)
   const initialRecaps = await listRecaps(id, uid);
 
+  // Compute props for SocialShare
+  const hasRecap = initialRecaps.length > 0;
+  const isPublic = challenge.visibility === "PUBLIC";
+  const capabilities = getCapabilities();
+
   return (
     <>
       <CelebrateView
@@ -57,6 +64,12 @@ export default async function CelebratePage({
         photoUrl={photoUrl}
       />
       <div style={{ maxWidth: "480px", margin: "0 auto", padding: "0 32px 48px" }}>
+        <SocialShare
+          challengeId={id}
+          hasRecap={hasRecap}
+          isPublic={isPublic}
+          capabilities={capabilities}
+        />
         <RecapPanel challengeId={id} initialRecaps={initialRecaps} />
       </div>
     </>

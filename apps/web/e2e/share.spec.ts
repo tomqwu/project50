@@ -7,6 +7,7 @@
  */
 
 import { test, expect, Browser } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 test("sharing flow: create PUBLIC challenge, log activity, celebrate, share link, public page, card image", async ({
   page,
@@ -15,17 +16,28 @@ test("sharing flow: create PUBLIC challenge, log activity, celebrate, share link
   page: ReturnType<Browser["newPage"]> extends Promise<infer T> ? T : never;
   browser: Browser;
 }) => {
-  const run = `${Date.now()}`;
+  const run = randomUUID();
   const challengeTitle = `E2E Share ${run}`;
+  const handle = `e2e-share-${run}`;
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  // ─── Step 1: Sign in via the e2e button ─────────────────────────────────
-  await page.goto("/signin");
-  await page.waitForURL(/\/signin/);
-  const e2eButton = page.getByTestId("signin-e2e");
-  await expect(e2eButton).toBeVisible({ timeout: 10_000 });
-  await e2eButton.click();
-  // Land on the dashboard
+  // ─── Step 1: Sign in via programmatic CSRF + credentials callback ────────
+  // Use the same reliable sign-in pattern as journey.spec.ts to avoid
+  // session-cookie issues that can occur with the client-side signIn() button.
+  const csrfRes = await page.request.get("/api/auth/csrf");
+  expect(csrfRes.ok()).toBeTruthy();
+  const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
+  await page.request.post("/api/auth/callback/e2e", {
+    form: {
+      csrfToken,
+      handle,
+      callbackUrl: "http://localhost:3000/",
+      json: "true",
+    },
+  });
+
+  // Verify auth by navigating to dashboard
+  await page.goto("/");
   await page.waitForURL("/", { timeout: 15_000 });
   expect(page.url()).toMatch(/\/$/);
 
@@ -48,6 +60,9 @@ test("sharing flow: create PUBLIC challenge, log activity, celebrate, share link
 
   // Set start date to today UTC
   await page.getByTestId("start-date-input").fill(todayKey);
+
+  // Set timezone to UTC so that dayKey in the log form matches the server's asOf
+  await page.getByTestId("timezone-input").fill("UTC");
 
   // Set visibility to PUBLIC (it defaults to PUBLIC, but set explicitly)
   await page.getByTestId("visibility-select").selectOption("PUBLIC");

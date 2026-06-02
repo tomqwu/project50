@@ -16,11 +16,12 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 test("recap: click Day recap on celebrate → video appears with storage src", async ({
   page,
 }) => {
-  const run = `${Date.now()}`;
+  const run = randomUUID();
   const handle = `e2e-recap-${run}`;
   const todayKey = new Date().toISOString().slice(0, 10);
 

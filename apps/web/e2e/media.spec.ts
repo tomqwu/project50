@@ -18,6 +18,7 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PNG = path.join(__dirname, "fixtures/test-photo.png");
@@ -25,7 +26,7 @@ const FIXTURE_PNG = path.join(__dirname, "fixtures/test-photo.png");
 test("media upload: log activity with photo → photo renders in feed", async ({
   page,
 }) => {
-  const run = `${Date.now()}`;
+  const run = randomUUID();
   const handle = `e2e-media-${run}`;
   const todayKey = new Date().toISOString().slice(0, 10);
 
@@ -103,7 +104,7 @@ test("media upload: log activity with photo → photo renders in feed", async ({
 });
 
 test("media upload: photo renders in feed for followers", async ({ page, browser }) => {
-  const run = `${Date.now()}-feed`;
+  const run = randomUUID();
   const ownerHandle = `e2e-media-owner-${run}`;
   const followerHandle = `e2e-media-follower-${run}`;
   const todayKey = new Date().toISOString().slice(0, 10);

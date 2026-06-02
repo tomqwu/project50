@@ -4,9 +4,9 @@ A social progress-tracking app built around **50-day challenges** — track your
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
 
-> Status: **Increment 2 (recap animation engine) complete on `feat/inc2-recap-engine`.** Phases 0–4 +
-> Increment 1 (photo upload) are merged. Recap video generation (day/week/50-day) is live —
-> see the roadmap below.
+> Status: **Increment 3 (hybrid social publishing) in progress on `feat/inc3-social-publishing`.** Phases 0–4 +
+> Increments 1–2 (photo upload, recap engine) are merged. Hybrid social sharing to Facebook, Instagram,
+> and WeChat is live — see the roadmap below.
 
 ## What it does
 
@@ -22,6 +22,11 @@ integrations: Facebook, Instagram, WeChat.
   [Remotion](https://www.remotion.dev/), stored in S3/MinIO, preview/download/share from the
   celebrate screen. CI/e2e use `RECAP_FAKE=1` (no Chromium); real renders run locally via
   `pnpm --filter @project50/recap render:sample`.
+- **Hybrid social sharing** to Facebook, Instagram, and WeChat: each platform is capability-flagged
+  — when API credentials are configured (env: `FB_PAGE_ID`/`FB_PAGE_TOKEN`, `IG_USER_ID`/`IG_TOKEN`,
+  `WECHAT_APP_ID`) the Publisher calls the real platform API; otherwise it falls back to a deep link
+  (Facebook sharer URL) or Web Share API. The UI surfaces capability reasons truthfully and never
+  shows "Posted!" for a non-API share. Image-card sharing requires the challenge to be PUBLIC.
 
 ## Tech stack
 
@@ -92,6 +97,12 @@ Within the first slice, phased delivery:
   render pipeline with `FakeRecapRenderer` (CI-safe) + `RemotionRenderer` (real h264),
   `POST /api/challenges/:id/recap` (owner-only) → MP4 stored in MinIO → signed URL,
   celebrate screen with generate/preview/download/share, full e2e with fake renderer.
+- [ ] **Increment 3 — Hybrid social publishing (in progress):** `Publisher` abstraction with
+  per-platform adapters (Facebook Graph API, Instagram Content Publishing API, WeChat JS-SDK) —
+  capability-flagged: API when credentials are configured, DEEPLINK/WEBSHARE fallback otherwise.
+  `GET /api/publish/capabilities` + `POST /api/challenges/:id/publish`. `SocialShare` panel on the
+  celebrate screen with asset toggle (Image card / Recap video) and honest capability labels.
+  Full e2e: assert panel renders, honest labels visible, Facebook deeplink (`window.open` stubbed).
 
 Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).

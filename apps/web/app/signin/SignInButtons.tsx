@@ -39,7 +39,7 @@ export function SignInButtons({ e2eEnabled = false }: SignInButtonsProps) {
           onClick={() =>
             signIn("e2e", {
               callbackUrl: "/",
-              handle: `e2e-${Date.now()}`,
+              handle: `e2e-${crypto.randomUUID()}`,
             })
           }
           style={{ ...providerButtonStyle, background: "var(--surface2)" }}
