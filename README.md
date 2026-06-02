@@ -83,15 +83,25 @@ The simplest path is the **Makefile** (run `make` to list every target):
 
 ```
 make setup
+make seed
 make dev
 ```
 
 `make setup` installs deps, creates `.env`, starts Postgres + MinIO, applies migrations, and
-installs the Playwright browser. `make dev` runs the web app — then open `http://localhost:3000`
-in your browser.
+installs the Playwright browser. `make seed` populates a rich demo account so the app shows real
+data on first login. `make dev` runs the web app — then open `http://localhost:3000` in your
+browser.
 
 > Note: paste each command on its own line. Don't paste the `http://localhost:3000` URL into a
 > terminal — type it into your browser.
+
+**Demo flow (dev-only):** after `make seed`, open `http://localhost:3000/signin` and click
+**"Continue as demo account"** to sign in as the seeded `demo` user and land on a populated
+dashboard with an active challenge, streak, feed content from Maya and Leo, and earned milestones.
+
+> The dev sign-in button and the demo seed are **local/dev-only** — the sign-in button is gated
+> by `AUTH_E2E=1` (set in `.env.example`) and the `NODE_ENV !== "production"` check; the seed
+> script lives in `packages/db` and is never run in production.
 
 Equivalent without Make (note Prisma needs the env loaded; the `make`/`pnpm` db scripts do this
 for you via `dotenv`):

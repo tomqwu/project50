@@ -60,9 +60,28 @@ beforeEach(() => {
   vi.resetModules();
 });
 
+/** Helper: override NODE_ENV, working around possible non-configurable descriptor. */
+function overrideNodeEnv(value: string) {
+  try {
+    Object.defineProperty(process.env, "NODE_ENV", {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+  } catch {
+    // If the descriptor is locked (non-configurable), fall back to direct write.
+    // This works in most V8-based test runners even when defineProperty fails.
+    (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
+  }
+}
+
 afterEach(() => {
   delete process.env.AUTH_E2E;
   delete process.env.AUTH_SECRET;
+  delete process.env.AUTH_E2E_ALLOW_PROD;
+  // Reset NODE_ENV to the test default.
+  overrideNodeEnv("test");
 });
 
 describe("auth.ts module wiring", () => {
@@ -122,5 +141,47 @@ describe("auth.ts module wiring", () => {
 
     const result = await capturedAuthorize!({ handle: "myhandle" });
     expect(result).toMatchObject({ id: "mock-user-id", name: "Mock" });
+  });
+
+  it("does NOT include e2e provider when NODE_ENV=production (no AUTH_E2E_ALLOW_PROD)", async () => {
+    // Production scenario: AUTH_E2E=1 leaks but NODE_ENV=production and no
+    // allow flag → the NODE_ENV gate blocks the provider. This verifies the
+    // belt-and-suspenders guard that unit tests can control via NODE_ENV.
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_E2E = "1";
+    delete process.env.AUTH_E2E_ALLOW_PROD;
+    overrideNodeEnv("production");
+
+    await import("./auth");
+
+    expect(capturedCalls).toHaveLength(1);
+    expect(capturedCalls.at(0)?.hasE2E).toBe(false);
+    // authorize was not captured — the credentials block was skipped
+    expect(capturedAuthorize).toBeNull();
+  });
+
+  it("includes e2e provider when AUTH_E2E=1 and NODE_ENV is not production", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_E2E = "1";
+    overrideNodeEnv("test");
+
+    await import("./auth");
+
+    expect(capturedCalls.some((c) => c.hasE2E)).toBe(true);
+    expect(capturedAuthorize).toBeTypeOf("function");
+  });
+
+  it("includes e2e provider when AUTH_E2E=1 and NODE_ENV=production WITH AUTH_E2E_ALLOW_PROD=1", async () => {
+    // E2e webServer scenario: AUTH_E2E=1, NODE_ENV=production (next start), and
+    // AUTH_E2E_ALLOW_PROD=1 (set by playwright.config) → provider IS registered.
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_E2E = "1";
+    process.env.AUTH_E2E_ALLOW_PROD = "1";
+    overrideNodeEnv("production");
+
+    await import("./auth");
+
+    expect(capturedCalls.some((c) => c.hasE2E)).toBe(true);
+    expect(capturedAuthorize).toBeTypeOf("function");
   });
 });
