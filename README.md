@@ -79,23 +79,46 @@ Coverage gate: 99% on `src/lib/**`, `src/viewmodels/**`, `src/components/**`, `s
 
 Prerequisites: Node 20+ (CI pins 20; works on newer), pnpm 9, Docker.
 
-```bash
-pnpm install
-cp .env.example .env
-docker compose up -d            # Postgres + MinIO
-pnpm --filter @project50/db exec prisma migrate dev
-pnpm --filter @project50/web dev   # http://localhost:3000
+The simplest path is the **Makefile** (run `make` to list every target):
+
+```
+make setup
+make dev
 ```
 
-## Scripts (run from the repo root)
+`make setup` installs deps, creates `.env`, starts Postgres + MinIO, applies migrations, and
+installs the Playwright browser. `make dev` runs the web app — then open `http://localhost:3000`
+in your browser.
 
-| Command | What it does |
-|---|---|
-| `pnpm test` | Unit tests + coverage, per package (hard **99%** line/branch gate). |
-| `pnpm test:e2e` | Playwright end-to-end tests (builds + serves the web app). |
-| `pnpm typecheck` | `tsc --noEmit` across packages. |
-| `pnpm lint` | ESLint (`--max-warnings=0`). |
-| `pnpm build` | Production build of `apps/web`. |
+> Note: paste each command on its own line. Don't paste the `http://localhost:3000` URL into a
+> terminal — type it into your browser.
+
+Equivalent without Make (note Prisma needs the env loaded; the `make`/`pnpm` db scripts do this
+for you via `dotenv`):
+
+```
+pnpm install
+cp .env.example .env
+docker compose up -d postgres minio
+pnpm --filter @project50/db migrate:deploy
+pnpm --filter @project50/web dev
+```
+
+## Common tasks
+
+| Make | pnpm | What it does |
+|---|---|---|
+| `make test` | `pnpm test` | Unit + integration tests, all packages (hard **99%** gate). |
+| `make e2e` | `pnpm test:e2e` | Playwright end-to-end tests (builds + serves the web app). |
+| `make test-mobile` | `pnpm --filter @project50/mobile test` | Mobile Jest tests (no services needed). |
+| `make typecheck` | `pnpm typecheck` | `tsc --noEmit` across packages. |
+| `make lint` | `pnpm lint` | ESLint (`--max-warnings=0`). |
+| `make build` | `pnpm --filter @project50/web build` | Production build of `apps/web`. |
+| `make ci` | — | Everything CI runs: lint, typecheck, tests, e2e. |
+| `make reset` | — | Drop + recreate the dev database. |
+
+`make test`/`make e2e` start the services and apply migrations first, so they work from a clean
+checkout. Run `make` with no target to see the full list.
 
 ## Quality bar
 
