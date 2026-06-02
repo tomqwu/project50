@@ -18,5 +18,16 @@ describe("mobile-session", () => {
     expect(await readBearerUser(null)).toBeNull();
     expect(await readBearerUser("Basic abc")).toBeNull();
     expect(await readBearerUser("Bearer not-a-jwt")).toBeNull();
+    expect(await readBearerUser("Bearer")).toBeNull(); // scheme present, no token
+  });
+
+  it("throws when AUTH_SECRET is not configured", async () => {
+    const saved = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      await expect(mintSessionToken("user-123")).rejects.toThrow("AUTH_SECRET is not set");
+    } finally {
+      process.env.AUTH_SECRET = saved;
+    }
   });
 });
