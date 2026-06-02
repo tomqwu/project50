@@ -12,6 +12,7 @@ import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 
+import { SignInScreen } from "../screens/SignInScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { LogActivityScreen } from "../screens/LogActivityScreen";
 import { FeedScreen } from "../screens/FeedScreen";
@@ -19,6 +20,7 @@ import { CelebrateScreen } from "../screens/CelebrateScreen";
 import { colors } from "../theme";
 
 export type RootStackParamList = {
+  SignIn: undefined;
   Dashboard: undefined;
   LogActivity: {
     challengeId: string;
@@ -43,7 +45,14 @@ const screenOptions = {
 export function AppNavigator(): React.JSX.Element {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Dashboard" screenOptions={screenOptions}>
+      <Stack.Navigator initialRouteName="SignIn" screenOptions={screenOptions}>
+        <Stack.Screen name="SignIn" options={{ headerShown: false }}>
+          {(props) => (
+            <SignInScreen
+              onSignedIn={() => props.navigation.replace("Dashboard")}
+            />
+          )}
+        </Stack.Screen>
         <Stack.Screen
           name="Dashboard"
           component={DashboardScreen}
