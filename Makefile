@@ -10,7 +10,7 @@ UI := @project50/ui
 .DEFAULT_GOAL := help
 .PHONY: help setup install env services migrate generate seed dev mobile db-studio \
         test test-web test-mobile test-core test-recap test-ui \
-        e2e e2e-install typecheck lint build ci recap-sample down clean reset
+        e2e e2e-install smoke typecheck lint build ci recap-sample down clean reset
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -71,6 +71,9 @@ e2e: env services migrate e2e-install ## Playwright end-to-end tests (web)
 
 e2e-install: ## Install the Playwright Chromium browser
 	pnpm --filter $(WEB) exec playwright install chromium
+
+smoke: env services migrate e2e-install ## Quick end-to-end sanity check (API journey)
+	pnpm --filter @project50/web exec playwright test journey.spec
 
 # ---- Checks ----
 typecheck: ## Type-check every package
