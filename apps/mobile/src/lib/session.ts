@@ -125,7 +125,10 @@ export function buildFacebookAuthRequest(): ReturnType<typeof AuthSession.useAut
   return AuthSession.useAuthRequest(
     {
       clientId: process.env["EXPO_PUBLIC_FACEBOOK_APP_ID"] ?? "",
-      scopes: ["public_profile", "email"],
+      // `email` must be added to the FB app's "Authenticate and request data"
+      // use case before it can be requested (otherwise FB returns
+      // "Invalid Scopes: email"). Re-add "email" here once that's enabled.
+      scopes: ["public_profile"],
       redirectUri: REDIRECT_URI,
       usePKCE: false,
     },
