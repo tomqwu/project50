@@ -5,7 +5,19 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@project50/db";
 import { onJwt, onSession, onSignIn } from "@/lib/auth-callbacks";
 
-const providers: NextAuthConfig["providers"] = [Google({}), Facebook({})];
+// Read the documented env names (GOOGLE_CLIENT_ID / FACEBOOK_CLIENT_ID, etc.).
+// Without explicit values, Auth.js v5 would look for AUTH_GOOGLE_ID / AUTH_FACEBOOK_ID
+// instead, so the keys in .env(.example) would be ignored.
+const providers: NextAuthConfig["providers"] = [
+  Google({
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  }),
+  Facebook({
+    clientId: process.env.FACEBOOK_CLIENT_ID,
+    clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+  }),
+];
 
 // Test-only deterministic sign-in. NEVER enabled in production.
 // Double-gated:
