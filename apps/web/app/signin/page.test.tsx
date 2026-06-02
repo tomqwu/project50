@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-// Mock next-auth/react used by SignInButtons child
+// Mock next-auth/react used by SignInButtons (via Landing)
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
 import SignInPage from "./page";
@@ -39,5 +39,20 @@ describe("SignInPage", () => {
     process.env.AUTH_E2E = "1";
     render(<SignInPage />);
     expect(screen.getByTestId("signin-e2e")).toBeInTheDocument();
+  });
+
+  it("renders the value proposition", () => {
+    render(<SignInPage />);
+    expect(screen.getByTestId("landing-value-prop")).toHaveTextContent(
+      "50-day challenge",
+    );
+  });
+
+  it("renders feature bullets", () => {
+    render(<SignInPage />);
+    const features = screen.getByTestId("landing-features");
+    expect(features).toHaveTextContent("50-day challenges + streaks");
+    expect(features).toHaveTextContent("Log daily with photos");
+    expect(features).toHaveTextContent("Shareable recap videos and cards");
   });
 });

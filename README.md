@@ -120,6 +120,8 @@ pnpm --filter @project50/web dev
 |---|---|---|
 | `make test` | `pnpm test` | Unit + integration tests, all packages (hard **99%** gate). |
 | `make e2e` | `pnpm test:e2e` | Playwright end-to-end tests (builds + serves the web app). |
+| `make smoke` | — | Quick end-to-end sanity check (API journey: sign in → create → log → verify). |
+| `make seed` | — | Populate the demo account (challenges, streaks, photos, feed) for an instant demo. |
 | `make test-mobile` | `pnpm --filter @project50/mobile test` | Mobile Jest tests (no services needed). |
 | `make typecheck` | `pnpm typecheck` | `tsc --noEmit` across packages. |
 | `make lint` | `pnpm lint` | ESLint (`--max-warnings=0`). |
