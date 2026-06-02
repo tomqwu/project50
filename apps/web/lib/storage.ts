@@ -62,12 +62,16 @@ export async function presignGet(objectKey: string): Promise<string> {
 /**
  * Upload a Buffer directly to object storage (server-side upload).
  * Use for server-generated files such as rendered recap MP4s.
+ *
+ * Calls ensureBucket() first so this works on fresh storage (e.g. CI with
+ * MinIO where the bucket hasn't been created yet via the presign route).
  */
 export async function putObject(
   objectKey: string,
   body: Buffer,
   contentType: string,
 ): Promise<void> {
+  await ensureBucket();
   const command = new PutObjectCommand({
     Bucket: getBucket(),
     Key: objectKey,

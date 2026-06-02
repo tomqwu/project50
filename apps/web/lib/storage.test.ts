@@ -130,26 +130,68 @@ describe("presignGet", () => {
 });
 
 describe("putObject", () => {
-  it("sends a PutObjectCommand with the correct Bucket, Key, Body, and ContentType", async () => {
-    mockSend.mockResolvedValueOnce({});
+  it("calls ensureBucket (HeadBucket) before sending PutObjectCommand", async () => {
+    // HeadBucket for ensureBucket, then PutObject
+    mockSend
+      .mockResolvedValueOnce({}) // HeadBucket OK (bucket exists)
+      .mockResolvedValueOnce({}); // PutObject OK
     const body = Buffer.from("mp4-bytes");
     await putObject("media/u1/recap-DAY-abc.mp4", body, "video/mp4");
-    expect(mockSend).toHaveBeenCalledOnce();
-    const [cmd] = mockSend.mock.calls[0] as [{ Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string }];
-    expect(cmd.Bucket).toBe("project50-media");
-    expect(cmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
-    expect(cmd.Body).toBe(body);
-    expect(cmd.ContentType).toBe("video/mp4");
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    // First call must be HeadBucket (from ensureBucket)
+    const [headCmd] = mockSend.mock.calls[0] as [{ _type?: string }];
+    expect(headCmd._type).toBe("HeadBucket");
+    // Second call must be PutObject
+    const [putCmd] = mockSend.mock.calls[1] as [{ _type?: string; Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string }];
+    expect(putCmd._type).toBe("PutObject");
+    expect(putCmd.Bucket).toBe("project50-media");
+    expect(putCmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
+    expect(putCmd.Body).toBe(body);
+    expect(putCmd.ContentType).toBe("video/mp4");
+  });
+
+  it("creates the bucket when missing, then uploads (fresh-storage scenario)", async () => {
+    // Simulates CI where bucket doesn't exist yet: HeadBucket 404, CreateBucket OK, PutObject OK
+    const notFoundErr = Object.assign(new Error("Not Found"), {
+      name: "NotFound",
+      $metadata: { httpStatusCode: 404 },
+    });
+    mockSend
+      .mockRejectedValueOnce(notFoundErr) // HeadBucket → bucket missing
+      .mockResolvedValueOnce({})          // CreateBucket OK
+      .mockResolvedValueOnce({});         // PutObject OK
+    const body = Buffer.from("recap-bytes");
+    const result = await putObject("media/u1/recap.mp4", body, "video/mp4");
+    expect(result).toBeUndefined();
+    expect(mockSend).toHaveBeenCalledTimes(3);
+  });
+
+  it("sends a PutObjectCommand with the correct Bucket, Key, Body, and ContentType", async () => {
+    // HeadBucket succeeds (bucket exists), then PutObject
+    mockSend
+      .mockResolvedValueOnce({}) // HeadBucket OK
+      .mockResolvedValueOnce({}); // PutObject OK
+    const body = Buffer.from("mp4-bytes");
+    await putObject("media/u1/recap-DAY-abc.mp4", body, "video/mp4");
+    const [putCmd] = mockSend.mock.calls[1] as [{ Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string }];
+    expect(putCmd.Bucket).toBe("project50-media");
+    expect(putCmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
+    expect(putCmd.Body).toBe(body);
+    expect(putCmd.ContentType).toBe("video/mp4");
   });
 
   it("resolves to undefined on success", async () => {
-    mockSend.mockResolvedValueOnce({});
+    mockSend
+      .mockResolvedValueOnce({}) // HeadBucket OK
+      .mockResolvedValueOnce({}); // PutObject OK
     const result = await putObject("media/u1/f.mp4", Buffer.from("x"), "video/mp4");
     expect(result).toBeUndefined();
   });
 
-  it("propagates S3 errors", async () => {
-    mockSend.mockRejectedValueOnce(new Error("Access Denied"));
+  it("propagates S3 errors from PutObject", async () => {
+    mockSend
+      .mockResolvedValueOnce({})                        // HeadBucket OK
+      .mockRejectedValueOnce(new Error("Access Denied")); // PutObject fails
     await expect(putObject("media/u1/f.mp4", Buffer.from("x"), "video/mp4")).rejects.toThrow("Access Denied");
   });
 });
