@@ -10,6 +10,12 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       AUTH_E2E: "1",
+      // Allows the e2e Credentials provider to register in `next start` (which
+      // forces NODE_ENV=production at build time and runtime). Without this,
+      // the NODE_ENV!==production belt-and-suspenders guard in auth.ts would
+      // block the provider in the pnpm build && pnpm start e2e server.
+      // This flag is ONLY set in the e2e webServer env — never in production.
+      AUTH_E2E_ALLOW_PROD: "1",
       AUTH_SECRET:
         process.env.AUTH_SECRET ?? "e2e-test-secret",
       AUTH_TRUST_HOST: "1",

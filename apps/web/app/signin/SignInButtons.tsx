@@ -39,13 +39,13 @@ export function SignInButtons({ e2eEnabled = false }: SignInButtonsProps) {
           onClick={() =>
             signIn("e2e", {
               callbackUrl: "/",
-              handle: `e2e-${crypto.randomUUID()}`,
+              handle: "demo",
             })
           }
           style={{ ...providerButtonStyle, background: "var(--surface2)" }}
           data-testid="signin-e2e"
         >
-          E2E Sign In (test only)
+          Continue as demo account
         </button>
       )}
     </div>

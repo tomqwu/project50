@@ -1,9 +1,10 @@
 /**
  * UI e2e journey: browser-driven flow through the real Next.js app.
  *
- * Sign-in method: click the e2e button on the /signin page.  The button calls
- * signIn("e2e", { callbackUrl: "/", handle: `e2e-${crypto.randomUUID()}` }), which goes
- * through the Credentials provider in auth.ts and lands on the dashboard.
+ * Sign-in method: programmatic CSRF + /api/auth/callback/e2e POST with a
+ * unique handle (same pattern as journey.spec.ts / share.spec.ts).  This keeps
+ * the test isolated and avoids sharing the fixed "demo" account that the dev
+ * button now always signs in as.
  *
  * Challenge creation: there is no create-challenge UI screen yet (Phase 4 gap),
  * so we seed the challenge via the authenticated API using the browser context's
@@ -11,23 +12,27 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 test("UI journey: sign-in → seed challenge → log activity → verify completion → feed", async ({
   page,
 }) => {
-  // ─── Step 1: Unauthenticated / → redirects to /signin ────────────────────
+  // ─── Step 1: Sign in programmatically (unique handle per run) ────────────
+  const handle = `e2e-ui-${randomUUID()}`;
+  const csrfRes = await page.request.get("/api/auth/csrf");
+  expect(csrfRes.ok()).toBeTruthy();
+  const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
+  await page.request.post("/api/auth/callback/e2e", {
+    form: {
+      csrfToken,
+      handle,
+      callbackUrl: "http://localhost:3000/",
+      json: "true",
+    },
+  });
+
+  // ─── Step 2: Navigate to dashboard (authenticated) ────────────────────────
   await page.goto("/");
-  await page.waitForURL(/\/signin/);
-  expect(page.url()).toContain("/signin");
-
-  // The e2e sign-in control must be visible (AUTH_E2E=1 in webServer env).
-  const e2eButton = page.getByTestId("signin-e2e");
-  await expect(e2eButton).toBeVisible();
-
-  // ─── Step 2: Click the e2e button → navigate to dashboard ────────────────
-  // The button generates a unique handle (e2e-<uuid>) at click time.
-  await e2eButton.click();
-  // Wait for navigation to complete and land on the dashboard.
   await page.waitForURL("/", { timeout: 15_000 });
   expect(page.url()).toMatch(/\/$/);
 
