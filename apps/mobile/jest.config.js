@@ -4,15 +4,21 @@ const config = {
   collectCoverageFrom: ["src/**/*.{ts,tsx}", "!src/**/*.d.ts"],
   coverageThreshold: {
     // 99% gate on each source dir we control.
-    // src/lib and src/viewmodels are added here as those dirs are created in later tasks.
-    // Each new dir that contains testable logic must meet 99%; native-glue exclusions
-    // are documented in COVERAGE.md.
+    // Native-glue exclusions are documented in COVERAGE.md.
     "src/components/**": {
       lines: 99,
       branches: 99,
       functions: 99,
       statements: 99,
     },
+    "src/lib/**": {
+      lines: 99,
+      branches: 99,
+      functions: 99,
+      statements: 99,
+    },
+    // src/viewmodels/** threshold added in Task 3 when that dir is created.
+    // src/screens/** threshold added in Task 3 when that dir is created.
   },
   // jest-expo transformIgnorePatterns: transform RN/Expo modules that ship as Flow/ESM.
   //
