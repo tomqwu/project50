@@ -98,13 +98,17 @@ export async function signInDev(handle: string, baseUrl?: string): Promise<strin
  * native glue. The testable logic (handling the auth result) lives in handleOAuthResult.
  * See COVERAGE.md for the full justification.
  */
+/** The native redirect URI; must be whitelisted in the FB/Google Valid OAuth Redirect URIs. */
+export const REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: "project50" });
+
 /* istanbul ignore next */
 export function buildGoogleAuthRequest(): ReturnType<typeof AuthSession.useAuthRequest> {
   return AuthSession.useAuthRequest(
     {
       clientId: process.env["EXPO_PUBLIC_GOOGLE_CLIENT_ID"] ?? "",
       scopes: ["openid", "profile", "email"],
-      redirectUri: AuthSession.makeRedirectUri({ scheme: "project50" }),
+      redirectUri: REDIRECT_URI,
+      usePKCE: false,
     },
     AuthSession.useAutoDiscovery("https://accounts.google.com"),
   );
@@ -121,26 +125,33 @@ export function buildFacebookAuthRequest(): ReturnType<typeof AuthSession.useAut
   return AuthSession.useAuthRequest(
     {
       clientId: process.env["EXPO_PUBLIC_FACEBOOK_APP_ID"] ?? "",
-      scopes: ["public_profile", "email"],
-      redirectUri: AuthSession.makeRedirectUri({ scheme: "project50" }),
+      // Each scope must be enabled in the FB app's "Authenticate and request
+      // data" use case, or FB returns "Invalid Scopes: <name>".
+      // `user_friends` requires App Review before it works for public users in
+      // Live mode; in Development mode it works for admins/testers.
+      scopes: ["public_profile", "email", "user_friends"],
+      redirectUri: REDIRECT_URI,
+      usePKCE: false,
     },
     {
-      authorizationEndpoint: "https://www.facebook.com/v12.0/dialog/oauth",
-      tokenEndpoint: "https://graph.facebook.com/v12.0/oauth/access_token",
+      authorizationEndpoint: "https://www.facebook.com/v19.0/dialog/oauth",
+      tokenEndpoint: "https://graph.facebook.com/v19.0/oauth/access_token",
     },
   );
 }
 
 /**
  * Handle the result of an OAuth prompt (success/failure).
- * Testable: extracts the token from the result and stores it.
+ * Testable: extracts the code from the result and exchanges it for a session token.
  * @param result — the AuthSession.AuthSessionResult from promptAsync
- * @param tokenExchangeUrl — backend endpoint to exchange the code for a session token
+ * @param exchangePath — backend endpoint that exchanges the code for a session token
+ * @param redirectUri — the redirect URI used in the auth request (must match the exchange)
  * @param baseUrl — backend base URL
  */
 export async function handleOAuthResult(
   result: AuthSession.AuthSessionResult,
-  tokenExchangeUrl: string,
+  exchangePath: string,
+  redirectUri: string,
   baseUrl?: string,
 ): Promise<string | null> {
   if (result.type !== "success") {
@@ -149,10 +160,10 @@ export async function handleOAuthResult(
 
   const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
 
-  const resp = await fetch(`${base}${tokenExchangeUrl}`, {
+  const resp = await fetch(`${base}${exchangePath}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: result.params["code"], state: result.params["state"] }),
+    body: JSON.stringify({ code: result.params["code"], redirectUri }),
   });
 
   if (!resp.ok) {
@@ -173,16 +184,17 @@ export async function handleOAuthResult(
 /**
  * Sign in with Google using expo-auth-session.
  * Call buildGoogleAuthRequest() in the component and pass the request + promptAsync.
- * Then call signInWithGoogle(promptAsync, result) after prompting.
+ * Then call signInWithGoogle(result, REDIRECT_URI) after prompting.
  *
  * The promptAsync() call must happen in a user-gesture handler in the component.
  * The handleOAuthResult logic is tested independently.
  */
 export async function signInWithGoogle(
   result: AuthSession.AuthSessionResult,
+  redirectUri: string,
   baseUrl?: string,
 ): Promise<string | null> {
-  return handleOAuthResult(result, "/api/auth/callback/google", baseUrl);
+  return handleOAuthResult(result, "/api/mobile/auth/google", redirectUri, baseUrl);
 }
 
 /**
@@ -191,7 +203,8 @@ export async function signInWithGoogle(
  */
 export async function signInWithFacebook(
   result: AuthSession.AuthSessionResult,
+  redirectUri: string,
   baseUrl?: string,
 ): Promise<string | null> {
-  return handleOAuthResult(result, "/api/auth/callback/facebook", baseUrl);
+  return handleOAuthResult(result, "/api/mobile/auth/facebook", redirectUri, baseUrl);
 }

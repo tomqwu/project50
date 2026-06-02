@@ -264,37 +264,39 @@ describe("signInDev", () => {
 // ─── handleOAuthResult ────────────────────────────────────────────────────────
 
 describe("handleOAuthResult", () => {
+  const REDIRECT = "project50://redirect";
+
   it("returns null for non-success result type (cancel)", async () => {
     const result = makeCancelResult();
-    const token = await handleOAuthResult(result, "/api/auth/callback/google");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT);
     expect(token).toBeNull();
   });
 
   it("returns null for dismiss result type", async () => {
     const result = makeDismissResult();
-    const token = await handleOAuthResult(result, "/api/auth/callback/google");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT);
     expect(token).toBeNull();
   });
 
   it("returns null for error result type", async () => {
     const result = makeErrorResult();
-    const token = await handleOAuthResult(result, "/api/auth/callback/google");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT);
     expect(token).toBeNull();
   });
 
-  it("posts code + state to exchange URL on success", async () => {
+  it("posts code + redirectUri to exchange URL on success", async () => {
     const result = makeSuccessResult("auth-code-123", "state-xyz");
 
     mockFetchOk({ token: "oauth-session-tok" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await handleOAuthResult(result, "/api/auth/callback/google", "http://localhost:3000");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT, "http://localhost:3000");
 
     expect(token).toBe("oauth-session-tok");
     const calls = globalFetch().mock.calls as Array<[string, RequestInit]>;
-    expect(calls[0]![0]).toBe("http://localhost:3000/api/auth/callback/google");
-    const body = JSON.parse(calls[0]![1]!.body as string) as { code: string; state: string };
-    expect(body).toEqual({ code: "auth-code-123", state: "state-xyz" });
+    expect(calls[0]![0]).toBe("http://localhost:3000/api/mobile/auth/google");
+    const body = JSON.parse(calls[0]![1]!.body as string) as { code: string; redirectUri: string };
+    expect(body).toEqual({ code: "auth-code-123", redirectUri: REDIRECT });
   });
 
   it("saves token and sets apiClient on success", async () => {
@@ -303,7 +305,7 @@ describe("handleOAuthResult", () => {
     mockFetchOk({ token: "stored-token" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    await handleOAuthResult(result, "/api/auth/callback/google", "http://localhost:3000");
+    await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT, "http://localhost:3000");
 
     expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith(
       "project50_session_token",
@@ -317,7 +319,7 @@ describe("handleOAuthResult", () => {
 
     mockFetchOk({});
 
-    const token = await handleOAuthResult(result, "/api/auth/callback/google", "http://localhost:3000");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT, "http://localhost:3000");
     expect(token).toBeNull();
   });
 
@@ -327,7 +329,7 @@ describe("handleOAuthResult", () => {
     mockFetchError(401);
 
     await expect(
-      handleOAuthResult(result, "/api/auth/callback/google", "http://localhost:3000"),
+      handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT, "http://localhost:3000"),
     ).rejects.toThrow("OAuth token exchange failed: 401");
   });
 
@@ -337,7 +339,7 @@ describe("handleOAuthResult", () => {
     mockFetchOk({ sessionToken: "session-tok-alt" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await handleOAuthResult(result, "/api/auth/callback/google", "http://localhost:3000");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT, "http://localhost:3000");
     expect(token).toBe("session-tok-alt");
   });
 
@@ -348,7 +350,7 @@ describe("handleOAuthResult", () => {
     mockFetchOk({ token: "default-tok" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await handleOAuthResult(result, "/api/auth/callback/google");
+    const token = await handleOAuthResult(result, "/api/mobile/auth/google", REDIRECT);
     expect(token).toBe("default-tok");
     const calls = globalFetch().mock.calls as Array<[string, unknown]>;
     expect(calls[0]![0]).toContain("http://localhost:3000");
@@ -358,22 +360,22 @@ describe("handleOAuthResult", () => {
 // ─── signInWithGoogle ─────────────────────────────────────────────────────────
 
 describe("signInWithGoogle", () => {
-  it("delegates to handleOAuthResult with google callback URL", async () => {
+  it("delegates to the mobile google exchange endpoint", async () => {
     const result = makeSuccessResult("g-code", "g-state");
 
     mockFetchOk({ token: "g-token" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await signInWithGoogle(result, "http://localhost:3000");
+    const token = await signInWithGoogle(result, "project50://redirect", "http://localhost:3000");
     expect(token).toBe("g-token");
 
     const calls = globalFetch().mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toContain("/api/auth/callback/google");
+    expect(calls[0]![0]).toContain("/api/mobile/auth/google");
   });
 
   it("returns null for cancelled auth", async () => {
     const result = makeCancelResult();
-    const token = await signInWithGoogle(result, "http://localhost:3000");
+    const token = await signInWithGoogle(result, "project50://redirect", "http://localhost:3000");
     expect(token).toBeNull();
   });
 });
@@ -381,22 +383,22 @@ describe("signInWithGoogle", () => {
 // ─── signInWithFacebook ───────────────────────────────────────────────────────
 
 describe("signInWithFacebook", () => {
-  it("delegates to handleOAuthResult with facebook callback URL", async () => {
+  it("delegates to the mobile facebook exchange endpoint", async () => {
     const result = makeSuccessResult("fb-code", "fb-state");
 
     mockFetchOk({ token: "fb-token" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await signInWithFacebook(result, "http://localhost:3000");
+    const token = await signInWithFacebook(result, "project50://redirect", "http://localhost:3000");
     expect(token).toBe("fb-token");
 
     const calls = globalFetch().mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toContain("/api/auth/callback/facebook");
+    expect(calls[0]![0]).toContain("/api/mobile/auth/facebook");
   });
 
   it("returns null for dismissed auth", async () => {
     const result = makeDismissResult();
-    const token = await signInWithFacebook(result, "http://localhost:3000");
+    const token = await signInWithFacebook(result, "project50://redirect", "http://localhost:3000");
     expect(token).toBeNull();
   });
 });
