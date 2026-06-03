@@ -58,6 +58,7 @@ model User {
   handle         String      @unique
   displayName    String
   avatarUrl      String?
+  isAdmin        Boolean     @default(false)
   createdAt      DateTime    @default(now())
   identities     Identity[]
   challenges     Challenge[]

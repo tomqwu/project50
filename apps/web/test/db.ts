@@ -29,6 +29,7 @@ export async function createUser(
     handle?: string;
     displayName?: string;
     avatarUrl?: string;
+    isAdmin?: boolean;
   } = {},
 ) {
   _userCounter += 1;
@@ -38,6 +39,7 @@ export async function createUser(
       handle,
       displayName: overrides.displayName ?? handle,
       avatarUrl: overrides.avatarUrl,
+      isAdmin: overrides.isAdmin ?? false,
     },
   });
 }
@@ -65,8 +67,7 @@ export async function createChallenge(
       ownerId,
       title: overrides.title ?? "Test",
       goalType,
-      dailyTarget:
-        overrides.dailyTarget ?? (goalType === "TARGET" ? 60 : null),
+      dailyTarget: overrides.dailyTarget ?? (goalType === "TARGET" ? 60 : null),
       startDate: overrides.startDate ?? "2026-06-01",
       lengthDays: overrides.lengthDays ?? 50,
       timezone: overrides.timezone ?? "UTC",
