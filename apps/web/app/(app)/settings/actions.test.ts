@@ -53,19 +53,38 @@ describe("updateAccountAction", () => {
     });
   });
 
-  it("returns the error code for an HttpError (validation failure)", async () => {
+  it("returns the error code for an HttpError without logging it as an error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockUpdateAccount.mockRejectedValue(new HttpError(422, "handle_taken"));
 
     const result = await updateAccountAction({ handle: "bob" });
 
     expect(result).toEqual({ ok: false, error: "handle_taken" });
     expect(mockRevalidatePath).not.toHaveBeenCalled();
+    // Expected/validation failures must not be logged at error level.
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
-  it("rethrows unexpected (non-HttpError) errors", async () => {
+  it("logs and rethrows unexpected (non-HttpError) errors", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
     mockUpdateAccount.mockRejectedValue(new Error("db down"));
 
     await expect(updateAccountAction({ handle: "x" })).rejects.toThrow("db down");
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      level: "error",
+      msg: "server action failed",
+      scope: "action",
+      action: "updateAccountAction",
+      error: { name: "Error", message: "db down" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
   });
 });
 
@@ -81,10 +100,23 @@ describe("deleteAccountAction", () => {
     expect(deleteOrder).toBeLessThan(signOutOrder);
   });
 
-  it("does not sign out when deletion fails", async () => {
+  it("logs and does not sign out when deletion fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
     mockDeleteAccount.mockRejectedValueOnce(new Error("db down"));
 
     await expect(deleteAccountAction()).rejects.toThrow("db down");
     expect(mockSignOut).not.toHaveBeenCalled();
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      scope: "action",
+      action: "deleteAccountAction",
+      error: { name: "Error", message: "db down" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
   });
 });
