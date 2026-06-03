@@ -16,14 +16,52 @@ describe("getPublicProfile", () => {
     expect(result).toBeNull();
   });
 
-  it("returns handle and displayName for a known user", async () => {
-    await createUser({ handle: "alice", displayName: "Alice A" });
+  it("returns id, handle and displayName for a known user", async () => {
+    const alice = await createUser({ handle: "alice", displayName: "Alice A" });
 
     const result = await getPublicProfile("alice");
 
     expect(result).not.toBeNull();
+    expect(result!.id).toBe(alice.id);
     expect(result!.handle).toBe("alice");
     expect(result!.displayName).toBe("Alice A");
+  });
+
+  it("reports isFollowing=false when there is no viewer", async () => {
+    await createUser({ handle: "alice" });
+
+    const result = await getPublicProfile("alice");
+
+    expect(result!.isFollowing).toBe(false);
+  });
+
+  it("reports isFollowing=true when the viewer follows the profile user", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await prisma.follow.create({
+      data: { followerId: bob.id, followeeId: alice.id },
+    });
+
+    const result = await getPublicProfile("alice", bob.id);
+
+    expect(result!.isFollowing).toBe(true);
+  });
+
+  it("reports isFollowing=false when the viewer does not follow the profile user", async () => {
+    await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    const result = await getPublicProfile("alice", bob.id);
+
+    expect(result!.isFollowing).toBe(false);
+  });
+
+  it("reports isFollowing=false when the viewer is the profile user (self)", async () => {
+    const alice = await createUser({ handle: "alice" });
+
+    const result = await getPublicProfile("alice", alice.id);
+
+    expect(result!.isFollowing).toBe(false);
   });
 
   it("includes only PUBLIC challenges with id, title, and goalType", async () => {
