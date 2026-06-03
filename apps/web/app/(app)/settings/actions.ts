@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { signOut } from "@/auth";
 import { HttpError } from "@/lib/api/http";
 import { updateAccount, deleteAccount, type Account } from "@/lib/api/account";
+import { withActionLogging } from "@/lib/log-action";
 
 export type UpdateAccountResult =
   | { ok: true; account: Account }
@@ -15,22 +16,27 @@ export type UpdateAccountResult =
  * profile and returns a discriminated result so the client can render success
  * or validation errors without throwing across the action boundary.
  */
-export async function updateAccountAction(input: {
-  displayName?: string;
-  handle?: string;
-}): Promise<UpdateAccountResult> {
-  const uid = await requireUser();
-  try {
-    const account = await updateAccount(uid, input);
-    revalidatePath("/settings");
-    return { ok: true, account };
-  } catch (err) {
-    if (err instanceof HttpError) {
-      return { ok: false, error: err.code };
+export const updateAccountAction = withActionLogging(
+  "updateAccountAction",
+  async (input: {
+    displayName?: string;
+    handle?: string;
+  }): Promise<UpdateAccountResult> => {
+    const uid = await requireUser();
+    try {
+      const account = await updateAccount(uid, input);
+      revalidatePath("/settings");
+      return { ok: true, account };
+    } catch (err) {
+      // Expected validation failure: returned (not thrown), so it is not logged
+      // as an error. Only genuinely unexpected throws reach withActionLogging.
+      if (err instanceof HttpError) {
+        return { ok: false, error: err.code };
+      }
+      throw err;
     }
-    throw err;
-  }
-}
+  },
+);
 
 /**
  * Server action invoked by the danger-zone delete control. Permanently deletes
@@ -38,8 +44,11 @@ export async function updateAccountAction(input: {
  * redirecting to /signin. If deletion fails the error propagates and sign-out
  * is skipped, so the user is not logged out of an account that still exists.
  */
-export async function deleteAccountAction(): Promise<void> {
-  const uid = await requireUser();
-  await deleteAccount(uid);
-  await signOut({ redirectTo: "/signin" });
-}
+export const deleteAccountAction = withActionLogging(
+  "deleteAccountAction",
+  async (): Promise<void> => {
+    const uid = await requireUser();
+    await deleteAccount(uid);
+    await signOut({ redirectTo: "/signin" });
+  },
+);
