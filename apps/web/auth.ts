@@ -4,6 +4,12 @@ import Facebook from "next-auth/providers/facebook";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@project50/db";
 import { onJwt, onSession, onSignIn } from "@/lib/auth-callbacks";
+import {
+  SESSION_MAX_AGE_SECONDS,
+  SESSION_UPDATE_AGE_SECONDS,
+  parseAuthSecrets,
+  shouldUseSecureCookies,
+} from "@/lib/auth-config";
 
 // Read the documented env names (GOOGLE_CLIENT_ID / FACEBOOK_CLIENT_ID, etc.).
 // Without explicit values, Auth.js v5 would look for AUTH_GOOGLE_ID / AUTH_FACEBOOK_ID
@@ -55,8 +61,19 @@ if (
   );
 }
 
+// Force Secure cookies only when the deployment URL is https (undefined → keep
+// NextAuth's per-request default, so the http e2e server still works).
+const secureCookies = shouldUseSecureCookies();
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    updateAge: SESSION_UPDATE_AGE_SECONDS,
+  },
+  // Comma-separated AUTH_SECRET enables zero-downtime secret rotation.
+  secret: parseAuthSecrets(process.env.AUTH_SECRET),
+  ...(secureCookies ? { useSecureCookies: true } : {}),
   providers,
   callbacks: {
     jwt: onJwt,
