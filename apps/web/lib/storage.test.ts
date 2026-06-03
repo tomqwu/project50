@@ -22,6 +22,7 @@ import {
   putObject,
   newMediaKey,
   ensureBucket,
+  checkStorage,
   _resetClientForTest,
 } from "./storage";
 
@@ -300,5 +301,20 @@ describe("ensureBucket", () => {
       .mockRejectedValueOnce(notFoundErr)
       .mockRejectedValueOnce(alreadyOwned);
     await expect(ensureBucket()).resolves.toBeUndefined();
+  });
+});
+
+describe("checkStorage (readiness probe)", () => {
+  it("returns true when the bucket HEAD succeeds", async () => {
+    mockSend.mockResolvedValueOnce({});
+    await expect(checkStorage()).resolves.toBe(true);
+    // HeadBucket was the command issued
+    const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
+    expect(vi.mocked(HeadBucketCommand)).toHaveBeenCalledWith({ Bucket: "project50-media" });
+  });
+
+  it("returns false when the bucket HEAD throws (storage unreachable)", async () => {
+    mockSend.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(checkStorage()).resolves.toBe(false);
   });
 });
