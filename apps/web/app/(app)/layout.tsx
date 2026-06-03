@@ -5,28 +5,36 @@ import { requireAuth } from "@/lib/auth-guard";
 export default async function AppLayout({ children }: { children: ReactNode }) {
   await requireAuth();
 
+  // App-shell content column — keeps the nav + page content in a centered,
+  // app-like column instead of sprawling edge-to-edge on wide viewports.
+  const shellMaxWidth = 600;
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
-      <nav
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "24px",
-          padding: "20px 32px",
-          borderBottom: "1px solid var(--hairline)",
-        }}
-      >
-        <span
+      <nav style={{ borderBottom: "1px solid var(--hairline)", padding: "0 24px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "24px",
+            padding: "20px 0",
+            maxWidth: shellMaxWidth,
+            margin: "0 auto",
+          }}
+        >
+        <Link
+          href="/"
           style={{
             fontFamily: "var(--font-display, 'Anton', sans-serif)",
             fontSize: "22px",
             letterSpacing: "0.05em",
             color: "var(--accent)",
             textTransform: "uppercase",
+            textDecoration: "none",
           }}
         >
           project50
-        </span>
+        </Link>
         <Link
           href="/"
           style={{
@@ -60,8 +68,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         >
           New
         </Link>
+        </div>
       </nav>
-      <main>{children}</main>
+      <main style={{ maxWidth: shellMaxWidth, margin: "0 auto" }}>{children}</main>
     </div>
   );
 }
