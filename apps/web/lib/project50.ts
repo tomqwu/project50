@@ -73,3 +73,34 @@ export async function getProject50State(uid: string, now: Date = new Date()): Pr
     today: await buildToday(run.id, run.startDate, todayKey),
   };
 }
+
+/** Set a rule's done state for TODAY on the user's active run; recompute DayStatus. */
+export async function toggleRule(
+  uid: string,
+  ruleId: number,
+  done: boolean,
+  now: Date = new Date(),
+): Promise<void> {
+  const run = await activeRun(uid);
+  if (!run) throw new Error("No active Project 50 run");
+  const todayKey = localDayKey(now, run.timezone);
+
+  await prisma.ruleCheck.upsert({
+    where: {
+      challengeId_dayKey_ruleId: { challengeId: run.id, dayKey: todayKey, ruleId },
+    },
+    update: { done },
+    create: { challengeId: run.id, dayKey: todayKey, ruleId, done },
+  });
+
+  const doneCount = await prisma.ruleCheck.count({
+    where: { challengeId: run.id, dayKey: todayKey, done: true },
+  });
+  const completed = doneCount === PROJECT50_RULE_IDS.length;
+
+  await prisma.dayStatus.upsert({
+    where: { challengeId_dayKey: { challengeId: run.id, dayKey: todayKey } },
+    update: { completed },
+    create: { challengeId: run.id, dayKey: todayKey, completed },
+  });
+}
