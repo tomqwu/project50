@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button, Label } from "@project50/ui";
 import { PROJECT50_RULES, PROJECT50_LENGTH_DAYS } from "@project50/core";
+import { t } from "@/lib/i18n";
 
 /**
  * First-run explainer for Project 50. Purely presentational so it can be
@@ -10,7 +11,7 @@ import { PROJECT50_RULES, PROJECT50_LENGTH_DAYS } from "@project50/core";
 export function WelcomeExplainer() {
   return (
     <div style={{ padding: "48px 32px", textAlign: "center", maxWidth: 480, marginInline: "auto" }}>
-      <Label>Welcome</Label>
+      <Label>{t("welcome.badge")}</Label>
       <h1
         style={{
           fontFamily: "var(--font-display)",
@@ -19,7 +20,7 @@ export function WelcomeExplainer() {
           margin: "12px 0",
         }}
       >
-        Project 50
+        {t("welcome.title")}
       </h1>
       <p style={{ color: "var(--muted)", marginBottom: "8px" }}>
         A {PROJECT50_LENGTH_DAYS}-day hard reset. {PROJECT50_RULES.length} daily rules, every single
@@ -34,7 +35,7 @@ export function WelcomeExplainer() {
           margin: "28px 0 8px",
         }}
       >
-        How it works
+        {t("welcome.howItWorks")}
       </h2>
       <p style={{ color: "var(--muted)", margin: "0 0 12px" }}>
         Each day you complete all {PROJECT50_RULES.length} rules:
@@ -70,7 +71,7 @@ export function WelcomeExplainer() {
           margin: "0 0 8px",
         }}
       >
-        All or nothing
+        {t("welcome.allOrNothing")}
       </h2>
       <p
         data-testid="welcome-all-or-nothing"
@@ -82,7 +83,7 @@ export function WelcomeExplainer() {
       </p>
 
       <Link href="/" data-testid="welcome-cta" style={{ textDecoration: "none" }}>
-        <Button variant="primary">Start Project 50</Button>
+        <Button variant="primary">{t("welcome.cta")}</Button>
       </Link>
     </div>
   );
