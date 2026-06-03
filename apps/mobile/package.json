@@ -6,7 +6,9 @@
     "start": "expo start",
     "test": "jest --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "expo": "52.0.49",

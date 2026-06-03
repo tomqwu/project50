@@ -35,7 +35,9 @@ export function DashboardView({ primary, challenges }: DashboardViewProps) {
     return (
       <div
         style={{
-          padding: "48px 32px",
+          padding: "64px 32px",
+          maxWidth: "420px",
+          margin: "0 auto",
           textAlign: "center",
           fontFamily: "var(--font-body, system-ui)",
         }}

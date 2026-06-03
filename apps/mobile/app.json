@@ -12,13 +12,17 @@
       "backgroundColor": "#121013"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.project50"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#121013"
       }
     },
-    "platforms": ["ios", "android"]
+    "platforms": [
+      "ios",
+      "android"
+    ]
   }
 }

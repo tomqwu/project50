@@ -1,0 +1,7 @@
+
+# Expo prebuild output (generated)
+/ios
+/android
+
+# Local Expo dev/build state (generated)
+/.expo
