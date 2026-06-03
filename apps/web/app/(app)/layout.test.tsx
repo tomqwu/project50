@@ -30,6 +30,7 @@ describe("AppLayout", () => {
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed");
     expect(screen.getByRole("link", { name: "New" })).toHaveAttribute("href", "/challenges/new");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByTestId("child")).toBeInTheDocument();
   });

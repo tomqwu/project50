@@ -69,6 +69,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         >
           New
         </Link>
+        <Link
+          href="/settings"
+          style={{
+            color: "var(--text)",
+            textDecoration: "none",
+            fontFamily: "var(--font-body, system-ui)",
+            fontSize: "14px",
+          }}
+        >
+          Settings
+        </Link>
         <SignOutButton />
         </div>
       </nav>
