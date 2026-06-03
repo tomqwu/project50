@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-export default {
+const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@project50/core", "@project50/db", "@project50/recap", "@project50/ui"],
   webpack(config, { isServer }) {
@@ -27,3 +27,38 @@ export default {
     return config;
   },
 };
+
+// Sentry is OPT-IN: only wrap the config (which enables source-map upload and the
+// Sentry webpack plugin) when a DSN is present. With no DSN — the default in dev,
+// CI, and e2e — the config is returned untouched and the build behaves exactly as
+// before. See instrumentation.ts / instrumentation-client.ts for the runtime init.
+const sentryEnabled = Boolean(process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN);
+
+let exported = nextConfig;
+
+if (sentryEnabled) {
+  const { withSentryConfig } = await import("@sentry/nextjs");
+  exported = withSentryConfig(nextConfig, {
+    // Suppress build-time logs unless explicitly debugging.
+    silent: true,
+    // Org/project + auth token are read from SENTRY_ORG / SENTRY_PROJECT /
+    // SENTRY_AUTH_TOKEN env vars (set only in environments that upload source maps).
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    // Only upload source maps when an auth token is available; otherwise skip
+    // upload so a DSN-only setup (e.g. runtime error capture) still builds.
+    sourcemaps: {
+      disable: !process.env.SENTRY_AUTH_TOKEN,
+    },
+    // Route browser Sentry requests through a Next rewrite to bypass ad-blockers.
+    tunnelRoute: "/monitoring",
+    // Tree-shake Sentry logger/debug statements from the client bundle.
+    webpack: {
+      treeshake: {
+        removeDebugLogging: true,
+      },
+    },
+  });
+}
+
+export default exported;
