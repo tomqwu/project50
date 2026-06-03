@@ -105,6 +105,12 @@ describe("DashboardView — TARGET challenge", () => {
     expect(link).toHaveAttribute("href", "/challenges/c1/log");
   });
 
+  it("renders 'Edit challenge' link pointing to /challenges/:id/settings", () => {
+    render(<DashboardView {...makeProps(baseTarget, [baseTarget])} />);
+    const link = screen.getByRole("link", { name: /Edit challenge/i });
+    expect(link).toHaveAttribute("href", "/challenges/c1/settings");
+  });
+
   it("shows completed ring (value=max) for completed TARGET day", () => {
     const completed: PrimaryChallenge = {
       ...baseTarget,

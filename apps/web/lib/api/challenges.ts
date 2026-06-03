@@ -141,6 +141,77 @@ export async function getChallenge(id: string, viewerId: string) {
   };
 }
 
+export interface UpdateChallengeInput {
+  title?: string;
+  unit?: string;
+  dailyTarget?: number;
+  visibility?: string;
+}
+
+/**
+ * Update an owner's challenge. Loads the challenge and throws 404
+ * CHALLENGE_NOT_FOUND when it is missing OR not owned by `ownerId`
+ * (we don't distinguish to avoid leaking existence). Only the editable
+ * fields (title, unit, dailyTarget, visibility) are applied; everything
+ * else in `patch` is ignored. Returns the updated challenge.
+ */
+export async function updateChallenge(
+  id: string,
+  ownerId: string,
+  patch: UpdateChallengeInput,
+) {
+  const challenge = await prisma.challenge.findUnique({ where: { id } });
+  if (!challenge || challenge.ownerId !== ownerId) {
+    notFound("CHALLENGE_NOT_FOUND");
+  }
+
+  const data: {
+    title?: string;
+    unit?: string;
+    dailyTarget?: number;
+    visibility?: "PUBLIC" | "FOLLOWERS" | "PRIVATE";
+  } = {};
+
+  if (patch.title !== undefined) {
+    const title = patch.title.trim();
+    if (title === "") unprocessable("INVALID_CHALLENGE", ["title is required"]);
+    data.title = title;
+  }
+  if (patch.unit !== undefined) {
+    const unit = patch.unit.trim();
+    if (unit === "") unprocessable("INVALID_CHALLENGE", ["unit is required"]);
+    data.unit = unit;
+  }
+  if (patch.dailyTarget !== undefined) {
+    if (patch.dailyTarget <= 0) {
+      unprocessable("INVALID_CHALLENGE", ["dailyTarget must be > 0"]);
+    }
+    data.dailyTarget = patch.dailyTarget;
+  }
+  if (patch.visibility !== undefined) {
+    if (!["PUBLIC", "FOLLOWERS", "PRIVATE"].includes(patch.visibility)) {
+      unprocessable("INVALID_CHALLENGE", [
+        "visibility must be PUBLIC, FOLLOWERS, or PRIVATE",
+      ]);
+    }
+    data.visibility = patch.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE";
+  }
+
+  return prisma.challenge.update({ where: { id }, data });
+}
+
+/**
+ * Delete an owner's challenge (cascades to related rows). Throws 404
+ * CHALLENGE_NOT_FOUND when missing OR not owned by `ownerId`.
+ */
+export async function deleteChallenge(id: string, ownerId: string): Promise<void> {
+  const challenge = await prisma.challenge.findUnique({ where: { id } });
+  if (!challenge || challenge.ownerId !== ownerId) {
+    notFound("CHALLENGE_NOT_FOUND");
+  }
+  await prisma.challenge.delete({ where: { id } });
+}
+
 /** Returns all milestones earned for a challenge (any kind). */
 export async function getMilestones(challengeId: string) {
   return prisma.milestone.findMany({

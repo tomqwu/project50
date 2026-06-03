@@ -140,6 +140,13 @@ export function DashboardView({ primary, challenges }: DashboardViewProps) {
         </Link>
       </div>
 
+      {/* Edit / settings */}
+      <div style={{ marginTop: "12px" }}>
+        <Link href={`/challenges/${primary.id}/settings`} style={{ textDecoration: "none" }}>
+          <Button variant="ghost">Edit challenge</Button>
+        </Link>
+      </div>
+
       {/* Other challenges */}
       {others.length > 0 && (
         <div style={{ marginTop: "40px" }}>
