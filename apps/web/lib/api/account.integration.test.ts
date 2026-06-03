@@ -4,7 +4,7 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import { prisma, resetDb, createUser } from "../../test/db";
-import { getAccount, updateAccount } from "./account";
+import { getAccount, updateAccount, deleteAccount } from "./account";
 
 beforeEach(resetDb);
 
@@ -139,5 +139,47 @@ describe("updateAccount", () => {
       status: 422,
       code: "invalid_display_name",
     });
+  });
+});
+
+describe("deleteAccount", () => {
+  it("deletes the user and cascades all of their data", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice", displayName: "Alice A" });
+    const challenge = await createChallenge(alice.id, { title: "Run" });
+
+    // A first-party activity + reaction owned by alice.
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: alice.id, dayKey: "2026-06-01" },
+    });
+    await prisma.reaction.create({
+      data: { activityId: activity.id, userId: alice.id, kind: "CHEER" },
+    });
+    // An OAuth identity row.
+    await prisma.identity.create({
+      data: { userId: alice.id, provider: "GOOGLE", providerAccountId: "g-1" },
+    });
+    // A follow relationship (alice follows bob).
+    const bob = await createUser({ handle: "bob" });
+    await prisma.follow.create({
+      data: { followerId: alice.id, followeeId: bob.id },
+    });
+
+    const result = await deleteAccount(alice.id);
+
+    expect(result).toBeUndefined();
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
+    // Cascaded children are gone.
+    expect(await prisma.challenge.count({ where: { ownerId: alice.id } })).toBe(0);
+    expect(await prisma.activity.count({ where: { userId: alice.id } })).toBe(0);
+    expect(await prisma.reaction.count({ where: { userId: alice.id } })).toBe(0);
+    expect(await prisma.identity.count({ where: { userId: alice.id } })).toBe(0);
+    expect(await prisma.follow.count({ where: { followerId: alice.id } })).toBe(0);
+    // Other users are untouched.
+    expect(await prisma.user.findUnique({ where: { id: bob.id } })).not.toBeNull();
+  });
+
+  it("rejects when the user does not exist", async () => {
+    await expect(deleteAccount("nonexistent")).rejects.toThrow();
   });
 });

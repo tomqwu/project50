@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { signOut } from "@/auth";
 import { HttpError } from "@/lib/api/http";
-import { updateAccount, type Account } from "@/lib/api/account";
+import { updateAccount, deleteAccount, type Account } from "@/lib/api/account";
 
 export type UpdateAccountResult =
   | { ok: true; account: Account }
@@ -29,4 +30,16 @@ export async function updateAccountAction(input: {
     }
     throw err;
   }
+}
+
+/**
+ * Server action invoked by the danger-zone delete control. Permanently deletes
+ * the signed-in user (cascading all their data) and then signs them out,
+ * redirecting to /signin. If deletion fails the error propagates and sign-out
+ * is skipped, so the user is not logged out of an account that still exists.
+ */
+export async function deleteAccountAction(): Promise<void> {
+  const uid = await requireUser();
+  await deleteAccount(uid);
+  await signOut({ redirectTo: "/signin" });
 }

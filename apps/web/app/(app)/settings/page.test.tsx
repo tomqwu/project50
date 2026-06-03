@@ -15,6 +15,11 @@ vi.mock("./_components/AccountSettingsForm", () => ({
     initial: { handle: string; displayName: string };
   }) => <div data-testid="account-form">{initial.handle}</div>,
 }));
+vi.mock("./_components/DeleteAccountSection", () => ({
+  DeleteAccountSection: ({ handle }: { handle: string }) => (
+    <div data-testid="delete-section">{handle}</div>
+  ),
+}));
 
 import SettingsPage from "./page";
 
@@ -34,5 +39,15 @@ describe("SettingsPage", () => {
     expect(mockRequireUser).toHaveBeenCalled();
     expect(mockGetAccount).toHaveBeenCalledWith("u1");
     expect(screen.getByTestId("account-form")).toHaveTextContent("alice");
+  });
+
+  it("renders the danger-zone delete section with the user's handle", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetAccount.mockResolvedValue({ handle: "alice", displayName: "Alice A" });
+
+    const ui = await SettingsPage();
+    render(ui);
+
+    expect(screen.getByTestId("delete-section")).toHaveTextContent("alice");
   });
 });

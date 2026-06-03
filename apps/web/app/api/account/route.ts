@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { handleRoute } from "@/lib/api/http";
-import { getAccount, updateAccount } from "@/lib/api/account";
+import { getAccount, updateAccount, deleteAccount } from "@/lib/api/account";
 
 export async function GET() {
   return handleRoute(async () => {
@@ -16,5 +16,13 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const account = await updateAccount(uid, body);
     return Response.json(account);
+  });
+}
+
+export async function DELETE() {
+  return handleRoute(async () => {
+    const uid = await requireUser();
+    await deleteAccount(uid);
+    return Response.json({ ok: true });
   });
 }
