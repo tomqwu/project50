@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createRef } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Button } from "./Button";
 
@@ -115,5 +116,65 @@ describe("Button", () => {
       "type",
       "button"
     );
+  });
+
+  it("forwards data-testid to the button element", () => {
+    render(<Button data-testid="cta">Hi</Button>);
+    expect(screen.getByTestId("cta")).toBe(
+      screen.getByRole("button", { name: "Hi" })
+    );
+  });
+
+  it("forwards arbitrary rest props (e.g. aria-label, id)", () => {
+    render(
+      <Button id="save-btn" aria-label="Save changes">
+        Save
+      </Button>
+    );
+    const btn = screen.getByRole("button", { name: "Save changes" });
+    expect(btn).toHaveAttribute("id", "save-btn");
+  });
+
+  it("forwards a ref to the underlying button element", () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<Button ref={ref}>Ref</Button>);
+    expect(ref.current).toBeInstanceOf(HTMLButtonElement);
+    expect(ref.current).toBe(screen.getByRole("button", { name: "Ref" }));
+  });
+
+  it("sets aria-disabled when disabled", () => {
+    render(<Button disabled>Off</Button>);
+    expect(screen.getByRole("button", { name: "Off" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+  });
+
+  it("does not set aria-disabled when enabled", () => {
+    render(<Button>On</Button>);
+    expect(screen.getByRole("button", { name: "On" })).toHaveAttribute(
+      "aria-disabled",
+      "false"
+    );
+  });
+
+  it("merges consumer-provided inline style with base styles", () => {
+    render(<Button style={{ marginTop: "8px" }}>Styled</Button>);
+    const btn = screen.getByRole("button", { name: "Styled" });
+    expect(btn).toHaveStyle({ marginTop: "8px" });
+    // base styles still applied
+    expect(btn).toHaveStyle({ textTransform: "uppercase" });
+  });
+
+  it("appends consumer className alongside the focus-visible class", () => {
+    render(<Button className="extra">C</Button>);
+    const btn = screen.getByRole("button", { name: "C" });
+    expect(btn.className).toContain("extra");
+  });
+
+  it("exposes a stable className for focus-visible styling", () => {
+    render(<Button>F</Button>);
+    const btn = screen.getByRole("button", { name: "F" });
+    expect(btn.className).toContain("p50-button");
   });
 });
