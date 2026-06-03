@@ -21,6 +21,13 @@ describe("RootLayout", () => {
     expect(metadata.title).toBe("project50");
   });
 
+  it("sets the document language and text direction from the active locale", () => {
+    const tree = RootLayout({ children: "content" });
+    expect(tree.type).toBe("html");
+    expect(tree.props.lang).toBe("en");
+    expect(tree.props.dir).toBe("ltr");
+  });
+
   it("wraps children in html/body with font class vars", () => {
     const tree = RootLayout({ children: "content" });
     expect(tree.type).toBe("html");
