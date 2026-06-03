@@ -1,11 +1,50 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LOCALE, getMessages, t, type Locale, type MessageKey } from "./index";
+import {
+  DEFAULT_LOCALE,
+  LOCALE_DIRECTION,
+  getMessages,
+  localeDirection,
+  t,
+  type Locale,
+  type MessageKey,
+} from "./index";
 import { en } from "./messages";
 
 describe("i18n", () => {
   describe("DEFAULT_LOCALE", () => {
     it("is 'en'", () => {
       expect(DEFAULT_LOCALE).toBe("en");
+    });
+  });
+
+  describe("LOCALE_DIRECTION", () => {
+    it("maps 'en' to 'ltr'", () => {
+      expect(LOCALE_DIRECTION.en).toBe("ltr");
+    });
+
+    it("declares a direction for every supported locale", () => {
+      // Every supported locale must have an explicit direction, and each value
+      // must be one of the two valid directions.
+      for (const direction of Object.values(LOCALE_DIRECTION)) {
+        expect(direction).toMatch(/^(ltr|rtl)$/);
+      }
+      // Today only "en" exists; this guards against adding a locale to the
+      // union without a direction entry.
+      expect(Object.keys(LOCALE_DIRECTION).sort()).toEqual(["en"]);
+    });
+  });
+
+  describe("localeDirection", () => {
+    it("returns 'ltr' for 'en'", () => {
+      expect(localeDirection("en")).toBe("ltr");
+    });
+
+    it("defaults to 'ltr' for an unknown locale", () => {
+      expect(localeDirection("xx" as Locale)).toBe("ltr");
+    });
+
+    it("returns the default locale's direction when called with no argument", () => {
+      expect(localeDirection()).toBe("ltr");
     });
   });
 

@@ -18,13 +18,19 @@
  *    Typing it as `Messages` forces it to cover every key in `en`.
  * 2. Extend the `Locale` union below to include `"fr"`.
  * 3. Register it in the `dictionaries` map below.
+ * 4. Declare its text direction in `LOCALE_DIRECTION` below (e.g. an RTL
+ *    locale such as `"ar"` maps to `"rtl"`).
  *
- * Everything else (`t`, `getMessages`) keeps working unchanged.
+ * Everything else (`t`, `getMessages`, `localeDirection`) keeps working
+ * unchanged.
  */
 import { en, type Messages } from "./messages";
 
 /** Supported locales. Extend this union when adding a locale. */
 export type Locale = "en";
+
+/** A document/text direction: left-to-right or right-to-left. */
+export type Direction = "ltr" | "rtl";
 
 /** The default locale used when none is provided. */
 export const DEFAULT_LOCALE: Locale = "en";
@@ -32,6 +38,18 @@ export const DEFAULT_LOCALE: Locale = "en";
 /** Registry of locale dictionaries. Add new locales here. */
 const dictionaries: Record<Locale, Messages> = {
   en,
+};
+
+/**
+ * Text direction for each supported locale.
+ *
+ * Typing this as `Record<Locale, Direction>` forces every locale in the union
+ * to declare a direction, so adding a locale without one is a compile error.
+ * Latin-script locales use `"ltr"`; to add a right-to-left locale, extend the
+ * `Locale` union and add an entry here, e.g. `ar: "rtl"`.
+ */
+export const LOCALE_DIRECTION: Record<Locale, Direction> = {
+  en: "ltr",
 };
 
 /**
@@ -69,4 +87,16 @@ export function t(key: MessageKey, locale: Locale = DEFAULT_LOCALE): string {
   }
 
   return typeof current === "string" ? current : key;
+}
+
+/**
+ * Return the text direction (`"ltr"` or `"rtl"`) for a locale.
+ *
+ * Falls back to `"ltr"` for an unknown locale, so the document always has a
+ * sensible direction even if an unsupported locale slips through. Set the
+ * resulting value on `<html dir>` so the whole document renders in the right
+ * direction (RTL locales flip the layout).
+ */
+export function localeDirection(locale: Locale = DEFAULT_LOCALE): Direction {
+  return LOCALE_DIRECTION[locale] ?? "ltr";
 }
