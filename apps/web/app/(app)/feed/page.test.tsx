@@ -48,6 +48,8 @@ describe("FeedPage", () => {
         note: "Good run",
         cheerCount: 5,
         hasPhoto: true,
+        isProject50: true,
+        project50Day: 1,
         media: [
           { objectKey: "media/u1/p.png", width: 100, height: 80, url: "https://signed-get/p.png" },
         ],
@@ -60,6 +62,8 @@ describe("FeedPage", () => {
         note: null,
         cheerCount: 0,
         hasPhoto: false,
+        isProject50: false,
+        project50Day: undefined,
         media: [],
       },
     ]);
@@ -72,6 +76,9 @@ describe("FeedPage", () => {
     expect(capturedItems[0]!.hasPhoto).toBe(true);
     expect(capturedItems[1]!.cheerCount).toBe(0);
     expect(capturedItems[1]!.hasPhoto).toBe(false);
+    expect(capturedItems[0]!.isProject50).toBe(true);
+    expect(capturedItems[0]!.project50Day).toBe(1);
+    expect(capturedItems[1]!.isProject50).toBe(false);
     expect(capturedItems[0]!.userHandle).toBe("@alice");
     expect(capturedItems[0]!.challengeTitle).toBe("Run 5K");
     expect(capturedItems[0]!.note).toBe("Good run");

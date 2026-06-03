@@ -225,6 +225,56 @@ describe("feed", () => {
     expect(found!.media[0]!.url).toBe("https://signed-get");
   });
 
+  it("flags PROJECT50 activities with isProject50 + correct project50Day", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    await follow(alice.id, bob.id);
+
+    const challenge = await createChallenge(bob.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+    // Promote to a Project 50 run (createChallenge defaults to STANDARD).
+    await prisma.challenge.update({ where: { id: challenge.id }, data: { kind: "PROJECT50" } });
+
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-10", done: true },
+    });
+
+    const result = await feed(alice.id);
+    const found = result.find((a) => a.id === activity.id);
+    expect(found).toBeDefined();
+    expect(found!.isProject50).toBe(true);
+    // startDate 2026-06-01, dayKey 2026-06-10 => day 10.
+    expect(found!.project50Day).toBe(10);
+  });
+
+  it("does not flag generic (STANDARD) activities as Project 50", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    await follow(alice.id, bob.id);
+
+    const challenge = await createChallenge(bob.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-05", done: true },
+    });
+
+    const result = await feed(alice.id);
+    const found = result.find((a) => a.id === activity.id);
+    expect(found).toBeDefined();
+    expect(found!.isProject50).toBe(false);
+    expect(found!.project50Day).toBeUndefined();
+  });
+
   it("includes hasPhoto = false when activity has no media", async () => {
     const alice = await createUser({ handle: "alice" });
     const bob = await createUser({ handle: "bob" });
