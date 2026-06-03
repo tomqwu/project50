@@ -1,4 +1,7 @@
 import { UnauthorizedError } from "@/lib/session";
+import { logger, serializeError } from "@/lib/logger";
+
+const log = logger.child({ scope: "api" });
 
 export class HttpError extends Error {
   constructor(
@@ -40,6 +43,9 @@ export async function handleRoute(
       if (err.detail !== undefined) body.detail = err.detail;
       return Response.json(body, { status: err.status });
     }
+    // Unexpected error → log it (Next will 500). This is the high-value signal:
+    // an unhandled failure in a route, with the error captured for triage.
+    log.error("unhandled route error", { error: serializeError(err) });
     throw err;
   }
 }

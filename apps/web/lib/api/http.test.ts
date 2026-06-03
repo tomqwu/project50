@@ -91,12 +91,41 @@ describe("handleRoute", () => {
     });
   });
 
-  it("rethrows unknown errors", async () => {
+  it("rethrows unknown errors and logs them at error level", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
     const boom = new Error("unexpected");
+
     await expect(
       handleRoute(async () => {
         throw boom;
       }),
     ).rejects.toThrow("unexpected");
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      level: "error",
+      msg: "unhandled route error",
+      scope: "api",
+      error: { name: "Error", message: "unexpected" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+  });
+
+  it("does not log expected HttpError / UnauthorizedError at error level", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await handleRoute(async () => {
+      throw new HttpError(404, "NOT_FOUND");
+    });
+    await handleRoute(async () => {
+      throw new UnauthorizedError("nope");
+    });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
