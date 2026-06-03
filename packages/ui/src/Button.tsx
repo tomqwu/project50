@@ -1,12 +1,12 @@
-import type { ReactNode, MouseEventHandler } from "react";
+import { forwardRef } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export type ButtonVariant = "primary" | "ghost" | "danger";
 
-interface ButtonProps {
+interface ButtonProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   variant?: ButtonVariant;
-  onClick?: MouseEventHandler<HTMLButtonElement>;
   children: ReactNode;
-  disabled?: boolean;
   type?: "button" | "submit" | "reset";
 }
 
@@ -29,18 +29,27 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties> = {
   },
 };
 
-export function Button({
-  variant = "primary",
-  onClick,
-  children,
-  disabled = false,
-  type = "button",
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "primary",
+    onClick,
+    children,
+    disabled = false,
+    type = "button",
+    className,
+    style,
+    ...rest
+  },
+  ref
+) {
   return (
     <button
+      ref={ref}
       type={type}
       data-variant={variant}
       disabled={disabled}
+      aria-disabled={disabled}
+      className={["p50-button", className].filter(Boolean).join(" ")}
       onClick={disabled ? undefined : onClick}
       style={{
         display: "inline-flex",
@@ -57,9 +66,11 @@ export function Button({
         opacity: disabled ? 0.5 : 1,
         width: "100%",
         ...variantStyles[variant],
+        ...style,
       }}
+      {...rest}
     >
       {children}
     </button>
   );
-}
+});

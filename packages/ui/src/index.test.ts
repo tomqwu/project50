@@ -15,7 +15,10 @@ describe("index barrel", () => {
   });
 
   it("exports Button component", () => {
-    expect(typeof Button).toBe("function");
+    // Button is a forwardRef component (an object with a render function),
+    // which is a valid React component export.
+    expect(Button).toBeDefined();
+    expect(typeof Button).toBe("object");
   });
 
   it("exports Card component", () => {

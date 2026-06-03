@@ -57,4 +57,45 @@ describe("Card", () => {
     expect(screen.getByText("first")).toBeInTheDocument();
     expect(screen.getByText("second")).toBeInTheDocument();
   });
+
+  it("forwards data-testid", () => {
+    render(
+      <Card data-testid="panel">
+        <span>x</span>
+      </Card>
+    );
+    expect(screen.getByTestId("panel")).toBeInTheDocument();
+  });
+
+  it("forwards arbitrary rest props (e.g. id, aria-label)", () => {
+    const { container } = render(
+      <Card id="profile-card" aria-label="Profile">
+        <span>y</span>
+      </Card>
+    );
+    const article = container.querySelector("article");
+    expect(article).toHaveAttribute("id", "profile-card");
+    expect(article).toHaveAttribute("aria-label", "Profile");
+  });
+
+  it("merges consumer className", () => {
+    const { container } = render(
+      <Card className="extra">
+        <span>z</span>
+      </Card>
+    );
+    const article = container.querySelector("article");
+    expect(article?.className).toContain("extra");
+  });
+
+  it("merges consumer inline style with base styles", () => {
+    const { container } = render(
+      <Card style={{ marginTop: "12px" }}>
+        <span>s</span>
+      </Card>
+    );
+    const article = container.querySelector("article");
+    expect(article).toHaveStyle({ marginTop: "12px" });
+    expect(article).toHaveStyle({ borderRadius: "18px" });
+  });
 });
