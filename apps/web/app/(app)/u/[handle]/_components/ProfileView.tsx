@@ -1,4 +1,5 @@
 import { Card, Label } from "@project50/ui";
+import { FollowButton } from "./FollowButton";
 
 export interface ProfileChallenge {
   id: string;
@@ -10,9 +11,29 @@ export interface ProfileViewProps {
   handle: string;
   displayName: string;
   challenges: ProfileChallenge[];
+  /** The profile user's id, used to follow/unfollow them. */
+  userId: string;
+  /** Whether the viewer currently follows this profile user. */
+  isFollowing: boolean;
+  /**
+   * True when the signed-in viewer is looking at their own profile, in which
+   * case no follow button is shown.
+   */
+  isOwnProfile: boolean;
+  /** Whether there is a signed-in viewer at all. */
+  hasViewer: boolean;
 }
 
-export function ProfileView({ handle, displayName, challenges }: ProfileViewProps) {
+export function ProfileView({
+  handle,
+  displayName,
+  challenges,
+  userId,
+  isFollowing,
+  isOwnProfile,
+  hasViewer,
+}: ProfileViewProps) {
+  const showFollowButton = hasViewer && !isOwnProfile;
   return (
     <div
       style={{
@@ -46,6 +67,11 @@ export function ProfileView({ handle, displayName, challenges }: ProfileViewProp
         >
           @{handle}
         </span>
+        {showFollowButton && (
+          <div style={{ marginTop: "16px" }} data-testid="follow-button-slot">
+            <FollowButton targetId={userId} initialFollowing={isFollowing} />
+          </div>
+        )}
       </div>
 
       {/* Public challenges */}
