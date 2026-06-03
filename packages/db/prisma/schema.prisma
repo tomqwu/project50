@@ -76,6 +76,8 @@ model Identity {
   createdAt         DateTime @default(now())
 
   @@unique([provider, providerAccountId])
+  // FK lookup support for the User -> identities relation and cascade deletes.
+  @@index([userId])
 }
 
 model Follow {
@@ -86,6 +88,9 @@ model Follow {
   createdAt  DateTime @default(now())
 
   @@id([followerId, followeeId])
+  // The composite PK leads with followerId; add a followeeId index for reverse
+  // lookups ("who follows this user") and cascade deletes on the followee.
+  @@index([followeeId])
 }
 
 model Challenge {
@@ -109,6 +114,11 @@ model Challenge {
   milestones  Milestone[]
   recaps      Recap[]
   ruleChecks  RuleCheck[]
+
+  // Owner's challenge list (listChallenges) and cascade deletes on the owner.
+  @@index([ownerId])
+  // Active / latest Project 50 run lookup: where ownerId+kind+status.
+  @@index([ownerId, kind, status])
 }
 
 model Activity {
@@ -128,6 +138,8 @@ model Activity {
   reactions    Reaction[]
 
   @@index([challengeId, dayKey])
+  // FK lookup support for the User -> activities relation and cascade deletes.
+  @@index([userId])
 }
 
 model ActivityMedia {
@@ -159,6 +171,9 @@ model Reaction {
   kind       ReactionKind
   text       String?
   createdAt  DateTime     @default(now())
+
+  // Cheer/comment counts are queried per activity; also covers cascade deletes.
+  @@index([activityId])
 }
 
 model Milestone {
@@ -178,6 +193,9 @@ model Recap {
   kind        RecapKind
   objectKey   String
   createdAt   DateTime  @default(now())
+
+  // listRecaps filters by challengeId; also covers cascade deletes.
+  @@index([challengeId])
 }
 
 model RuleCheck {
