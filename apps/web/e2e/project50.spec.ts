@@ -62,18 +62,21 @@ test("Project 50: start → check all 7 rules → 7/7 completes the day, and per
   await expect(page.getByTestId(/^rule-row-/)).toHaveCount(7);
 
   // ─── Step 4: Check each rule; the counter climbs 1/7 … 7/7 ──────────────────
+  // Each click fires a server action + revalidatePath("/") round-trip; under a
+  // loaded CI runner (parallel workers) that can take a while, so allow a
+  // generous settle window before asserting the re-rendered counter.
   for (let ruleId = 1; ruleId <= 7; ruleId++) {
     await page.getByTestId(`rule-row-${ruleId}`).click();
     // Re-rendered after the server action revalidates "/".
     await expect(page.getByText(new RegExp(`${ruleId} / 7 today`, "i"))).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
   }
 
   // ─── Step 5: Reload → the completed 7/7 Day 1 state persists ─────────────────
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Day 1 \/ 50/i })).toBeVisible({
-    timeout: 10_000,
+    timeout: 20_000,
   });
-  await expect(page.getByText(/7 \/ 7 today/i)).toBeVisible();
+  await expect(page.getByText(/7 \/ 7 today/i)).toBeVisible({ timeout: 20_000 });
 });
