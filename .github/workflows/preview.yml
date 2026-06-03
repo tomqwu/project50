@@ -1,0 +1,70 @@
+# Per-PR preview deploys — part of #17 (preview deploys per PR).
+#
+# On every pull request we build the web app on Vercel and post the preview URL
+# back to the PR. Preview deploys do NOT run migrations — they should point at a
+# disposable/preview database configured in the Vercel project, never prod.
+#
+# INERT WITHOUT SECRETS: the job is gated on the Vercel secrets being present so
+# it is skipped (not failed) on forks or before the user configures secrets.
+# Note that pull_request from forks does not expose secrets at all, in which case
+# the preflight gate evaluates to "false" and the deploy is cleanly skipped.
+#
+# Required repository secrets (see docs/DEPLOY.md):
+#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+
+name: Preview Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  # One preview per PR; cancel stale builds when new commits arrive.
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # to comment the preview URL on the PR
+
+jobs:
+  preflight:
+    name: Preflight (secret gate)
+    runs-on: ubuntu-latest
+    outputs:
+      has_vercel: ${{ steps.check.outputs.has_vercel }}
+    steps:
+      - id: check
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "has_vercel=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_vercel=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Vercel secrets not set — preview deploy skipped."
+          fi
+
+  preview:
+    name: Deploy preview (Vercel)
+    needs: preflight
+    if: needs.preflight.outputs.has_vercel == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+    steps:
+      - uses: actions/checkout@v6
+      # No --prod: this creates a unique preview deployment URL per PR/commit.
+      - name: Deploy to Vercel (preview)
+        id: vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          # github-comment posts the preview URL on the PR automatically.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: true
+          working-directory: ./
