@@ -15,6 +15,8 @@ export default async function FeedPage() {
     note: a.note ?? null,
     hasPhoto: a.hasPhoto,
     cheerCount: a.cheerCount,
+    isProject50: a.isProject50,
+    project50Day: a.project50Day,
     media: a.media.map((m) => ({
       objectKey: m.objectKey,
       width: m.width,

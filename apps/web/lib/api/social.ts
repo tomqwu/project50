@@ -1,4 +1,5 @@
 import { prisma } from "@project50/db";
+import { dayNumber } from "@project50/core";
 import { notFound, unprocessable } from "./http";
 import { withMediaUrls } from "./media";
 
@@ -53,11 +54,23 @@ export async function feed(viewerId: string) {
   });
 
   const withUrls = await withMediaUrls(activities);
-  return withUrls.map((a) => ({
-    ...a,
-    cheerCount: a._count.reactions,
-    hasPhoto: a.media.length > 0,
-  }));
+  return withUrls.map((a) => {
+    // Project 50 runs are visually distinguished in the feed. The challenge's
+    // kind/startDate/timezone are already loaded via `include: { challenge }`;
+    // surface a 1-based day number for PROJECT50 activities so the UI can show
+    // "Project 50 · Day N" relative to the run's start.
+    const isProject50 = a.challenge.kind === "PROJECT50";
+    const project50Day = isProject50
+      ? dayNumber(a.challenge.startDate, a.dayKey)
+      : undefined;
+    return {
+      ...a,
+      cheerCount: a._count.reactions,
+      hasPhoto: a.media.length > 0,
+      isProject50,
+      project50Day,
+    };
+  });
 }
 
 /** React to an activity. CHEER ignores text; COMMENT requires non-empty text. */

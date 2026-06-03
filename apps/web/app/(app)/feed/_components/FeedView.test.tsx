@@ -115,6 +115,22 @@ describe("FeedView", () => {
     expect(cheerButtons).toHaveLength(2);
   });
 
+  it("renders a 'Project 50 · Day N' badge for Project 50 items only", () => {
+    const items: FeedActivity[] = [
+      { ...sampleItems[0]!, id: "p1", isProject50: true, project50Day: 12 },
+      { ...sampleItems[1]!, id: "p2", isProject50: false },
+    ];
+    render(<FeedView items={items} />);
+    const badges = screen.getAllByTestId("project50-badge");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent("Project 50 · Day 12");
+  });
+
+  it("does not render the Project 50 badge when no items are Project 50", () => {
+    render(<FeedView items={sampleItems} />);
+    expect(screen.queryByTestId("project50-badge")).toBeNull();
+  });
+
   it("renders no photo element when media is undefined and hasPhoto is false", () => {
     const item: FeedActivity = {
       id: "a4",

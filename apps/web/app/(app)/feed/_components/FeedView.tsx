@@ -17,6 +17,10 @@ export interface FeedActivity {
   hasPhoto: boolean;
   cheerCount: number;
   media?: FeedMediaItem[];
+  /** True when the source challenge is a Project 50 run. */
+  isProject50?: boolean;
+  /** 1-based day number within the Project 50 run (only for Project 50 items). */
+  project50Day?: number;
 }
 
 export interface FeedViewProps {
@@ -100,6 +104,26 @@ export function FeedView({ items }: FeedViewProps) {
                   >
                     {item.challengeTitle}
                   </div>
+                  {item.isProject50 && (
+                    <div
+                      data-testid="project50-badge"
+                      style={{
+                        display: "inline-block",
+                        marginTop: "6px",
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        background: "var(--accent, #ff5a3c)",
+                        color: "var(--on-accent, #fff)",
+                        fontFamily: "var(--font-body, system-ui)",
+                        fontWeight: 700,
+                        fontSize: "11px",
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Project 50 · Day {item.project50Day}
+                    </div>
+                  )}
                 </div>
                 <Label>{item.dayKey}</Label>
               </div>
