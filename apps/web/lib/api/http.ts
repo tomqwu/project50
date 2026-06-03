@@ -1,5 +1,10 @@
 import { UnauthorizedError } from "@/lib/session";
 import { logger, serializeError } from "@/lib/logger";
+import {
+  checkRateLimit,
+  clientKey,
+  type RateLimitOptions,
+} from "@/lib/rate-limit";
 
 const log = logger.child({ scope: "api" });
 
@@ -21,6 +26,25 @@ export function notFound(code: string): never {
 /** Throw a 422 HttpError with the given code and optional detail. */
 export function unprocessable(code: string, detail?: unknown): never {
   throw new HttpError(422, code, detail);
+}
+
+/**
+ * Opt-in rate-limit guard for route handlers. Derives a client key from the
+ * request (first `x-forwarded-for` IP) and throws a 429 HttpError when the
+ * fixed-window limit is exceeded. Call it at the top of a handler, inside
+ * `handleRoute`, which serializes the HttpError to JSON.
+ *
+ * The 429's `retryAfterSeconds` is exposed in the JSON `detail`. FOLLOW-UP: set
+ * a real `Retry-After` response header — `handleRoute` would need to read the
+ * HttpError detail (or this guard return a Response directly) to do so.
+ */
+export function enforceRateLimit(req: Request, opts: RateLimitOptions): void {
+  const result = checkRateLimit(clientKey(req), opts);
+  if (!result.allowed) {
+    throw new HttpError(429, "rate_limited", {
+      retryAfterSeconds: result.retryAfterSeconds,
+    });
+  }
 }
 
 /**

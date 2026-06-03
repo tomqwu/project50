@@ -1,4 +1,4 @@
-import { handleRoute, unprocessable } from "@/lib/api/http";
+import { enforceRateLimit, handleRoute, unprocessable } from "@/lib/api/http";
 import { resolveOAuthUser } from "@/lib/auth-callbacks";
 import { mintSessionToken } from "@/lib/mobile-session";
 
@@ -17,6 +17,9 @@ export async function POST(
   ctx: { params: Promise<{ provider: string }> },
 ) {
   return handleRoute(async () => {
+    // Throttle the auth code-exchange to curb credential-stuffing / abuse.
+    enforceRateLimit(req, { limit: 10, windowMs: 60_000 });
+
     const { provider } = await ctx.params;
     if (provider !== "facebook") unprocessable("UNSUPPORTED_PROVIDER");
 

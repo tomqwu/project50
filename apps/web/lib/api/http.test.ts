@@ -1,11 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // session.ts imports @/auth (next-auth), which needs next/server — not available in vitest.
 // Mock the dependency so we can test the http helpers in isolation.
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
-import { HttpError, notFound, unprocessable, handleRoute } from "./http";
+import {
+  HttpError,
+  notFound,
+  unprocessable,
+  handleRoute,
+  enforceRateLimit,
+} from "./http";
 import { UnauthorizedError } from "@/lib/session";
+import { resetRateLimit } from "@/lib/rate-limit";
 
 describe("HttpError", () => {
   it("stores status, code, and detail", () => {
@@ -127,5 +134,45 @@ describe("handleRoute", () => {
 
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+});
+
+describe("enforceRateLimit", () => {
+  beforeEach(() => resetRateLimit());
+
+  const reqFrom = (ip: string) =>
+    new Request("https://x.test", { headers: { "x-forwarded-for": ip } });
+
+  it("does not throw while under the limit", () => {
+    const opts = { limit: 2, windowMs: 60_000, now: 1_000 };
+    expect(() => enforceRateLimit(reqFrom("1.1.1.1"), opts)).not.toThrow();
+    expect(() => enforceRateLimit(reqFrom("1.1.1.1"), opts)).not.toThrow();
+  });
+
+  it("throws a 429 HttpError with retryAfter detail when over the limit", async () => {
+    const opts = { limit: 1, windowMs: 60_000, now: 1_000 };
+    enforceRateLimit(reqFrom("2.2.2.2"), opts);
+
+    let thrown: HttpError | undefined;
+    try {
+      enforceRateLimit(reqFrom("2.2.2.2"), { ...opts, now: 2_000 });
+    } catch (err) {
+      thrown = err as HttpError;
+    }
+    expect(thrown).toBeInstanceOf(HttpError);
+    expect(thrown!.status).toBe(429);
+    expect(thrown!.code).toBe("rate_limited");
+    expect(thrown!.detail).toEqual({ retryAfterSeconds: 59 });
+
+    // handleRoute serializes it to a 429 JSON response.
+    const res = await handleRoute(async () => {
+      enforceRateLimit(reqFrom("2.2.2.2"), { ...opts, now: 3_000 });
+      return Response.json({ ok: true });
+    });
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toEqual({
+      error: "rate_limited",
+      detail: { retryAfterSeconds: 58 },
+    });
   });
 });
