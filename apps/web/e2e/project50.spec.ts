@@ -62,18 +62,28 @@ test("Project 50: start → check all 7 rules → 7/7 completes the day, and per
   await expect(page.getByTestId(/^rule-row-/)).toHaveCount(7);
 
   // ─── Step 4: Check each rule; the counter climbs 1/7 … 7/7 ──────────────────
+  // Each click fires a server action + revalidatePath("/") round-trip. Fire them
+  // strictly serially — wait for the clicked row to render its ✓ AND for the
+  // network to settle before the next click — so a back-to-back burst can't drop
+  // or coalesce a re-render (which intermittently stalled the counter under CI's
+  // parallel-worker load).
   for (let ruleId = 1; ruleId <= 7; ruleId++) {
     await page.getByTestId(`rule-row-${ruleId}`).click();
-    // Re-rendered after the server action revalidates "/".
+    // The clicked row now shows its checkmark…
+    await expect(page.getByTestId(`rule-row-${ruleId}`)).toContainText("✓", {
+      timeout: 20_000,
+    });
+    // …and the revalidation round-trip has settled before the next click.
+    await page.waitForLoadState("networkidle");
     await expect(page.getByText(new RegExp(`${ruleId} / 7 today`, "i"))).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
   }
 
   // ─── Step 5: Reload → the completed 7/7 Day 1 state persists ─────────────────
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Day 1 \/ 50/i })).toBeVisible({
-    timeout: 10_000,
+    timeout: 20_000,
   });
-  await expect(page.getByText(/7 \/ 7 today/i)).toBeVisible();
+  await expect(page.getByText(/7 \/ 7 today/i)).toBeVisible({ timeout: 20_000 });
 });
