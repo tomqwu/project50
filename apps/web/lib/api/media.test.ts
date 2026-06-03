@@ -1,11 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/session", () => ({
+  requireUser: vi.fn(),
+  UnauthorizedError: class UnauthorizedError extends Error {},
+}));
+
 vi.mock("@/lib/storage", () => ({
   presignGet: vi.fn().mockResolvedValue("https://signed-get"),
 }));
 
 import { presignGet } from "@/lib/storage";
-import { withMediaUrls } from "./media";
+import {
+  withMediaUrls,
+  validateUpload,
+  ALLOWED_UPLOAD_TYPES,
+  MAX_IMAGE_BYTES,
+  MAX_VIDEO_BYTES,
+} from "./media";
+import { HttpError } from "@/lib/api/http";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -99,5 +111,88 @@ describe("withMediaUrls", () => {
     const result = await withMediaUrls([]);
     expect(result).toHaveLength(0);
     expect(presignGet).not.toHaveBeenCalled();
+  });
+});
+
+describe("validateUpload", () => {
+  it("accepts each allowed type and returns its extension", () => {
+    expect(validateUpload({ contentType: "image/jpeg" })).toEqual({ ext: "jpg" });
+    expect(validateUpload({ contentType: "image/png" })).toEqual({ ext: "png" });
+    expect(validateUpload({ contentType: "image/webp" })).toEqual({ ext: "webp" });
+    expect(validateUpload({ contentType: "image/gif" })).toEqual({ ext: "gif" });
+    expect(validateUpload({ contentType: "video/mp4" })).toEqual({ ext: "mp4" });
+    expect(validateUpload({ contentType: "video/webm" })).toEqual({ ext: "webm" });
+    expect(validateUpload({ contentType: "video/quicktime" })).toEqual({ ext: "mov" });
+  });
+
+  it("rejects a non-string content-type with 422 unsupported_media_type", () => {
+    try {
+      validateUpload({ contentType: undefined });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).status).toBe(422);
+      expect((err as HttpError).code).toBe("unsupported_media_type");
+    }
+  });
+
+  it("rejects a disallowed content-type with 422 unsupported_media_type", () => {
+    try {
+      validateUpload({ contentType: "application/pdf" });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).status).toBe(422);
+      expect((err as HttpError).code).toBe("unsupported_media_type");
+    }
+  });
+
+  it("rejects an oversize image with 422 file_too_large and the limit in detail", () => {
+    try {
+      validateUpload({ contentType: "image/png", size: MAX_IMAGE_BYTES + 1 });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).status).toBe(422);
+      expect((err as HttpError).code).toBe("file_too_large");
+      expect((err as HttpError).detail).toEqual({ maxBytes: MAX_IMAGE_BYTES });
+    }
+  });
+
+  it("rejects an oversize video with 422 file_too_large", () => {
+    try {
+      validateUpload({ contentType: "video/mp4", size: MAX_VIDEO_BYTES + 1 });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect((err as HttpError).code).toBe("file_too_large");
+      expect((err as HttpError).detail).toEqual({ maxBytes: MAX_VIDEO_BYTES });
+    }
+  });
+
+  it("accepts a size exactly at the limit (boundary)", () => {
+    expect(validateUpload({ contentType: "image/jpeg", size: MAX_IMAGE_BYTES })).toEqual({
+      ext: "jpg",
+    });
+    expect(validateUpload({ contentType: "video/mp4", size: MAX_VIDEO_BYTES })).toEqual({
+      ext: "mp4",
+    });
+  });
+
+  it("accepts size 0 (empty boundary) for an allowed type", () => {
+    expect(validateUpload({ contentType: "image/jpeg", size: 0 })).toEqual({ ext: "jpg" });
+  });
+
+  it("ignores a non-numeric or non-finite size (type gate still applies)", () => {
+    expect(validateUpload({ contentType: "image/jpeg", size: "1234" })).toEqual({ ext: "jpg" });
+    expect(validateUpload({ contentType: "image/jpeg", size: NaN })).toEqual({ ext: "jpg" });
+    expect(validateUpload({ contentType: "image/jpeg", size: Infinity })).toEqual({ ext: "jpg" });
+    expect(validateUpload({ contentType: "image/jpeg", size: -1 })).toEqual({ ext: "jpg" });
+  });
+
+  it("exposes the allowlist and size constants", () => {
+    expect(Object.keys(ALLOWED_UPLOAD_TYPES)).toContain("image/jpeg");
+    expect(Object.keys(ALLOWED_UPLOAD_TYPES)).toContain("video/mp4");
+    expect(MAX_IMAGE_BYTES).toBe(25 * 1024 * 1024);
+    expect(MAX_VIDEO_BYTES).toBe(100 * 1024 * 1024);
   });
 });
