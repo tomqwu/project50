@@ -1,5 +1,6 @@
 import { Card, Label } from "@project50/ui";
 import { FollowButton } from "./FollowButton";
+import { ModerationActions } from "./ModerationActions";
 
 export interface ProfileChallenge {
   id: string;
@@ -70,6 +71,11 @@ export function ProfileView({
         {showFollowButton && (
           <div style={{ marginTop: "16px" }} data-testid="follow-button-slot">
             <FollowButton targetId={userId} initialFollowing={isFollowing} />
+          </div>
+        )}
+        {showFollowButton && (
+          <div style={{ marginTop: "12px" }} data-testid="moderation-actions-slot">
+            <ModerationActions targetId={userId} />
           </div>
         )}
       </div>

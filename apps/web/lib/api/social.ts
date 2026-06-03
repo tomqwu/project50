@@ -34,6 +34,10 @@ export async function feed(viewerId: string) {
         followers: {
           some: { followerId: viewerId },
         },
+        // Exclude activities from users the viewer has blocked.
+        blocksReceived: {
+          none: { blockerId: viewerId },
+        },
       },
       challenge: {
         visibility: { in: ["PUBLIC", "FOLLOWERS"] },
