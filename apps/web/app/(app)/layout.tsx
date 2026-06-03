@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth-guard";
 import { SignOutButton } from "./_components/SignOutButton";
+import { SkipLink } from "./_components/SkipLink";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   await requireAuth();
@@ -12,7 +13,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
-      <nav style={{ borderBottom: "1px solid var(--hairline)", padding: "0 24px" }}>
+      {/* First focusable element — lets keyboard users skip the nav. */}
+      <SkipLink />
+      <nav
+        aria-label="Primary"
+        style={{ borderBottom: "1px solid var(--hairline)", padding: "0 24px" }}
+      >
         <div
           style={{
             display: "flex",
@@ -25,6 +31,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         >
         <Link
           href="/"
+          aria-label="project50 home"
           style={{
             fontFamily: "var(--font-display, 'Anton', sans-serif)",
             fontSize: "22px",
@@ -94,7 +101,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <SignOutButton />
         </div>
       </nav>
-      <main style={{ maxWidth: shellMaxWidth, margin: "0 auto" }}>{children}</main>
+      <main id="main" style={{ maxWidth: shellMaxWidth, margin: "0 auto" }}>
+        {children}
+      </main>
     </div>
   );
 }
