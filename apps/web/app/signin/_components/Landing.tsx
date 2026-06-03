@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card } from "@project50/ui";
 import { SignInButtons } from "../SignInButtons";
 
@@ -133,6 +134,22 @@ export function Landing({ e2eEnabled = false }: LandingProps) {
             Get started
           </p>
           <SignInButtons e2eEnabled={e2eEnabled} />
+          <p
+            style={{
+              fontFamily: "var(--font-body, system-ui, sans-serif)",
+              fontSize: "13px",
+              textAlign: "center",
+              margin: "16px 0 0",
+            }}
+          >
+            <Link
+              href="/welcome"
+              data-testid="landing-how-it-works"
+              style={{ color: "var(--muted)", textDecoration: "underline" }}
+            >
+              How Project 50 works
+            </Link>
+          </p>
         </Card>
       </div>
     </div>
