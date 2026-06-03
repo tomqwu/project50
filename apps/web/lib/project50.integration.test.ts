@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma, resetDb } from "@/test/db";
-import { startProject50, getProject50State, toggleRule } from "./project50";
+import { startProject50, getProject50State, toggleRule, getProject50History } from "./project50";
 
 beforeEach(resetDb);
 afterAll(async () => { await prisma.$disconnect(); });
@@ -84,5 +84,60 @@ describe("hard reset", () => {
     const state = await getProject50State(u.id, NEXT);
     expect(state.status).toBe("ACTIVE");
     expect(state.today?.dayNumber).toBe(2);
+  });
+});
+
+describe("getProject50History", () => {
+  it("returns an empty list when the user has no active run", async () => {
+    const u = await makeUser();
+    expect(await getProject50History(u.id, NOW)).toEqual({ days: [] });
+  });
+
+  it("returns 50 days with sequential dayKeys and dayNumbers from the run start", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // start Day 1 = 2026-06-02
+    const { days } = await getProject50History(u.id, NOW);
+    expect(days).toHaveLength(50);
+    expect(days[0]).toMatchObject({ dayNumber: 1, dayKey: "2026-06-02" });
+    expect(days[1]?.dayKey).toBe("2026-06-03");
+    expect(days[49]).toMatchObject({ dayNumber: 50, dayKey: "2026-07-21" });
+  });
+
+  it("marks today, future, complete and incomplete days correctly", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // Day 1 complete (7/7)
+    for (let ruleId = 1; ruleId <= 7; ruleId++) await toggleRule(u.id, ruleId, true, NOW);
+
+    // Day 2 (2026-06-03): only 6/7 → incomplete past day
+    const DAY2 = new Date("2026-06-03T12:00:00Z");
+    for (let ruleId = 1; ruleId <= 6; ruleId++) await toggleRule(u.id, ruleId, true, DAY2);
+
+    // View history while "today" is Day 3 (2026-06-04), but read directly on a
+    // separate run that is still ACTIVE: re-seed so getProject50State doesn't fail it.
+    const { days } = await getProject50History(u.id, DAY2);
+
+    // Day 1 complete
+    expect(days[0]?.status).toBe("complete");
+    // Day 2 is "today" (DAY2) and not complete → marked today
+    expect(days[1]?.status).toBe("today");
+    expect(days[1]?.dayNumber).toBe(2);
+    // Day 3..50 are future
+    expect(days[2]?.status).toBe("future");
+    expect(days[49]?.status).toBe("future");
+  });
+
+  it("marks a past incomplete day as incomplete (not today, not future)", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // Day 1 only 6/7 → incomplete
+    for (let ruleId = 1; ruleId <= 6; ruleId++) await toggleRule(u.id, ruleId, true, NOW);
+
+    const DAY2 = new Date("2026-06-03T12:00:00Z");
+    const { days } = await getProject50History(u.id, DAY2);
+    // Day 1 is in the past and not complete → incomplete
+    expect(days[0]?.status).toBe("incomplete");
+    // Day 2 is today
+    expect(days[1]?.status).toBe("today");
   });
 });

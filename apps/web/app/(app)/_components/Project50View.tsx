@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button, Card, Label } from "@project50/ui";
 import { PROJECT50_RULES } from "@project50/core";
 import type { Project50State } from "@/lib/project50";
+import { Project50Calendar } from "./Project50Calendar";
 
 interface Props {
   state: Project50State;
@@ -147,6 +148,7 @@ export function Project50View({ state, onStart, onToggle, onRestart }: Props) {
           );
         })}
       </div>
+      <Project50Calendar days={state.history?.days ?? []} />
     </div>
   );
 }
