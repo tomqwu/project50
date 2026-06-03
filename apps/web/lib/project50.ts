@@ -1,5 +1,11 @@
 import { prisma } from "@project50/db";
-import { localDayKey, dayNumber, addDays, PROJECT50_RULE_IDS } from "@project50/core";
+import {
+  localDayKey,
+  dayNumber,
+  addDays,
+  PROJECT50_RULE_IDS,
+  PROJECT50_LENGTH_DAYS,
+} from "@project50/core";
 
 export interface Project50Today {
   dayKey: string;
@@ -8,10 +14,23 @@ export interface Project50Today {
   completedCount: number;
 }
 
+export type Project50DayStatus = "complete" | "incomplete" | "today" | "future";
+
+export interface Project50HistoryDay {
+  dayNumber: number;
+  dayKey: string;
+  status: Project50DayStatus;
+}
+
+export interface Project50History {
+  days: Project50HistoryDay[];
+}
+
 export interface Project50State {
   status: "NONE" | "ACTIVE" | "FAILED";
   runId?: string;
   today?: Project50Today;
+  history?: Project50History;
   failedDayNumber?: number;
   failedRuleId?: number;
 }
@@ -61,6 +80,55 @@ async function buildToday(runId: string, startDate: string, todayKey: string): P
   };
 }
 
+/**
+ * Build the 50-day calendar for a run: one entry per Day 1..50.
+ * `status` is "today" for the current local day, "future" for days after today,
+ * "complete" if that day's DayStatus is completed, otherwise "incomplete".
+ */
+async function buildHistory(
+  runId: string,
+  startDate: string,
+  todayKey: string,
+): Promise<Project50History> {
+  const lastKey = addDays(startDate, PROJECT50_LENGTH_DAYS - 1);
+  const completedRows = await prisma.dayStatus.findMany({
+    where: { challengeId: runId, completed: true, dayKey: { gte: startDate, lte: lastKey } },
+    select: { dayKey: true },
+  });
+  const completedKeys = new Set(completedRows.map((r) => r.dayKey));
+
+  const days: Project50HistoryDay[] = [];
+  for (let i = 0; i < PROJECT50_LENGTH_DAYS; i++) {
+    const dayKey = addDays(startDate, i);
+    let status: Project50DayStatus;
+    if (dayKey === todayKey) {
+      status = "today";
+    } else if (dayKey > todayKey) {
+      status = "future";
+    } else if (completedKeys.has(dayKey)) {
+      status = "complete";
+    } else {
+      status = "incomplete";
+    }
+    days.push({ dayNumber: i + 1, dayKey, status });
+  }
+  return { days };
+}
+
+/**
+ * Read-only 50-day progress calendar for the user's active Project 50 run.
+ * Returns an empty list when there is no active run.
+ */
+export async function getProject50History(
+  uid: string,
+  now: Date = new Date(),
+): Promise<Project50History> {
+  const run = await activeRun(uid);
+  if (!run) return { days: [] };
+  const todayKey = localDayKey(now, run.timezone);
+  return buildHistory(run.id, run.startDate, todayKey);
+}
+
 export async function getProject50State(uid: string, now: Date = new Date()): Promise<Project50State> {
   const run = await activeRun(uid);
   if (!run) return { status: "NONE" };
@@ -93,6 +161,7 @@ export async function getProject50State(uid: string, now: Date = new Date()): Pr
     status: "ACTIVE",
     runId: run.id,
     today: await buildToday(run.id, run.startDate, todayKey),
+    history: await buildHistory(run.id, run.startDate, todayKey),
   };
 }
 
