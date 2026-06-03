@@ -4,3 +4,7 @@ next-env.d.ts
 
 # Generated coverage reports (istanbul JS) — not source, must not be linted.
 coverage/
+
+# k6 load-test scripts run in the k6 runtime (standalone binary), not Node.
+# They import from `k6/*` which ESLint cannot resolve, so exclude them.
+load-test/
