@@ -20,16 +20,20 @@ vi.mock("@project50/db", () => ({
 }));
 
 // Track NextAuth factory calls
-const capturedCalls: { providers: { id?: string }[]; hasE2E: boolean }[] = [];
+const capturedCalls: {
+  providers: { id?: string }[];
+  hasE2E: boolean;
+  config: Record<string, unknown>;
+}[] = [];
 
 // Capture the authorize fn from the Credentials provider config
 let capturedAuthorize: ((creds: Record<string, unknown>) => Promise<unknown>) | null = null;
 
 vi.mock("next-auth", () => ({
-  default: (config: { providers: { id?: string }[] }) => {
+  default: (config: { providers: { id?: string }[] } & Record<string, unknown>) => {
     const providers = config.providers ?? [];
     const hasE2E = providers.some((p) => p.id === "e2e");
-    capturedCalls.push({ providers, hasE2E });
+    capturedCalls.push({ providers, hasE2E, config });
     return {
       handlers: { GET: vi.fn(), POST: vi.fn() },
       auth: vi.fn(),
@@ -80,6 +84,8 @@ afterEach(() => {
   delete process.env.AUTH_E2E;
   delete process.env.AUTH_SECRET;
   delete process.env.AUTH_E2E_ALLOW_PROD;
+  delete process.env.AUTH_URL;
+  delete process.env.NEXTAUTH_URL;
   // Reset NODE_ENV to the test default.
   overrideNodeEnv("test");
 });
@@ -183,5 +189,56 @@ describe("auth.ts module wiring", () => {
 
     expect(capturedCalls.some((c) => c.hasE2E)).toBe(true);
     expect(capturedAuthorize).toBeTypeOf("function");
+  });
+});
+
+describe("auth.ts hardening config", () => {
+  it("configures a bounded JWT session lifetime with daily refresh", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+
+    await import("./auth");
+
+    const session = capturedCalls.at(0)?.config.session as {
+      strategy?: string;
+      maxAge?: number;
+      updateAge?: number;
+    };
+    expect(session?.strategy).toBe("jwt");
+    expect(session?.maxAge).toBe(60 * 60 * 24 * 30);
+    expect(session?.updateAge).toBe(60 * 60 * 24);
+  });
+
+  it("passes a single AUTH_SECRET through unchanged", async () => {
+    process.env.AUTH_SECRET = "solo-secret";
+
+    await import("./auth");
+
+    expect(capturedCalls.at(0)?.config.secret).toBe("solo-secret");
+  });
+
+  it("supports rotation when AUTH_SECRET is comma-separated", async () => {
+    process.env.AUTH_SECRET = "new-secret,old-secret";
+
+    await import("./auth");
+
+    expect(capturedCalls.at(0)?.config.secret).toEqual(["new-secret", "old-secret"]);
+  });
+
+  it("forces secure cookies when AUTH_URL is https", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_URL = "https://app.example.com";
+
+    await import("./auth");
+
+    expect(capturedCalls.at(0)?.config.useSecureCookies).toBe(true);
+  });
+
+  it("does NOT force secure cookies without an https URL (http e2e server stays working)", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    delete process.env.AUTH_URL;
+
+    await import("./auth");
+
+    expect(capturedCalls.at(0)?.config).not.toHaveProperty("useSecureCookies");
   });
 });
