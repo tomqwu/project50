@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma, resetDb } from "@/test/db";
+import { addDays, PROJECT50_LENGTH_DAYS } from "@project50/core";
 import { startProject50, getProject50State, toggleRule, getProject50History } from "./project50";
 
 beforeEach(resetDb);
@@ -84,6 +85,68 @@ describe("hard reset", () => {
     const state = await getProject50State(u.id, NEXT);
     expect(state.status).toBe("ACTIVE");
     expect(state.today?.dayNumber).toBe(2);
+  });
+});
+
+describe("completion", () => {
+  // Complete every day 1..50 for a run, then view from day 51.
+  async function completeAllDays(uid: string, startKey: string) {
+    let key = startKey;
+    for (let i = 0; i < PROJECT50_LENGTH_DAYS; i++) {
+      const at = new Date(`${key}T12:00:00Z`);
+      for (let ruleId = 1; ruleId <= 7; ruleId++) await toggleRule(uid, ruleId, true, at);
+      key = addDays(key, 1);
+    }
+  }
+
+  const DAY51 = new Date("2026-07-22T12:00:00Z"); // day after 50th day (2026-07-21)
+
+  it("marks the run COMPLETED when all 50 days were 7/7 and the window has elapsed", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    await completeAllDays(u.id, "2026-06-02");
+
+    const state = await getProject50State(u.id, DAY51);
+    expect(state.status).toBe("COMPLETED");
+    expect(state.completedDays).toBe(50);
+    expect(state.runId).toBeDefined();
+
+    const run = await prisma.challenge.findFirst({ where: { ownerId: u.id, kind: "PROJECT50" } });
+    expect(run?.status).toBe("COMPLETED");
+  });
+
+  it("a COMPLETED run is terminal: it is no longer treated as ACTIVE", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW);
+    await completeAllDays(u.id, "2026-06-02");
+    await getProject50State(u.id, DAY51); // persists COMPLETED
+
+    // re-reading still reports COMPLETED, and toggling is impossible (no ACTIVE run)
+    expect((await getProject50State(u.id, DAY51)).status).toBe("COMPLETED");
+    await expect(toggleRule(u.id, 1, true, DAY51)).rejects.toThrow(/No active Project 50 run/);
+  });
+
+  it("a missed day at Day 50 fails the run (FAILED, not COMPLETED) even past the window", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // Complete days 1..49, but Day 50 (2026-07-21) only 6/7.
+    let key = "2026-06-02";
+    for (let i = 0; i < PROJECT50_LENGTH_DAYS - 1; i++) {
+      const at = new Date(`${key}T12:00:00Z`);
+      for (let ruleId = 1; ruleId <= 7; ruleId++) await toggleRule(u.id, ruleId, true, at);
+      key = addDays(key, 1);
+    }
+    // Day 50: miss rule 7
+    const day50 = new Date("2026-07-21T12:00:00Z");
+    for (let ruleId = 1; ruleId <= 6; ruleId++) await toggleRule(u.id, ruleId, true, day50);
+
+    const state = await getProject50State(u.id, DAY51);
+    expect(state.status).toBe("FAILED");
+    expect(state.failedDayNumber).toBe(50);
+    expect(state.failedRuleId).toBe(7);
+
+    const run = await prisma.challenge.findFirst({ where: { ownerId: u.id, kind: "PROJECT50" } });
+    expect(run?.status).toBe("FAILED");
   });
 });
 

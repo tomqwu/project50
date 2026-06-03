@@ -72,6 +72,30 @@ export function Project50View({ state, onStart, onToggle, onRestart }: Props) {
     );
   }
 
+  if (state.status === "COMPLETED") {
+    return (
+      <div style={{ padding: "48px 32px", textAlign: "center" }}>
+        <Label>Project 50</Label>
+        <div aria-hidden={true} style={{ fontSize: 56, margin: "8px 0 4px" }}>🏆</div>
+        <h1 style={{ fontFamily: "var(--font-display)", textTransform: "uppercase", fontSize: "28px", margin: "8px 0" }}>
+          You finished Project 50!
+        </h1>
+        <p style={{ color: "var(--text)", fontSize: 18, margin: "0 0 4px" }}>
+          <strong>{state.completedDays ?? 50} days</strong>, all 7 rules, every single day.
+        </p>
+        <p style={{ color: "var(--muted)", margin: "0 0 28px" }}>
+          A hard reset, completed. What you build next is up to you.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 320, marginInline: "auto" }}>
+          <Button variant="primary" onClick={onRestart}>Run it again</Button>
+          <Link href="/challenges/new" style={{ textDecoration: "none" }}>
+            <Button variant="ghost">Create a custom plan</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // ACTIVE
   const today = state.today!;
   return (

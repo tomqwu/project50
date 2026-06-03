@@ -27,18 +27,27 @@ export interface Project50History {
 }
 
 export interface Project50State {
-  status: "NONE" | "ACTIVE" | "FAILED";
+  status: "NONE" | "ACTIVE" | "FAILED" | "COMPLETED";
   runId?: string;
   today?: Project50Today;
   history?: Project50History;
   failedDayNumber?: number;
   failedRuleId?: number;
+  completedDays?: number;
 }
 
 /** The active Project 50 run for a user, or null. */
 async function activeRun(uid: string) {
   return prisma.challenge.findFirst({
     where: { ownerId: uid, kind: "PROJECT50", status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** The most recent Project 50 run for a user (any status), or null. */
+async function latestCompletedRun(uid: string) {
+  return prisma.challenge.findFirst({
+    where: { ownerId: uid, kind: "PROJECT50", status: "COMPLETED" },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -131,7 +140,12 @@ export async function getProject50History(
 
 export async function getProject50State(uid: string, now: Date = new Date()): Promise<Project50State> {
   const run = await activeRun(uid);
-  if (!run) return { status: "NONE" };
+  if (!run) {
+    // A previously-finished run stays visible as a terminal celebration.
+    const done = await latestCompletedRun(uid);
+    if (done) return { status: "COMPLETED", runId: done.id, completedDays: PROJECT50_LENGTH_DAYS };
+    return { status: "NONE" };
+  }
 
   const todayKey = localDayKey(now, run.timezone);
 
@@ -155,6 +169,13 @@ export async function getProject50State(uid: string, now: Date = new Date()): Pr
         failedRuleId,
       };
     }
+  }
+
+  // Completion: the whole program window has elapsed (we are past Day 50) and the
+  // hard-reset loop above confirmed every elapsed day 1..50 was 7/7. Mark terminal.
+  if (dayNumber(run.startDate, todayKey) > PROJECT50_LENGTH_DAYS) {
+    await prisma.challenge.update({ where: { id: run.id }, data: { status: "COMPLETED" } });
+    return { status: "COMPLETED", runId: run.id, completedDays: PROJECT50_LENGTH_DAYS };
   }
 
   return {

@@ -76,6 +76,33 @@ describe("Project50View", () => {
     expect(onToggle).toHaveBeenCalledWith(1, true);
   });
 
+  it("COMPLETED: shows the celebration with the 50-day achievement and no checklist", () => {
+    render(
+      <Project50View
+        state={{ status: "COMPLETED", runId: "r1", completedDays: 50 }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/finished project 50/i)).toBeInTheDocument();
+    expect(screen.getByText(/50 days/i)).toBeInTheDocument();
+    // no checklist rows in the terminal celebration
+    expect(screen.queryByTestId(/rule-row-/)).not.toBeInTheDocument();
+    // a way to start a custom plan
+    expect(screen.getByRole("link", { name: /custom plan/i })).toHaveAttribute("href", "/challenges/new");
+  });
+
+  it("COMPLETED: restart button starts a new run", () => {
+    const onRestart = vi.fn();
+    render(
+      <Project50View
+        state={{ status: "COMPLETED", runId: "r1", completedDays: 50 }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={onRestart}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /again/i }));
+    expect(onRestart).toHaveBeenCalled();
+  });
+
   it("FAILED: shows the missed day + rule and a restart button", () => {
     const onRestart = vi.fn();
     render(<Project50View state={{ status: "FAILED", failedDayNumber: 12, failedRuleId: 3 }} onStart={vi.fn()} onToggle={vi.fn()} onRestart={onRestart} />);
