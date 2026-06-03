@@ -18,20 +18,40 @@ describe("Landing", () => {
     expect(heading).toHaveTextContent("project50");
   });
 
-  it("renders the value proposition", () => {
+  it("renders the value proposition selling 7 rules / 50 days / all-or-nothing", () => {
     render(<Landing />);
     const valueProp = screen.getByTestId("landing-value-prop");
-    expect(valueProp).toHaveTextContent("50-day challenge");
-    expect(valueProp).toHaveTextContent("Track it daily");
-    expect(valueProp).toHaveTextContent("Celebrate and share it");
+    expect(valueProp).toHaveTextContent("7 rules");
+    expect(valueProp).toHaveTextContent("50 days");
+    expect(valueProp).toHaveTextContent(/all[- ]or[- ]nothing/i);
   });
 
-  it("renders all three feature bullets", () => {
+  it("renders a primary hero CTA that links to /welcome", () => {
     render(<Landing />);
-    const features = screen.getByTestId("landing-features");
-    expect(features).toHaveTextContent("50-day challenges + streaks");
-    expect(features).toHaveTextContent("Log daily with photos");
-    expect(features).toHaveTextContent("Shareable recap videos and cards");
+    const cta = screen.getByTestId("landing-hero-cta");
+    expect(cta).toHaveAttribute("href", "/welcome");
+    expect(cta).toHaveTextContent(/how it works|see the rules|how project 50 works/i);
+  });
+
+  it("renders the 'How it works' 3-step strip", () => {
+    render(<Landing />);
+    const how = screen.getByTestId("landing-how-it-works-strip");
+    expect(how).toHaveTextContent(/how it works/i);
+    const steps = screen.getAllByTestId("landing-step");
+    expect(steps).toHaveLength(3);
+    // Concrete copy about the program flow.
+    expect(how).toHaveTextContent(/all 7 rules/i);
+    expect(how).toHaveTextContent(/day 1/i);
+  });
+
+  it("renders a benefits grid with four concrete benefits", () => {
+    render(<Landing />);
+    const grid = screen.getByTestId("landing-benefits");
+    const benefits = screen.getAllByTestId("landing-benefit");
+    expect(benefits).toHaveLength(4);
+    expect(grid).toHaveTextContent(/streak/i);
+    expect(grid).toHaveTextContent(/photo/i);
+    expect(grid).toHaveTextContent(/recap/i);
   });
 
   it("renders Google and Facebook sign-in buttons", () => {
@@ -50,7 +70,7 @@ describe("Landing", () => {
     expect(screen.getByTestId("signin-e2e")).toBeInTheDocument();
   });
 
-  it("renders a 'How Project 50 works' link to /welcome", () => {
+  it("renders a 'How Project 50 works' link to /welcome in the sign-in card", () => {
     render(<Landing />);
     const link = screen.getByTestId("landing-how-it-works");
     expect(link).toHaveAttribute("href", "/welcome");

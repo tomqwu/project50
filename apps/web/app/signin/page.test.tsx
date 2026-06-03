@@ -44,15 +44,18 @@ describe("SignInPage", () => {
   it("renders the value proposition", () => {
     render(<SignInPage />);
     expect(screen.getByTestId("landing-value-prop")).toHaveTextContent(
-      "50-day challenge",
+      "50 days",
     );
   });
 
-  it("renders feature bullets", () => {
+  it("renders the how-it-works strip and benefits grid", () => {
     render(<SignInPage />);
-    const features = screen.getByTestId("landing-features");
-    expect(features).toHaveTextContent("50-day challenges + streaks");
-    expect(features).toHaveTextContent("Log daily with photos");
-    expect(features).toHaveTextContent("Shareable recap videos and cards");
+    expect(
+      screen.getByTestId("landing-how-it-works-strip"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("landing-step")).toHaveLength(3);
+    const benefits = screen.getByTestId("landing-benefits");
+    expect(benefits).toHaveTextContent("Daily photo log");
+    expect(screen.getAllByTestId("landing-benefit")).toHaveLength(4);
   });
 });
