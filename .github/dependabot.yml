@@ -1,7 +1,12 @@
 # Dependabot — automated dependency-update PRs (M0 #33, foundation).
 # pnpm monorepo: the npm ecosystem reads the root pnpm-lock.yaml and covers all
-# workspaces. Updates are grouped to keep PR volume manageable; security updates
-# still come through individually so they aren't held back by a group.
+# workspaces.
+#
+# Tuned to stay quiet: major-version bumps are IGNORED here (they need deliberate,
+# individually-validated migrations — e.g. vitest 2→4, next 15→16, prisma 5→7),
+# and non-major updates are batched into a single weekly grouped PR. Security
+# updates are exempt from the major-ignore and still come through, so real
+# advisories aren't held back.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -9,13 +14,18 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     groups:
-      # Non-major bumps batched into one PR per week to reduce noise.
-      minor-and-patch:
+      # One batched PR/week for all non-major bumps.
+      non-major:
         update-types:
           - minor
           - patch
+    ignore:
+      # No automatic major bumps — they break the toolchain and need a real migration.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
     commit-message:
@@ -26,6 +36,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
     labels:
       - dependencies
       - ci
