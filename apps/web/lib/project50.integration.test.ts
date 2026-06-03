@@ -57,3 +57,32 @@ describe("toggleRule", () => {
     expect(ds?.completed).toBe(false);
   });
 });
+
+describe("hard reset", () => {
+  const LATER = new Date("2026-06-04T12:00:00Z"); // Day 3 relative to 2026-06-02 start
+
+  it("marks the run FAILED when a past day was not 7/7, reporting the missed day + rule", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // start Day 1 = 2026-06-02
+    // Day 1: only complete rules 1..6 (miss rule 7) → past-day failure once time advances
+    for (let ruleId = 1; ruleId <= 6; ruleId++) await toggleRule(u.id, ruleId, true, NOW);
+
+    const state = await getProject50State(u.id, LATER);
+    expect(state.status).toBe("FAILED");
+    expect(state.failedDayNumber).toBe(1);
+    expect(state.failedRuleId).toBe(7);
+
+    const run = await prisma.challenge.findFirst({ where: { ownerId: u.id, kind: "PROJECT50" } });
+    expect(run?.status).toBe("FAILED");
+  });
+
+  it("stays ACTIVE when every past day was 7/7 (today still incomplete is OK)", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW);
+    for (let ruleId = 1; ruleId <= 7; ruleId++) await toggleRule(u.id, ruleId, true, NOW); // Day 1 complete
+    const NEXT = new Date("2026-06-03T12:00:00Z"); // Day 2, nothing done yet today
+    const state = await getProject50State(u.id, NEXT);
+    expect(state.status).toBe("ACTIVE");
+    expect(state.today?.dayNumber).toBe(2);
+  });
+});

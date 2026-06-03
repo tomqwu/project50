@@ -66,7 +66,29 @@ export async function getProject50State(uid: string, now: Date = new Date()): Pr
   if (!run) return { status: "NONE" };
 
   const todayKey = localDayKey(now, run.timezone);
-  // (hard-reset evaluation added in Task 3c)
+
+  // Hard reset: any elapsed past day (startDate .. yesterday) that is not 7/7 fails the run.
+  const yesterdayKey = addDays(todayKey, -1);
+  for (let d = run.startDate; d <= yesterdayKey; d = addDays(d, 1)) {
+    const ds = await prisma.dayStatus.findUnique({
+      where: { challengeId_dayKey: { challengeId: run.id, dayKey: d } },
+    });
+    if (!ds?.completed) {
+      await prisma.challenge.update({ where: { id: run.id }, data: { status: "FAILED" } });
+      const doneRows = await prisma.ruleCheck.findMany({
+        where: { challengeId: run.id, dayKey: d, done: true },
+      });
+      const doneIds = new Set(doneRows.map((r) => r.ruleId));
+      const failedRuleId = PROJECT50_RULE_IDS.find((id) => !doneIds.has(id));
+      return {
+        status: "FAILED",
+        runId: run.id,
+        failedDayNumber: Math.max(1, dayNumber(run.startDate, d)),
+        failedRuleId,
+      };
+    }
+  }
+
   return {
     status: "ACTIVE",
     runId: run.id,
