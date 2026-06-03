@@ -43,14 +43,27 @@ export function middleware(): NextResponse {
   const s3 = storageOrigin();
   const withS3 = (...sources: string[]) => [...sources, s3].filter(Boolean).join(" ");
 
+  // `next dev` (Fast Refresh / HMR) evaluates code via eval() and opens a
+  // websocket back to the dev server — both are blocked by the production CSP.
+  // Relax ONLY in development so `pnpm dev` works; production stays strict
+  // (no 'unsafe-eval', no ws:). Gated on NODE_ENV, which is "production" for the
+  // built app (`next start`) and the e2e server, "development" for `next dev`.
+  const isDev = process.env.NODE_ENV !== "production";
+  const scriptSrc = isDev
+    ? `script-src 'self' 'unsafe-inline' 'unsafe-eval'`
+    : `script-src 'self' 'unsafe-inline'`;
+  const connectSrc = isDev
+    ? `connect-src ${withS3("'self'", "ws:", "wss:")}`
+    : `connect-src ${withS3("'self'")}`;
+
   const csp = [
     `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline'`,
+    scriptSrc,
     `style-src 'self' 'unsafe-inline'`,
     `img-src ${withS3("'self'", "data:", "blob:")}`,
     `media-src ${withS3("'self'", "blob:")}`,
     `font-src 'self'`,
-    `connect-src ${withS3("'self'")}`,
+    connectSrc,
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action ${["'self'", ...OAUTH_FORM_ACTIONS].join(" ")}`,
