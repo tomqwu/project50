@@ -164,6 +164,23 @@ describe("feed", () => {
     expect(result).toHaveLength(0);
   });
 
+  it("excludes activities from users the viewer has blocked", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+
+    // Alice follows Bob but then blocks him.
+    await follow(alice.id, bob.id);
+    await prisma.block.create({ data: { blockerId: alice.id, blockedId: bob.id } });
+
+    const challenge = await createChallenge(bob.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
+    });
+
+    const result = await feed(alice.id);
+    expect(result.map((a) => a.id)).not.toContain(activity.id);
+  });
+
   it("includes cheerCount = count of CHEER reactions per activity", async () => {
     const alice = await createUser({ handle: "alice" });
     const bob = await createUser({ handle: "bob" });

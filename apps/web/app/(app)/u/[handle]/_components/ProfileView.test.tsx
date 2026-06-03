@@ -52,24 +52,42 @@ describe("ProfileView", () => {
     render(<ProfileView {...baseProps} hasViewer isOwnProfile={false} />);
 
     expect(screen.getByTestId("follow-button-slot")).toBeInTheDocument();
-    expect(screen.getByRole("button")).toHaveTextContent("Follow");
+    expect(
+      screen.getByRole("button", { name: "Follow" }),
+    ).toBeInTheDocument();
   });
 
   it("shows an Unfollow button when the viewer already follows", () => {
     render(<ProfileView {...baseProps} isFollowing hasViewer isOwnProfile={false} />);
 
-    expect(screen.getByRole("button")).toHaveTextContent("Unfollow");
+    expect(
+      screen.getByRole("button", { name: "Unfollow" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows block and report actions on someone else's profile", () => {
+    render(<ProfileView {...baseProps} hasViewer isOwnProfile={false} />);
+
+    expect(screen.getByTestId("moderation-actions-slot")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
   });
 
   it("hides the follow button on the viewer's own profile", () => {
     render(<ProfileView {...baseProps} isOwnProfile hasViewer />);
 
     expect(screen.queryByTestId("follow-button-slot")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("moderation-actions-slot"),
+    ).not.toBeInTheDocument();
   });
 
   it("hides the follow button when there is no viewer", () => {
     render(<ProfileView {...baseProps} hasViewer={false} isOwnProfile={false} />);
 
     expect(screen.queryByTestId("follow-button-slot")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("moderation-actions-slot"),
+    ).not.toBeInTheDocument();
   });
 });

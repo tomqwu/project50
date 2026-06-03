@@ -54,17 +54,46 @@ enum ChallengeStatus {
 }
 
 model User {
-  id          String      @id @default(cuid())
-  handle      String      @unique
-  displayName String
-  avatarUrl   String?
-  createdAt   DateTime    @default(now())
-  identities  Identity[]
-  challenges  Challenge[]
-  activities  Activity[]
-  reactions   Reaction[]
-  following   Follow[]    @relation("follower")
-  followers   Follow[]    @relation("followee")
+  id             String      @id @default(cuid())
+  handle         String      @unique
+  displayName    String
+  avatarUrl      String?
+  createdAt      DateTime    @default(now())
+  identities     Identity[]
+  challenges     Challenge[]
+  activities     Activity[]
+  reactions      Reaction[]
+  following      Follow[]    @relation("follower")
+  followers      Follow[]    @relation("followee")
+  blocksMade     Block[]     @relation("BlocksMade")
+  blocksReceived Block[]     @relation("BlocksReceived")
+  reports        Report[]
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  blocker   User     @relation("BlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  // Reverse lookup ("who blocked this user") and cascade deletes on the blocked user.
+  @@index([blockedId])
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  reporterId String
+  reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType String
+  targetId   String
+  reason     String
+  createdAt  DateTime @default(now())
+
+  // Moderation review groups reports by what was reported.
+  @@index([targetType, targetId])
 }
 
 model Identity {
