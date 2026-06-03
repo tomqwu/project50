@@ -1,13 +1,8 @@
 import { requireUser } from "@/lib/session";
-import { handleRoute, unprocessable } from "@/lib/api/http";
+import { handleRoute } from "@/lib/api/http";
 import { presignPut, newMediaKey, ensureBucket } from "@/lib/storage";
+import { validateUpload } from "@/lib/api/media";
 
-const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const EXT_MAP: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-};
 const SAFE_SUFFIX_RE = /^[a-zA-Z0-9_-]+$/;
 const FALLBACK_SUFFIX = "upload";
 
@@ -15,15 +10,16 @@ export async function POST(req: Request) {
   return handleRoute(async () => {
     const uid = await requireUser();
 
-    const body = await req.json() as { contentType?: unknown; ext?: unknown; suffix?: unknown };
-    const { contentType, suffix: rawSuffix } = body;
+    const body = (await req.json()) as {
+      contentType?: unknown;
+      ext?: unknown;
+      suffix?: unknown;
+      size?: unknown;
+    };
+    const { contentType, size, suffix: rawSuffix } = body;
 
-    if (typeof contentType !== "string" || !ALLOWED_TYPES.has(contentType)) {
-      unprocessable("INVALID_CONTENT_TYPE");
-    }
-
-    // Derive extension from the allowed content type (safe, no user input for ext)
-    const safeExt = EXT_MAP[contentType as string]!;
+    // Upload safety: type allowlist + size cap, enforced BEFORE presigning.
+    const { ext: safeExt } = validateUpload({ contentType, size });
 
     // Sanitize suffix: keep only [a-zA-Z0-9_-], fallback to fixed token
     const suffixStr = typeof rawSuffix === "string" ? rawSuffix : "";

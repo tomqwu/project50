@@ -13,6 +13,7 @@ vi.mock("@/lib/storage", () => ({
 
 import { requireUser, UnauthorizedError } from "@/lib/session";
 import { presignPut, newMediaKey, ensureBucket } from "@/lib/storage";
+import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/api/media";
 import { POST } from "./route";
 
 beforeEach(() => {
@@ -39,25 +40,30 @@ describe("POST /api/uploads/presign", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 422 INVALID_CONTENT_TYPE for disallowed content type", async () => {
+  it("returns 422 unsupported_media_type for a disallowed image type (bmp)", async () => {
     vi.mocked(requireUser).mockResolvedValue("u1");
-    const res = await POST(makeRequest({ contentType: "image/gif", suffix: "abc" }));
+    const res = await POST(makeRequest({ contentType: "image/bmp", suffix: "abc" }));
     expect(res.status).toBe(422);
-    await expect(res.json()).resolves.toMatchObject({ error: "INVALID_CONTENT_TYPE" });
+    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_media_type" });
+    // Rejected BEFORE any presigned URL is issued.
+    expect(presignPut).not.toHaveBeenCalled();
+    expect(ensureBucket).not.toHaveBeenCalled();
   });
 
-  it("returns 422 INVALID_CONTENT_TYPE for text/html", async () => {
+  it("returns 422 unsupported_media_type for text/html", async () => {
     vi.mocked(requireUser).mockResolvedValue("u1");
     const res = await POST(makeRequest({ contentType: "text/html", suffix: "abc" }));
     expect(res.status).toBe(422);
-    await expect(res.json()).resolves.toMatchObject({ error: "INVALID_CONTENT_TYPE" });
+    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_media_type" });
+    expect(presignPut).not.toHaveBeenCalled();
   });
 
-  it("returns 422 INVALID_CONTENT_TYPE when contentType is missing", async () => {
+  it("returns 422 unsupported_media_type when contentType is missing", async () => {
     vi.mocked(requireUser).mockResolvedValue("u1");
     const res = await POST(makeRequest({ suffix: "abc" }));
     expect(res.status).toBe(422);
-    await expect(res.json()).resolves.toMatchObject({ error: "INVALID_CONTENT_TYPE" });
+    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_media_type" });
+    expect(presignPut).not.toHaveBeenCalled();
   });
 
   it("returns 200 with uploadUrl and objectKey for image/jpeg", async () => {
@@ -85,6 +91,62 @@ describe("POST /api/uploads/presign", () => {
     expect(body.objectKey).toBe("media/user1/s2.webp");
   });
 
+  it("returns 200 for image/gif (now an allowed media type)", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(makeRequest({ contentType: "image/gif", suffix: "anim" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe("media/user1/anim.gif");
+  });
+
+  it("returns 200 for video/mp4 with a video object key", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(makeRequest({ contentType: "video/mp4", suffix: "clip" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe("media/user1/clip.mp4");
+  });
+
+  it("returns 200 for video/quicktime (.mov)", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(makeRequest({ contentType: "video/quicktime", suffix: "v" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe("media/user1/v.mov");
+  });
+
+  it("returns 422 file_too_large for an oversize image", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(
+      makeRequest({ contentType: "image/jpeg", suffix: "big", size: MAX_IMAGE_BYTES + 1 }),
+    );
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toMatchObject({ error: "file_too_large" });
+    expect(presignPut).not.toHaveBeenCalled();
+    expect(ensureBucket).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 file_too_large for an oversize video", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(
+      makeRequest({ contentType: "video/mp4", suffix: "huge", size: MAX_VIDEO_BYTES + 1 }),
+    );
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toMatchObject({ error: "file_too_large" });
+    expect(presignPut).not.toHaveBeenCalled();
+  });
+
+  it("accepts an image exactly at the size limit (boundary)", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    const res = await POST(
+      makeRequest({ contentType: "image/jpeg", suffix: "edge", size: MAX_IMAGE_BYTES }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.objectKey).toBe("media/user1/edge.jpg");
+    expect(presignPut).toHaveBeenCalledOnce();
+  });
+
   it("sanitizes suffix: falls back to 'upload' for empty suffix", async () => {
     vi.mocked(requireUser).mockResolvedValue("user1");
     const res = await POST(makeRequest({ contentType: "image/jpeg", suffix: "" }));
@@ -106,7 +168,6 @@ describe("POST /api/uploads/presign", () => {
     const res = await POST(makeRequest({ contentType: "image/jpeg", suffix: 12345 }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Non-string suffix → fallback
     expect(body.objectKey).toBe("media/user1/upload.jpg");
   });
 
