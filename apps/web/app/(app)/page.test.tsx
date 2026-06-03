@@ -113,6 +113,20 @@ describe("DashboardPage (Project 50)", () => {
     expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
   });
 
+  it("COMPLETED → renders the celebration screen", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue({
+      status: "COMPLETED",
+      runId: "r1",
+      completedDays: 50,
+    });
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    expect(screen.getByText(/finished project 50/i)).toBeInTheDocument();
+  });
+
   it("ACTIVE → clicking a rule row invokes toggleRuleAction(ruleId, true)", async () => {
     mockRequireUser.mockResolvedValue("u1");
     mockGetProject50State.mockResolvedValue({
