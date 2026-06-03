@@ -19,7 +19,7 @@
     "expo-sharing": "~12.0.1",
     "expo-web-browser": "~13.0.3",
     "react": "18.3.1",
-    "react-native": "0.76.9",
+    "react-native": "0.85.3",
     "@project50/core": "workspace:*",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/stack": "^6.4.1",
