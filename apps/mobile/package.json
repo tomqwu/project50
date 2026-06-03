@@ -22,7 +22,7 @@
     "react-native": "0.76.9",
     "@project50/core": "workspace:*",
     "@react-navigation/native": "^6.1.18",
-    "@react-navigation/stack": "^6.4.1",
+    "@react-navigation/stack": "^7.9.3",
     "react-native-screens": "~3.35.0",
     "react-native-safe-area-context": "4.12.0"
   },
