@@ -29,6 +29,13 @@ export default defineConfig({
       S3_BUCKET: process.env.S3_BUCKET ?? "project50-media",
       // Use the fake renderer in e2e/CI — no Chromium Remotion render, deterministic MP4
       RECAP_FAKE: "1",
+      // Test-only OAuth client ids so the provider authorize redirect carries a
+      // non-empty client_id (the empty-client_id bug guarded by oauth-redirect.spec.ts).
+      // Never used against real providers — the e2e never completes the OAuth round-trip.
+      GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? "e2e-google-client-id",
+      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? "e2e-google-secret",
+      FACEBOOK_CLIENT_ID: process.env.FACEBOOK_CLIENT_ID ?? "e2e-facebook-client-id",
+      FACEBOOK_CLIENT_SECRET: process.env.FACEBOOK_CLIENT_SECRET ?? "e2e-facebook-secret",
     },
   },
 });
