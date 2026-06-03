@@ -1,21 +1,7 @@
 import Link from "next/link";
 import { Card } from "@project50/ui";
 import { SignInButtons } from "../SignInButtons";
-
-const FEATURES = [
-  {
-    label: "50-day challenges + streaks",
-    description: "Commit to a goal, log every day, and watch your streak build.",
-  },
-  {
-    label: "Log daily with photos",
-    description: "Attach a photo to each activity so your progress is visible.",
-  },
-  {
-    label: "Shareable recap videos and cards",
-    description: "Generate a highlight reel at the end and share your win.",
-  },
-] as const;
+import { HowItWorksStrip, BenefitsGrid } from "./LandingSections";
 
 interface LandingProps {
   e2eEnabled?: boolean;
@@ -31,7 +17,7 @@ export function Landing({ e2eEnabled = false }: LandingProps) {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "64px 24px 80px",
+        padding: "72px 24px 88px",
         gap: "0",
       }}
     >
@@ -39,86 +25,128 @@ export function Landing({ e2eEnabled = false }: LandingProps) {
       <header
         style={{
           textAlign: "center",
-          marginBottom: "56px",
-          maxWidth: "480px",
+          marginBottom: "72px",
+          maxWidth: "680px",
           width: "100%",
         }}
       >
+        <p
+          style={{
+            fontFamily: "var(--font-body, system-ui, sans-serif)",
+            fontSize: "12px",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "var(--accent)",
+            fontWeight: 700,
+            margin: "0 0 16px",
+          }}
+        >
+          7 rules · 50 days · no days off
+        </p>
         <h1
           data-testid="home"
           style={{
             fontFamily: "var(--font-display, 'Anton', sans-serif)",
-            fontSize: "clamp(52px, 10vw, 80px)",
+            fontSize: "clamp(56px, 12vw, 96px)",
             letterSpacing: "0.04em",
             textTransform: "uppercase",
             color: "var(--accent)",
-            margin: "0 0 16px",
-            lineHeight: 1,
+            margin: "0 0 20px",
+            lineHeight: 0.95,
           }}
         >
           project50
         </h1>
         <p
+          style={{
+            fontFamily: "var(--font-display, 'Anton', sans-serif)",
+            fontSize: "clamp(22px, 5vw, 30px)",
+            letterSpacing: "0.02em",
+            textTransform: "uppercase",
+            color: "var(--text)",
+            margin: "0 0 16px",
+            lineHeight: 1.1,
+          }}
+        >
+          50 days to become someone you respect
+        </p>
+        <p
           data-testid="landing-value-prop"
           style={{
             fontFamily: "var(--font-body, system-ui, sans-serif)",
-            fontSize: "18px",
-            lineHeight: 1.5,
+            fontSize: "17px",
+            lineHeight: 1.6,
             color: "var(--muted)",
-            margin: 0,
+            margin: "0 auto 28px",
+            maxWidth: "520px",
           }}
         >
-          Run a 50-day challenge. Track it daily. Celebrate and share it.
+          Project 50 is an all-or-nothing hard reset: hit all 7 rules every day
+          for 50 days straight. Miss a single rule and the streak resets to Day
+          1. Finish, and the discipline is yours to keep.
         </p>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+          }}
+        >
+          <Link
+            href="/welcome"
+            data-testid="landing-hero-cta"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "15px 28px",
+              borderRadius: "16px",
+              background: "var(--accent)",
+              color: "var(--bg)",
+              fontFamily: "var(--font-body, system-ui, sans-serif)",
+              fontSize: "15px",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              textDecoration: "none",
+              boxShadow: "0 0 24px rgba(214,255,63,0.35)",
+            }}
+          >
+            See the rules · How it works
+          </Link>
+          <a
+            href="#get-started"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "15px 28px",
+              borderRadius: "16px",
+              border: "1px solid var(--hairline)",
+              background: "transparent",
+              color: "var(--text)",
+              fontFamily: "var(--font-body, system-ui, sans-serif)",
+              fontSize: "15px",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              textDecoration: "none",
+            }}
+          >
+            Start now
+          </a>
+        </div>
       </header>
 
-      {/* Feature bullets */}
-      <ul
-        data-testid="landing-features"
-        style={{
-          listStyle: "none",
-          padding: 0,
-          margin: "0 0 48px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-          width: "100%",
-          maxWidth: "480px",
-        }}
-      >
-        {FEATURES.map((f) => (
-          <li key={f.label}>
-            <Card as="div">
-              <p
-                style={{
-                  fontFamily: "var(--font-body, system-ui, sans-serif)",
-                  fontWeight: 700,
-                  fontSize: "14px",
-                  letterSpacing: "0.01em",
-                  color: "var(--text)",
-                  margin: "0 0 4px",
-                }}
-              >
-                {f.label}
-              </p>
-              <p
-                style={{
-                  fontFamily: "var(--font-body, system-ui, sans-serif)",
-                  fontSize: "13px",
-                  color: "var(--muted)",
-                  margin: 0,
-                  lineHeight: 1.5,
-                }}
-              >
-                {f.description}
-              </p>
-            </Card>
-          </li>
-        ))}
-      </ul>
+      {/* How it works — 3-step strip */}
+      <HowItWorksStrip />
+
+      {/* Benefits grid */}
+      <BenefitsGrid />
 
       {/* Sign-in card */}
-      <div style={{ width: "100%", maxWidth: "480px" }}>
+      <div id="get-started" style={{ width: "100%", maxWidth: "480px", scrollMarginTop: "24px" }}>
         <Card as="div">
           <p
             style={{
@@ -127,11 +155,22 @@ export function Landing({ e2eEnabled = false }: LandingProps) {
               letterSpacing: "0.12em",
               textTransform: "uppercase",
               color: "var(--muted)",
-              margin: "0 0 16px",
+              margin: "0 0 6px",
               fontWeight: 600,
             }}
           >
             Get started
+          </p>
+          <p
+            style={{
+              fontFamily: "var(--font-body, system-ui, sans-serif)",
+              fontSize: "14px",
+              color: "var(--muted)",
+              margin: "0 0 16px",
+              lineHeight: 1.5,
+            }}
+          >
+            Create your free account and start Day 1 today.
           </p>
           <SignInButtons e2eEnabled={e2eEnabled} />
           <p
