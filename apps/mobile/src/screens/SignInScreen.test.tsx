@@ -15,6 +15,9 @@ jest.mock("../lib/session", () => ({
 }));
 
 import { SignInScreen } from "./SignInScreen";
+// Pulls the mocked implementation (the jest.mock above is hoisted), so tests
+// can assert against the same jest.fn reference without a require() call.
+import { signInWithFacebook } from "../lib/session";
 
 describe("SignInScreen", () => {
   it("renders the Facebook button and triggers promptAsync on press", async () => {
@@ -25,7 +28,6 @@ describe("SignInScreen", () => {
 
   it("calls onSignedIn when the FB auth response succeeds", async () => {
     const onSignedIn = jest.fn();
-    const { signInWithFacebook } = require("../lib/session");
     render(
       <SignInScreen
         onSignedIn={onSignedIn}
@@ -38,7 +40,6 @@ describe("SignInScreen", () => {
 
   it("does not call onSignedIn when no token is returned", async () => {
     const onSignedIn = jest.fn();
-    const { signInWithFacebook } = require("../lib/session");
     (signInWithFacebook as jest.Mock).mockResolvedValueOnce(null);
     render(
       <SignInScreen
