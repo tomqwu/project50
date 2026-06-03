@@ -9,7 +9,7 @@ vi.mock("@/lib/session", () => ({
 }));
 
 import { requireUser, UnauthorizedError } from "@/lib/session";
-import { GET, PATCH } from "./route";
+import { GET, PATCH, DELETE } from "./route";
 
 beforeEach(async () => {
   await resetDb();
@@ -87,5 +87,24 @@ describe("PATCH /api/account", () => {
     const res = await PATCH(patchRequest({ handle: "bob" }));
     expect(res.status).toBe(422);
     await expect(res.json()).resolves.toEqual({ error: "handle_taken" });
+  });
+});
+
+describe("DELETE /api/account", () => {
+  it("returns 401 when unauthenticated", async () => {
+    vi.mocked(requireUser).mockRejectedValue(new UnauthorizedError("unauthed"));
+    const res = await DELETE();
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({ error: "unauthorized" });
+  });
+
+  it("deletes the signed-in user and returns ok", async () => {
+    const user = await createUser({ handle: "alice", displayName: "Alice A" });
+    vi.mocked(requireUser).mockResolvedValue(user.id);
+
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
   });
 });

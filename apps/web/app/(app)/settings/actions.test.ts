@@ -1,19 +1,29 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { mockRequireUser, mockUpdateAccount, mockRevalidatePath } = vi.hoisted(
-  () => ({
-    mockRequireUser: vi.fn<() => Promise<string>>(),
-    mockUpdateAccount: vi.fn(),
-    mockRevalidatePath: vi.fn(),
-  }),
-);
+const {
+  mockRequireUser,
+  mockUpdateAccount,
+  mockDeleteAccount,
+  mockRevalidatePath,
+  mockSignOut,
+} = vi.hoisted(() => ({
+  mockRequireUser: vi.fn<() => Promise<string>>(),
+  mockUpdateAccount: vi.fn(),
+  mockDeleteAccount: vi.fn(),
+  mockRevalidatePath: vi.fn(),
+  mockSignOut: vi.fn(),
+}));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
 vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
-vi.mock("@/lib/api/account", () => ({ updateAccount: mockUpdateAccount }));
+vi.mock("@/lib/api/account", () => ({
+  updateAccount: mockUpdateAccount,
+  deleteAccount: mockDeleteAccount,
+}));
+vi.mock("@/auth", () => ({ signOut: mockSignOut }));
 
 import { HttpError } from "@/lib/api/http";
-import { updateAccountAction } from "./actions";
+import { updateAccountAction, deleteAccountAction } from "./actions";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -56,5 +66,25 @@ describe("updateAccountAction", () => {
     mockUpdateAccount.mockRejectedValue(new Error("db down"));
 
     await expect(updateAccountAction({ handle: "x" })).rejects.toThrow("db down");
+  });
+});
+
+describe("deleteAccountAction", () => {
+  it("deletes the account then signs out and redirects to /signin", async () => {
+    await deleteAccountAction();
+
+    expect(mockDeleteAccount).toHaveBeenCalledWith("u1");
+    expect(mockSignOut).toHaveBeenCalledWith({ redirectTo: "/signin" });
+    // sign-out happens only after deletion succeeds
+    const deleteOrder = mockDeleteAccount.mock.invocationCallOrder[0]!;
+    const signOutOrder = mockSignOut.mock.invocationCallOrder[0]!;
+    expect(deleteOrder).toBeLessThan(signOutOrder);
+  });
+
+  it("does not sign out when deletion fails", async () => {
+    mockDeleteAccount.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(deleteAccountAction()).rejects.toThrow("db down");
+    expect(mockSignOut).not.toHaveBeenCalled();
   });
 });

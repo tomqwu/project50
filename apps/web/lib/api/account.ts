@@ -62,3 +62,14 @@ export async function updateAccount(
   });
   return { handle: updated.handle, displayName: updated.displayName };
 }
+
+/**
+ * Permanently delete the user and all of their data. Prisma relations declare
+ * `onDelete: Cascade`, so deleting the User row cascades to their identities,
+ * challenges (and each challenge's activities, media, day statuses, milestones,
+ * recaps, rule checks, reactions), first-party activities/reactions, and follow
+ * edges in both directions. Throws if no such user exists.
+ */
+export async function deleteAccount(uid: string): Promise<void> {
+  await prisma.user.delete({ where: { id: uid } });
+}
