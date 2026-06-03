@@ -117,6 +117,20 @@ export async function ensureBucket(): Promise<void> {
   }
 }
 
+/**
+ * Readiness probe for object storage: resolves true when the configured bucket
+ * is reachable (a HEAD succeeds), false on any error. Never throws — callers use
+ * the boolean to build a readiness response.
+ */
+export async function checkStorage(): Promise<boolean> {
+  try {
+    await getClient().send(new HeadBucketCommand({ Bucket: getBucket() }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Export for testing (reset singleton)
 export function _resetClientForTest(): void {
   _client = null;
