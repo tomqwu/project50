@@ -1,0 +1,142 @@
+# Production deploy — runs on push to main, AFTER the CI workflow.
+#
+# Implements:
+#   - #21  Run DB migrations automatically on release (prisma migrate deploy)
+#          -> the `migrate` job below.
+#   - #17  CD: deploy web to production host (preview deploys live in preview.yml)
+#          -> the `deploy` job below, which depends on `migrate`.
+#
+# DESIGN NOTES
+# ------------
+# This workflow is INERT until secrets are configured. Every job is guarded so
+# that on a fork (or before the user adds secrets) nothing runs and CI stays
+# green — guarded jobs are simply skipped, not failed.
+#
+# Default production host is Vercel (documented in docs/DEPLOY.md). Swap the
+# `deploy` job for your host of choice; the `migrate` job is host-agnostic.
+#
+# Required repository secrets (see docs/DEPLOY.md):
+#   DATABASE_URL    - Postgres connection string for the PRODUCTION database.
+#   VERCEL_TOKEN    - Vercel access token.
+#   VERCEL_ORG_ID   - Vercel organization id.
+#   VERCEL_PROJECT_ID - Vercel project id for the web app.
+
+name: Deploy
+
+on:
+  # Only deploy from the canonical branch on the upstream repo. We wait for the
+  # CI workflow to succeed so we never deploy a red build.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # Allow manual production deploys from the Actions tab.
+  workflow_dispatch: {}
+
+concurrency:
+  # One production deploy at a time; cancel superseded runs.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: resolve whether the required secrets are present. Jobs downstream read
+  # this output so the pipeline is inert (skipped, not failed) without secrets.
+  # `secrets` cannot be referenced directly inside job-level `if:`, so we surface
+  # presence as a boolean output here.
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: Preflight (secret gate)
+    runs-on: ubuntu-latest
+    # Skip entirely if CI was triggered but did not succeed (workflow_dispatch
+    # has no triggering run, so allow it through).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      has_db: ${{ steps.check.outputs.has_db }}
+      has_vercel: ${{ steps.check.outputs.has_vercel }}
+    steps:
+      - id: check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "has_db=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_db=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DATABASE_URL secret not set — migrate job will be skipped."
+          fi
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "has_vercel=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_vercel=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Vercel secrets not set — deploy job will be skipped."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # #21 — Run DB migrations on release. `prisma migrate deploy` applies any
+  # pending migrations and is safe to re-run (no-ops when nothing is pending).
+  # This MUST complete before the app is deployed so new code never runs against
+  # an un-migrated schema.
+  # ---------------------------------------------------------------------------
+  migrate:
+    name: DB migrate (prisma migrate deploy)
+    needs: preflight
+    if: needs.preflight.outputs.has_db == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # Production database — provided as a secret.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Generate the client, then apply migrations against the prod DB.
+      - run: pnpm --filter @project50/db exec prisma generate
+      - name: Apply pending migrations
+        run: pnpm --filter @project50/db exec prisma migrate deploy
+
+  # ---------------------------------------------------------------------------
+  # #17 — Deploy web to the production host (Vercel). Depends on `migrate`.
+  #
+  # We require `migrate` to have succeeded OR been skipped-because-no-db. If the
+  # DB secret is present, migrate must pass first. If there is no DB secret there
+  # is also no Vercel secret in a typical setup, so this rarely matters — but the
+  # `always() && !failure() && !cancelled()` guard keeps ordering strict while
+  # tolerating a skipped migrate.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy web (Vercel, production)
+    needs: [preflight, migrate]
+    if: >-
+      always() &&
+      needs.preflight.outputs.has_vercel == 'true' &&
+      needs.migrate.result != 'failure' &&
+      needs.migrate.result != 'cancelled'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v6
+      # amondnet/vercel-action builds on Vercel and promotes to production.
+      # `--prod` is passed via vercel-args. Build env (DATABASE_URL, AUTH_SECRET,
+      # S3_*, etc.) is configured in the Vercel project settings, not here.
+      - name: Deploy to Vercel (production)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+          # Monorepo: the Next.js app lives in apps/web. The Vercel project's
+          # "Root Directory" should also be set to apps/web in the dashboard.
+          working-directory: ./
