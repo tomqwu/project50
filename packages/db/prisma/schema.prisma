@@ -42,6 +42,17 @@ enum RecapKind {
   FIFTY
 }
 
+enum ChallengeKind {
+  STANDARD
+  PROJECT50
+}
+
+enum ChallengeStatus {
+  ACTIVE
+  FAILED
+  COMPLETED
+}
+
 model User {
   id          String      @id @default(cuid())
   handle      String      @unique
@@ -78,23 +89,26 @@ model Follow {
 }
 
 model Challenge {
-  id          String      @id @default(cuid())
+  id          String          @id @default(cuid())
   ownerId     String
-  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   title       String
   goalType    GoalType
   unit        String?
   dailyTarget Float?
   startDate   String
-  timezone    String      @default("UTC")
-  lengthDays  Int         @default(50)
-  visibility  Visibility  @default(PUBLIC)
-  shareId     String      @unique @default(cuid())
-  createdAt   DateTime    @default(now())
+  timezone    String          @default("UTC")
+  lengthDays  Int             @default(50)
+  kind        ChallengeKind   @default(STANDARD)
+  status      ChallengeStatus @default(ACTIVE)
+  visibility  Visibility      @default(PUBLIC)
+  shareId     String          @unique @default(cuid())
+  createdAt   DateTime        @default(now())
   activities  Activity[]
   dayStatuses DayStatus[]
   milestones  Milestone[]
   recaps      Recap[]
+  ruleChecks  RuleCheck[]
 }
 
 model Activity {
@@ -158,10 +172,23 @@ model Milestone {
 }
 
 model Recap {
-  id          String     @id @default(cuid())
+  id          String    @id @default(cuid())
   challengeId String
-  challenge   Challenge  @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   kind        RecapKind
   objectKey   String
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime  @default(now())
+}
+
+model RuleCheck {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  dayKey      String
+  ruleId      Int
+  done        Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@unique([challengeId, dayKey, ruleId])
+  @@index([challengeId, dayKey])
 }
