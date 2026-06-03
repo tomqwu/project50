@@ -49,4 +49,11 @@ describe("Landing", () => {
     render(<Landing e2eEnabled />);
     expect(screen.getByTestId("signin-e2e")).toBeInTheDocument();
   });
+
+  it("renders a 'How Project 50 works' link to /welcome", () => {
+    render(<Landing />);
+    const link = screen.getByTestId("landing-how-it-works");
+    expect(link).toHaveAttribute("href", "/welcome");
+    expect(link).toHaveTextContent(/how project 50 works/i);
+  });
 });
