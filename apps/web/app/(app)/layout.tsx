@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth-guard";
+import { SignOutButton } from "./_components/SignOutButton";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   await requireAuth();
@@ -68,6 +69,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         >
           New
         </Link>
+        <SignOutButton />
         </div>
       </nav>
       <main style={{ maxWidth: shellMaxWidth, margin: "0 auto" }}>{children}</main>
