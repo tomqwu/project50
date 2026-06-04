@@ -47,4 +47,11 @@ describe("Data Deletion page", () => {
     const { container } = render(<DataDeletionPage />);
     expect(container.textContent).not.toMatch(/TODO/);
   });
+
+  it("describes media removal from object storage and backup retention", () => {
+    const { container } = render(<DataDeletionPage />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/from our object storage/i);
+    expect(text).toMatch(/backups/i);
+  });
 });

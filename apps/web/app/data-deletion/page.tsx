@@ -71,25 +71,29 @@ export default function DataDeletionPage() {
 
       <h2 style={h2}>What gets deleted</h2>
       <p style={p}>
-        Deleting your account permanently removes your profile and everything
-        associated with it, including:
+        Deleting your account removes your profile and all associated records,
+        including:
       </p>
       <ul style={ul}>
         <li>your profile (handle, display name, avatar);</li>
         <li>
-          your identity links to Google and Facebook (we no longer recognise you
-          on sign-in);
+          your identity links to Google and Facebook, and your email address if
+          you signed in by email (we no longer recognise you on sign-in);
         </li>
         <li>your challenges and their settings;</li>
         <li>
           your activity logs, notes, mood entries, day statuses, milestones,
           rule checks, and recaps;
         </li>
-        <li>photos and other media you uploaded;</li>
-        <li>your follows, in both directions, and your reactions and comments.</li>
+        <li>
+          your social interactions — follows, in both directions, and your
+          reactions and comments;
+        </li>
+        <li>your uploaded photos and other media, from our object storage.</li>
       </ul>
       <p style={p}>
-        See our{" "}
+        Residual copies may persist briefly in routine backups before they age
+        out on our normal backup cycle. See our{" "}
         <Link href="/privacy" style={{ color: "var(--accent)" }}>
           Privacy Policy
         </Link>{" "}

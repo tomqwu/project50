@@ -47,4 +47,26 @@ describe("Privacy Policy page", () => {
     const link = screen.getByRole("link", { name: /how to delete your data/i });
     expect(link).toHaveAttribute("href", "/data-deletion");
   });
+
+  it("discloses the email magic-link sign-in and that the email is stored", () => {
+    const { container } = render(<PrivacyPolicyPage />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/email magic link/i);
+    expect(text).toMatch(/store the email address you submit/i);
+  });
+
+  it("discloses Stripe as the payment processor", () => {
+    const { container } = render(<PrivacyPolicyPage />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/Stripe/);
+    expect(text).toMatch(/payment processing/i);
+    expect(text).toMatch(/full card details/i);
+  });
+
+  it("describes media deletion from object storage without over-promising", () => {
+    const { container } = render(<PrivacyPolicyPage />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/uploaded media from our object storage/i);
+    expect(text).toMatch(/backups/i);
+  });
 });

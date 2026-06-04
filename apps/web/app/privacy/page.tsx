@@ -66,13 +66,14 @@ export default function PrivacyPolicyPage() {
 
       <h3 style={h3}>Account &amp; profile data</h3>
       <p style={p}>
-        When you sign in with Google or Facebook, we create a profile that
-        contains:
+        You can sign in with Google or Facebook, or with an email magic link.
+        When you create an account, we store a profile that contains:
       </p>
       <ul style={ul}>
         <li>
           <strong>Handle</strong> — a unique username (3–30 characters),
-          initially derived from your identity provider and editable by you.
+          initially derived from your identity provider or email and editable by
+          you.
         </li>
         <li>
           <strong>Display name</strong> — initially taken from your identity
@@ -87,12 +88,16 @@ export default function PrivacyPolicyPage() {
           plus the provider-specific account identifier, so we can recognise you
           on return visits.
         </li>
+        <li>
+          <strong>Email address</strong> — if you sign in with an email magic
+          link, we store the email address you submit so we can recognise your
+          account on return visits and send your sign-in links. The address you
+          enter is also recorded with the single-use sign-in token while that
+          link is valid. When you sign in with Google or Facebook instead, the
+          email from your identity provider is used only transiently at sign-in
+          (for example, to help derive an initial handle) and is not stored.
+        </li>
       </ul>
-      <p style={p}>
-        The email address from your identity provider is used transiently at
-        sign-in (for example, to help derive an initial handle) and is not
-        persisted in our database.
-      </p>
 
       <h3 style={h3}>Challenge &amp; activity data</h3>
       <ul style={ul}>
@@ -170,6 +175,17 @@ export default function PrivacyPolicyPage() {
           sign-in.
         </li>
         <li>
+          <strong>Email delivery provider</strong> — sends sign-in (magic-link)
+          emails to the address you submit, when email sign-in is enabled.
+        </li>
+        <li>
+          <strong>Stripe</strong> — payment processing. If you start a paid
+          subscription, you complete checkout on Stripe and we store the Stripe
+          customer and subscription identifiers needed to manage your plan. We
+          do not receive or store your full card details; Stripe handles those
+          directly.
+        </li>
+        <li>
           <strong>Object-storage provider</strong> — stores uploaded photos and
           recap media.
         </li>
@@ -186,11 +202,13 @@ export default function PrivacyPolicyPage() {
       <h2 style={h2}>4. Data retention</h2>
       <p style={p}>
         We retain personal data for as long as your account is active and as
-        needed to provide the Service. When you delete your account, we
-        permanently delete your profile and associated data — including identity
-        links, challenges, activities, uploaded media, day statuses, milestones,
-        recaps, rule checks, follows (in both directions), and reactions — via
-        cascading deletion. See{" "}
+        needed to provide the Service. When you delete your account, we remove
+        your profile and all associated records — including identity and email
+        links, challenges, activity and journal entries, day statuses,
+        milestones, recaps, rule checks, social interactions (follows in both
+        directions, reactions, and comments), and your uploaded media from our
+        object storage. Residual copies may persist briefly in routine backups
+        before they age out on our normal backup cycle. See{" "}
         <Link href="/data-deletion" style={{ color: "var(--accent)" }}>
           how to delete your data
         </Link>
