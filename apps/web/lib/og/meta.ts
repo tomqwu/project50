@@ -5,6 +5,7 @@
  *   - charcoal #121013 background
  *   - volt #D6FF3F accent
  */
+import { getBaseUrl } from "@/lib/base-url";
 
 export const OG_BRAND = {
   /** Charcoal app background. */
@@ -33,17 +34,18 @@ export const OG_RECAP_CACHE_CONTROL = "public, max-age=300, s-maxage=300";
 export const OG_DEFAULT_ALT = "project50 — 7 rules · 50 days · no days off";
 
 /**
- * Resolve the app's public base URL for `metadataBase`. Prefers explicit site
- * config, then the auth URLs already used for cookie/link decisions, falling
- * back to localhost for local dev. Mirrors lib/api/magic-link.ts resolution so
- * absolute OG URLs match the deployed origin.
+ * Resolve the app's public base URL for `metadataBase`. Prefers an explicit
+ * site URL, then the auth URLs used for cookie/link decisions, then the shared
+ * base-URL helper (which honors `APP_BASE_URL` and defaults to localhost). Reuse
+ * of `getBaseUrl()` keeps OG/Twitter URLs consistent with internal links on
+ * deployments configured via `APP_BASE_URL`.
  */
 export function resolveSiteUrl(env: Record<string, string | undefined> = process.env): URL {
   // Treat blank / whitespace-only values as unset — a stray `AUTH_URL=` in a
-  // copied .env must not win the nullish chain and crash `new URL("")`.
+  // copied .env must not win the precedence and crash `new URL("")`.
   const raw =
     [env.NEXT_PUBLIC_SITE_URL, env.AUTH_URL, env.NEXTAUTH_URL]
       .map((value) => value?.trim())
-      .find((value) => value) ?? "http://localhost:3000";
+      .find((value) => value) ?? getBaseUrl();
   return new URL(raw);
 }

@@ -36,7 +36,9 @@ describe("OG shared meta", () => {
 
 describe("resolveSiteUrl", () => {
   afterEach(() => {
-    // no global env mutated; helper takes env arg
+    // getBaseUrl() (the localhost-fallback) reads process.env.APP_BASE_URL
+    // directly, so clear it between cases to keep them isolated.
+    delete process.env.APP_BASE_URL;
   });
 
   it("prefers NEXT_PUBLIC_SITE_URL", () => {
@@ -61,12 +63,21 @@ describe("resolveSiteUrl", () => {
     expect(url.origin).toBe("https://nextauth.example.com");
   });
 
+  it("honors APP_BASE_URL (via the shared getBaseUrl helper) before localhost", () => {
+    process.env.APP_BASE_URL = "https://project50.app";
+    // No explicit site/auth URLs → falls through to the base-url helper.
+    const url = resolveSiteUrl({});
+    expect(url.origin).toBe("https://project50.app");
+  });
+
   it("falls back to localhost:3000 when unset", () => {
+    delete process.env.APP_BASE_URL;
     const url = resolveSiteUrl({});
     expect(url.origin).toBe("http://localhost:3000");
   });
 
   it("skips a blank-string env value instead of crashing on new URL('')", () => {
+    delete process.env.APP_BASE_URL;
     const url = resolveSiteUrl({ AUTH_URL: "", NEXTAUTH_URL: "" });
     expect(url.origin).toBe("http://localhost:3000");
   });
