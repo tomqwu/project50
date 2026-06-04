@@ -5,6 +5,7 @@ import {
   signInWithFacebook,
   REDIRECT_URI,
 } from "../lib/session";
+import { registerAndSavePushToken } from "../lib/push";
 import { colors } from "../theme";
 
 interface SignInScreenProps {
@@ -28,7 +29,13 @@ export function SignInScreen({ onSignedIn, _response }: SignInScreenProps): Reac
   useEffect(() => {
     if (effective?.type === "success") {
       void signInWithFacebook(effective as never, REDIRECT_URI).then((token) => {
-        if (token) onSignedIn();
+        if (token) {
+          // Register for daily-reminder push now that we have a session token.
+          // Best-effort: permission-gated and never throws, so it can't block
+          // navigation into the app.
+          void registerAndSavePushToken();
+          onSignedIn();
+        }
       });
     }
   }, [effective, onSignedIn]);
