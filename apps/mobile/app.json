@@ -8,6 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#121013"
     },
@@ -19,7 +20,9 @@
       ]
     },
     "android": {
+      "package": "com.anonymous.project50",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#121013"
       },
       "intentFilters": [
@@ -62,7 +65,13 @@
       "android"
     ],
     "plugins": [
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#D6FF3F"
+        }
+      ],
       "expo-linking"
     ]
   }
