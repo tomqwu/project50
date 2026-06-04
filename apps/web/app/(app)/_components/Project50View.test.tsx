@@ -33,6 +33,65 @@ describe("Project50View", () => {
     expect(onToggle).toHaveBeenCalledWith(2, true); // rule 2 was unchecked → toggles to true
   });
 
+  it("ACTIVE incomplete: shows progress with remaining count and the restart warning, no completion banner", () => {
+    render(
+      <Project50View
+        state={{ status: "ACTIVE", runId: "r1", today: { dayKey: "2026-06-02", dayNumber: 3, checks: [true,true,false,false,false,false,false], completedCount: 2 } }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/2 \/ 7 today/)).toBeInTheDocument();
+    expect(screen.getByText(/5 to go/)).toBeInTheDocument();
+    expect(screen.getByText(/restart at Day 1/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("day-complete-banner")).not.toBeInTheDocument();
+  });
+
+  it("ACTIVE complete (7/7, mid-program): shows the day-complete banner with next-day guidance and drops the restart warning", () => {
+    render(
+      <Project50View
+        state={{ status: "ACTIVE", runId: "r1", today: { dayKey: "2026-06-02", dayNumber: 3, checks: [true,true,true,true,true,true,true], completedCount: 7 } }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    const banner = screen.getByTestId("day-complete-banner");
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent(/Day 3 complete/i);
+    expect(banner).toHaveTextContent(/7 \/ 7/);
+    // tells the user what's next
+    expect(banner).toHaveTextContent(/come back tomorrow for Day 4 of 50/i);
+    expect(banner).toHaveTextContent(/47 days to go/i);
+    // the anxiety-inducing restart warning is gone once the day is locked in
+    expect(screen.queryByText(/restart at Day 1/i)).not.toBeInTheDocument();
+    // rules remain togglable (in case of a mistake) — checklist still rendered
+    expect(screen.getAllByTestId(/rule-row-/)).toHaveLength(7);
+  });
+
+  it("ACTIVE complete on the final day (Day 50, 7/7): shows a final-day message instead of next-day guidance", () => {
+    render(
+      <Project50View
+        state={{ status: "ACTIVE", runId: "r1", today: { dayKey: "2026-07-21", dayNumber: 50, checks: [true,true,true,true,true,true,true], completedCount: 7 } }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    const banner = screen.getByTestId("day-complete-banner");
+    expect(banner).toHaveTextContent(/Day 50 complete/i);
+    expect(banner).toHaveTextContent(/final day/i);
+    expect(banner).not.toHaveTextContent(/come back tomorrow/i);
+  });
+
+  it("ACTIVE complete one day before the end (Day 49, 7/7): 'day to go' is singular", () => {
+    render(
+      <Project50View
+        state={{ status: "ACTIVE", runId: "r1", today: { dayKey: "2026-07-20", dayNumber: 49, checks: [true,true,true,true,true,true,true], completedCount: 7 } }}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    const banner = screen.getByTestId("day-complete-banner");
+    expect(banner).toHaveTextContent(/come back tomorrow for Day 50 of 50/i);
+    expect(banner).toHaveTextContent(/1 day to go/i);
+    expect(banner).not.toHaveTextContent(/days to go/i);
+  });
+
   it("ACTIVE: info button toggles help panel without toggling the rule", () => {
     const onToggle = vi.fn();
     render(
