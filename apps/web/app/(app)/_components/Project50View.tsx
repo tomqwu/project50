@@ -71,15 +71,18 @@ function Project50PhotoSection({
         setError("Failed to get upload URL. Please try again.");
         return;
       }
-      const { uploadUrl, objectKey } = (await presignRes.json()) as {
+      const { uploadUrl, objectKey, uploadHeaders } = (await presignRes.json()) as {
         uploadUrl: string;
         objectKey: string;
+        uploadHeaders?: Record<string, string>;
       };
 
+      // Spread presign-provided headers so Azure's required
+      // x-ms-blob-type: BlockBlob is sent; fall back to content-type only.
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
-        headers: { "content-type": file.type },
+        headers: uploadHeaders ?? { "content-type": file.type },
       });
       if (!putRes.ok) {
         setError("Photo upload failed. Please try again.");

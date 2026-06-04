@@ -20,7 +20,8 @@ import { NextResponse } from "next/server";
  * hardening step could move to nonce-based scripts if all routes go dynamic.
  *
  * Media (images/video) is served from, and uploaded directly to, the object
- * store, so its origin (derived from S3_ENDPOINT) is allowed in img/media/connect.
+ * store, so its origin (derived from S3_ENDPOINT, or the Azure Blob account when
+ * AZURE_STORAGE_ACCOUNT is set) is allowed in img/media/connect.
  * `upgrade-insecure-requests` is omitted so http object stores (the local/CI
  * MinIO on :9000) keep working; HSTS handles transport security in prod.
  */
@@ -29,19 +30,41 @@ import { NextResponse } from "next/server";
 // for robustness (some flows submit a form whose redirect Chromium checks here).
 const OAUTH_FORM_ACTIONS = ["https://accounts.google.com", "https://www.facebook.com"];
 
-function storageOrigin(): string {
+/**
+ * Origins of the object store the browser uploads to / loads media from, allowed
+ * in connect/img/media-src so direct PUTs and `<img>`/`<video>` loads aren't
+ * blocked by CSP.
+ *
+ * Returns every configured backend's origin:
+ *   - S3/MinIO: derived from S3_PUBLIC_URL (preferred) or S3_ENDPOINT.
+ *   - Azure Blob: `https://<account>.blob.core.windows.net` whenever
+ *     AZURE_STORAGE_ACCOUNT is set. Without this, the presigned-SAS browser PUT
+ *     is blocked by connect-src — one of the three ways Azure upload was broken.
+ */
+function storageOrigins(): string[] {
+  const origins: string[] = [];
+
   const endpoint = process.env.S3_PUBLIC_URL ?? process.env.S3_ENDPOINT;
-  if (!endpoint) return "";
-  try {
-    return new URL(endpoint).origin;
-  } catch {
-    return "";
+  if (endpoint) {
+    try {
+      origins.push(new URL(endpoint).origin);
+    } catch {
+      // Ignore an unparseable endpoint — just don't add an S3 origin.
+    }
   }
+
+  const azureAccount = process.env.AZURE_STORAGE_ACCOUNT;
+  if (azureAccount) {
+    origins.push(`https://${azureAccount}.blob.core.windows.net`);
+  }
+
+  return origins;
 }
 
 export function middleware(): NextResponse {
-  const s3 = storageOrigin();
-  const withS3 = (...sources: string[]) => [...sources, s3].filter(Boolean).join(" ");
+  const storage = storageOrigins();
+  const withS3 = (...sources: string[]) =>
+    [...sources, ...storage].filter(Boolean).join(" ");
 
   // `next dev` (Fast Refresh / HMR) evaluates code via eval() and opens a
   // websocket back to the dev server — both are blocked by the production CSP.

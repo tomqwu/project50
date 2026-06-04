@@ -98,17 +98,23 @@ export async function uploadPhoto(
   width: number,
   height: number,
 ): Promise<UploadedPhoto> {
-  // Step 1: Get presigned PUT URL
-  const { uploadUrl, objectKey } = await client.presignUpload(mimeType, ext, suffix);
+  // Step 1: Get presigned PUT URL + the headers the backend requires.
+  const { uploadUrl, objectKey, uploadHeaders } = await client.presignUpload(
+    mimeType,
+    ext,
+    suffix,
+  );
 
   // Step 2: Fetch the local file as a blob and PUT it
   // In React Native, fetch on a file:// URI returns a blob-like response.
   const fileResponse = await fetch(uri);
   const blob = await fileResponse.blob();
 
+  // Spread the presign-provided headers so backend-specific requirements (e.g.
+  // Azure's x-ms-blob-type: BlockBlob) are sent; fall back to content-type only.
   const uploadResponse = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": mimeType },
+    headers: uploadHeaders ?? { "Content-Type": mimeType },
     body: blob,
   });
 
