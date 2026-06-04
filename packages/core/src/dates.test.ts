@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dayNumber, localDayKey } from "./dates";
+import { addDays, dayNumber, isValidTimeZone, localDayKey, safeTimeZone } from "./dates";
 
 describe("localDayKey", () => {
   it("formats an instant as YYYY-MM-DD in the given timezone", () => {
@@ -29,6 +29,50 @@ describe("localDayKey", () => {
     const instant = new Date("2026-06-01T20:00:00Z");
     expect(() => localDayKey(instant, "Not/A_Zone")).not.toThrow();
     expect(localDayKey(instant, "Not/A_Zone")).toBe(localDayKey(instant, "UTC"));
+  });
+});
+
+describe("safeTimeZone", () => {
+  it("returns a valid IANA zone unchanged", () => {
+    expect(safeTimeZone("America/New_York")).toBe("America/New_York");
+    expect(safeTimeZone("Asia/Shanghai")).toBe("Asia/Shanghai");
+    expect(safeTimeZone("UTC")).toBe("UTC");
+  });
+
+  it("falls back to UTC for blank, whitespace, null, or undefined", () => {
+    expect(safeTimeZone("")).toBe("UTC");
+    expect(safeTimeZone("   ")).toBe("UTC");
+    expect(safeTimeZone(null)).toBe("UTC");
+    expect(safeTimeZone(undefined)).toBe("UTC");
+  });
+
+  it("falls back to UTC for a malformed zone (no throw)", () => {
+    expect(() => safeTimeZone("Not/A_Zone")).not.toThrow();
+    expect(safeTimeZone("Not/A_Zone")).toBe("UTC");
+  });
+
+  it("memoizes repeated lookups (same result on second call)", () => {
+    expect(safeTimeZone("Europe/Paris")).toBe("Europe/Paris");
+    expect(safeTimeZone("Europe/Paris")).toBe("Europe/Paris");
+  });
+});
+
+describe("isValidTimeZone", () => {
+  it("is true only for a valid, exact IANA zone", () => {
+    expect(isValidTimeZone("America/New_York")).toBe(true);
+    expect(isValidTimeZone("UTC")).toBe(true);
+  });
+
+  it("is false for blank, null, undefined, or malformed zones", () => {
+    expect(isValidTimeZone("")).toBe(false);
+    expect(isValidTimeZone("   ")).toBe(false);
+    expect(isValidTimeZone(null)).toBe(false);
+    expect(isValidTimeZone(undefined)).toBe(false);
+    expect(isValidTimeZone("Not/A_Zone")).toBe(false);
+  });
+
+  it("accepts a valid zone with surrounding whitespace (trimmed before check)", () => {
+    expect(isValidTimeZone("  UTC  ")).toBe(true);
   });
 });
 
