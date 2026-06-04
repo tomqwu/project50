@@ -137,6 +137,16 @@ resource "azurerm_storage_container" "media" {
   container_access_type = "private"
 }
 
+# The app authenticates to Blob with its MANAGED IDENTITY (user-delegation SAS),
+# not an account key. Storage Blob Data Contributor includes the
+# generateUserDelegationKey action plus read/write — so the UAMI can sign SAS
+# and read/write media without any long-lived account key.
+resource "azurerm_role_assignment" "uami_blob" {
+  scope                = azurerm_storage_account.media.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.onboard.identity_principal_id
+}
+
 # ── Deployer Key Vault access ───────────────────────────────────────────────
 # The principal running `terraform apply` needs to WRITE secrets into the
 # RBAC-mode per-app Key Vault. The onboard module grants the app's UAMI read
@@ -160,7 +170,7 @@ resource "time_sleep" "kv_rbac_propagation" {
 # ── Secrets in Key Vault (UAMI already has Key Vault Secrets User via onboard)
 resource "azurerm_key_vault_secret" "database_url" {
   depends_on = [time_sleep.kv_rbac_propagation]
-  name = "database-url"
+  name       = "database-url"
   value = format(
     "postgresql://%s:%s@%s:5432/%s?sslmode=require",
     var.db_admin_login,
@@ -177,11 +187,7 @@ resource "azurerm_key_vault_secret" "auth_secret" {
   key_vault_id = module.onboard.key_vault_id
 }
 
-resource "azurerm_key_vault_secret" "storage_key" {
-  name         = "storage-key"
-  value        = azurerm_storage_account.media.primary_access_key
-  key_vault_id = module.onboard.key_vault_id
-}
+# (No storage-key secret — the app uses its managed identity for Blob access.)
 
 # ── Container Apps Environment (logs → platform LAW) ────────────────────────
 resource "azurerm_container_app_environment" "env" {
@@ -222,11 +228,6 @@ resource "azurerm_container_app" "web" {
     key_vault_secret_id = azurerm_key_vault_secret.auth_secret.id
     identity            = module.onboard.identity_id
   }
-  secret {
-    name                = "storage-key"
-    key_vault_secret_id = azurerm_key_vault_secret.storage_key.id
-    identity            = module.onboard.identity_id
-  }
 
   ingress {
     external_enabled = true
@@ -256,9 +257,11 @@ resource "azurerm_container_app" "web" {
         name        = "AUTH_SECRET"
         secret_name = "auth-secret"
       }
+      # No AZURE_STORAGE_KEY — managed-identity mode. AZURE_CLIENT_ID tells
+      # DefaultAzureCredential which user-assigned identity to use.
       env {
-        name        = "AZURE_STORAGE_KEY"
-        secret_name = "storage-key"
+        name  = "AZURE_CLIENT_ID"
+        value = module.onboard.identity_client_id
       }
       env {
         name  = "AZURE_STORAGE_ACCOUNT"

@@ -12,28 +12,58 @@ import {
   generateBlobSASQueryParameters,
   BlobSASPermissions,
   SASProtocol,
+  type UserDelegationKey,
 } from "@azure/storage-blob";
+import { DefaultAzureCredential } from "@azure/identity";
 
 const PRESIGN_EXPIRY = 5 * 60; // 5 minutes
 
 // ---------------------------------------------------------------------------
 // Backend selection
 //
-// The web app talks to one object-storage backend, chosen at runtime by env:
-//   - Azure Blob Storage when AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_CONTAINER
-//     and AZURE_STORAGE_KEY are all present (e.g. on Azure Container Apps).
-//   - Otherwise the default S3/MinIO path (unchanged), used in dev and on AWS.
+// The web app talks to one object-storage backend, chosen at runtime by env.
+// There are THREE Azure modes plus the S3/MinIO default:
+//
+//   1. Shared-key SAS  — when AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_CONTAINER
+//      and AZURE_STORAGE_KEY are all set. Convenient for local/dev; SAS URLs
+//      are signed with the long-lived account key. (Unchanged behavior.)
+//
+//   2. Managed identity (user-delegation SAS) — when AZURE_STORAGE_ACCOUNT and
+//      AZURE_STORAGE_CONTAINER are set but AZURE_STORAGE_KEY is NOT. The app
+//      authenticates via DefaultAzureCredential (its managed identity, optionally
+//      pinned by AZURE_CLIENT_ID) and signs SAS URLs with a short-lived
+//      user-delegation key fetched from the service — no account key needed.
+//
+//   3. S3 / MinIO (default) — used in dev and on AWS when no Azure account is
+//      configured. (Unchanged behavior.)
 //
 // Public function signatures below are backend-agnostic; callers never change.
 // ---------------------------------------------------------------------------
 
-/** True when the Azure Blob backend is fully configured. */
-function useAzure(): boolean {
+/** True when the Azure shared-key (account key) backend is fully configured. */
+function useAzureKey(): boolean {
   return Boolean(
     process.env.AZURE_STORAGE_ACCOUNT &&
       process.env.AZURE_STORAGE_CONTAINER &&
       process.env.AZURE_STORAGE_KEY,
   );
+}
+
+/**
+ * True when the Azure managed-identity backend is configured: account +
+ * container present, but NO account key (so we sign user-delegation SAS).
+ */
+function useAzureIdentity(): boolean {
+  return Boolean(
+    process.env.AZURE_STORAGE_ACCOUNT &&
+      process.env.AZURE_STORAGE_CONTAINER &&
+      !process.env.AZURE_STORAGE_KEY,
+  );
+}
+
+/** True when either Azure backend is active (shared-key or managed identity). */
+function useAzure(): boolean {
+  return useAzureKey() || useAzureIdentity();
 }
 
 function getBucket(): string {
@@ -69,47 +99,119 @@ function getContainerName(): string {
   return process.env.AZURE_STORAGE_CONTAINER as string;
 }
 
+/** The configured Azure storage account name. */
+function getAzureAccount(): string {
+  return process.env.AZURE_STORAGE_ACCOUNT as string;
+}
+
 /** Lazy shared-key credential built from AZURE_STORAGE_ACCOUNT/AZURE_STORAGE_KEY. */
 function getAzureCredential(): StorageSharedKeyCredential {
   if (_azureCredential) return _azureCredential;
   _azureCredential = new StorageSharedKeyCredential(
-    process.env.AZURE_STORAGE_ACCOUNT as string,
+    getAzureAccount(),
     process.env.AZURE_STORAGE_KEY as string,
   );
   return _azureCredential;
 }
 
-/** Lazy BlobServiceClient for the configured storage account. */
+/**
+ * Lazy BlobServiceClient for the configured storage account.
+ *
+ * In managed-identity mode the client is built from DefaultAzureCredential
+ * (the app's managed identity, optionally pinned via AZURE_CLIENT_ID) so no
+ * account key is required. In shared-key mode it uses the account-key
+ * credential as before.
+ */
 function getAzureService(): BlobServiceClient {
   if (_azureService) return _azureService;
-  const account = process.env.AZURE_STORAGE_ACCOUNT as string;
-  _azureService = new BlobServiceClient(
-    `https://${account}.blob.core.windows.net`,
-    getAzureCredential(),
-  );
+  const url = `https://${getAzureAccount()}.blob.core.windows.net`;
+  if (useAzureIdentity()) {
+    _azureService = new BlobServiceClient(
+      url,
+      new DefaultAzureCredential({
+        managedIdentityClientId: process.env.AZURE_CLIENT_ID,
+      }),
+    );
+  } else {
+    _azureService = new BlobServiceClient(url, getAzureCredential());
+  }
   return _azureService;
+}
+
+// ---------------------------------------------------------------------------
+// User-delegation key cache (managed-identity mode)
+//
+// A user-delegation key is fetched from the service via the managed identity
+// and is valid for ~1h. We cache it and refresh only when it is within
+// REFRESH_SKEW of expiry, so each presign avoids a network round-trip.
+// ---------------------------------------------------------------------------
+
+// Request a 1-hour key; refresh when within 5 minutes of expiry.
+const DELEGATION_KEY_TTL_MS = 60 * 60 * 1000;
+const DELEGATION_KEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+let _delegationKey: UserDelegationKey | null = null;
+let _delegationKeyExpiry = 0;
+
+/**
+ * Return a valid user-delegation key, fetching a fresh one from the service
+ * when the cache is empty or close to expiring. Cached for ~1h.
+ */
+async function getUserDelegationKey(): Promise<UserDelegationKey> {
+  const now = Date.now();
+  if (
+    _delegationKey &&
+    now < _delegationKeyExpiry - DELEGATION_KEY_REFRESH_SKEW_MS
+  ) {
+    return _delegationKey;
+  }
+  const startsOn = new Date(now);
+  const expiresOn = new Date(now + DELEGATION_KEY_TTL_MS);
+  _delegationKey = await getAzureService().getUserDelegationKey(
+    startsOn,
+    expiresOn,
+  );
+  _delegationKeyExpiry = expiresOn.getTime();
+  return _delegationKey;
 }
 
 /**
  * Build a Blob SAS URL scoped to a single blob.
  * `permissions` is an Azure permission string (e.g. "r" for GET, "racw" for PUT).
+ *
+ * Signs with the account-key credential in shared-key mode, or with a cached
+ * user-delegation key (managed identity) in identity mode.
  */
-function buildAzureSasUrl(objectKey: string, permissions: string): string {
+async function buildAzureSasUrl(
+  objectKey: string,
+  permissions: string,
+): Promise<string> {
   const containerName = getContainerName();
   const now = Date.now();
-  const sas = generateBlobSASQueryParameters(
-    {
-      containerName,
-      blobName: objectKey,
-      permissions: BlobSASPermissions.parse(permissions),
-      // Match the S3 presign window: a small clock-skew allowance on start,
-      // and PRESIGN_EXPIRY seconds of validity.
-      startsOn: new Date(now - 5 * 60 * 1000),
-      expiresOn: new Date(now + PRESIGN_EXPIRY * 1000),
-      protocol: SASProtocol.HttpsAndHttp,
-    },
-    getAzureCredential(),
-  ).toString();
+  const sasOptions = {
+    containerName,
+    blobName: objectKey,
+    permissions: BlobSASPermissions.parse(permissions),
+    // Match the S3 presign window: a small clock-skew allowance on start,
+    // and PRESIGN_EXPIRY seconds of validity.
+    startsOn: new Date(now - 5 * 60 * 1000),
+    expiresOn: new Date(now + PRESIGN_EXPIRY * 1000),
+    protocol: SASProtocol.HttpsAndHttp,
+  };
+  let sas: string;
+  if (useAzureIdentity()) {
+    const userDelegationKey = await getUserDelegationKey();
+    sas = generateBlobSASQueryParameters(
+      sasOptions,
+      userDelegationKey,
+      getAzureAccount(),
+    ).toString();
+  } else {
+    sas = generateBlobSASQueryParameters(
+      sasOptions,
+      getAzureCredential(),
+    ).toString();
+  }
   const blobClient = getAzureService()
     .getContainerClient(containerName)
     .getBlobClient(objectKey);
@@ -263,4 +365,6 @@ export function _resetClientForTest(): void {
   _client = null;
   _azureCredential = null;
   _azureService = null;
+  _delegationKey = null;
+  _delegationKeyExpiry = 0;
 }
