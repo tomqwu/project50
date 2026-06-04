@@ -75,6 +75,13 @@ For the verified-domain links to work, the following must be **hosted on `projec
 
 Until these are hosted, the custom-scheme redirect (`project50://`) is the working path; the Universal/App Link config is in place and will activate once the well-known files are served.
 
+### Task: Offline support + sync (#92 iOS, #110 Android)
+- `src/lib/offline.ts`: 100% covered. Local read-cache (`cacheGet`/`cacheSet`), durable write-queue (`enqueueMutation`/`flushQueue`, success-clears / failure-retains), connectivity (`isOnline` via NetInfo), and the high-level helpers (`loadProject50StateOffline`, `toggleRuleOffline`, `logActivityOffline`, `syncOnReconnect`). All deps (AsyncStorage, NetInfo, ApiClient) are injectable; `offline.test.ts` mocks the real native modules at the module boundary and injects in-memory stubs for the functional cases.
+  - One line-level `/* istanbul ignore next */` on the `default:` arm of the `applyMutation` switch — an unreachable exhaustive-union guard (`QueuedMutation` is a closed union; both real members are tested). No branching logic of our own.
+- `src/viewmodels/project50.ts`: 100% covered. `useProject50` now flushes the queue on load (`syncOnReconnect`), reads via `loadProject50StateOffline` (cache fallback → `offline` flag), and writes via `toggleRuleOffline` (optimistic update + enqueue when offline). The offline layer is mocked in `project50.test.ts` (independently tested in `offline.test.ts`). New pure helper `applyOptimisticToggle` is fully tested.
+- `src/screens/Project50Screen.tsx`: 100% covered. Subtle offline banner (`testID="p50-offline"`) rendered on the ACTIVE screen when `offline` is true; shown/hidden paths tested via RNTL.
+- Deps added (expo-52 compatible): `@react-native-async-storage/async-storage@1.23.1`, `@react-native-community/netinfo@11.4.1`. Jest runs headless via module mocks.
+
 ## Device verification
 
 Jest/RNTL tests confirm component rendering and logic correctness in a Node environment. Full device verification (layout fidelity, native interactions, camera, OAuth) requires an iOS/Android simulator and is documented as pending ("code-complete + unit-tested, device verification pending simulator access").

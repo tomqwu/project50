@@ -21,6 +21,7 @@ interface HookOverrides {
   loading?: boolean;
   error?: string | null;
   display?: Project50Display | null;
+  offline?: boolean;
   start?: jest.Mock;
   toggle?: jest.Mock;
 }
@@ -30,12 +31,20 @@ function setHook(overrides: HookOverrides = {}) {
     loading: overrides.loading ?? false,
     error: overrides.error ?? null,
     display: overrides.display ?? null,
+    offline: overrides.offline ?? false,
     start: overrides.start ?? jest.fn(),
     toggle: overrides.toggle ?? jest.fn(),
   };
   mockUse.mockReturnValue(value);
   return value;
 }
+
+const ACTIVE_DISPLAY: Project50Display = {
+  status: "ACTIVE",
+  dayLabel: "Day 3/50",
+  progressLabel: "2/7",
+  rules: [{ id: 1, title: "Wake up", detail: "early", done: false }],
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -164,5 +173,18 @@ describe("Project50Screen", () => {
     render(<Project50Screen />);
     expect(screen.getByTestId("p50-completed")).toBeTruthy();
     expect(screen.getByText(/finished all 50 days/)).toBeTruthy();
+  });
+
+  it("shows the offline banner on the ACTIVE screen when offline", () => {
+    setHook({ display: ACTIVE_DISPLAY, offline: true });
+    render(<Project50Screen />);
+    expect(screen.getByTestId("p50-offline")).toBeTruthy();
+    expect(screen.getByText(/changes will sync/)).toBeTruthy();
+  });
+
+  it("hides the offline banner when online", () => {
+    setHook({ display: ACTIVE_DISPLAY, offline: false });
+    render(<Project50Screen />);
+    expect(screen.queryByTestId("p50-offline")).toBeNull();
   });
 });
