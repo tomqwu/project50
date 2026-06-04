@@ -210,9 +210,42 @@ describe("CreateChallengeScreen — submitting state", () => {
 
     expect(screen.getByText("Creating...")).toBeTruthy();
     expect(screen.getByTestId("submit-button").props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId("submit-button").props.accessibilityState?.busy).toBe(true);
 
     await act(async () => {
       resolve({ id: "c9", title: "Plan" });
     });
+  });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes goal-type and visibility options as radios with selected state", () => {
+    render(<CreateChallengeScreen />);
+
+    const target = screen.getByTestId("goal-TARGET");
+    expect(target.props.accessibilityRole).toBe("radio");
+    expect(target.props.accessibilityState).toMatchObject({ selected: true });
+
+    const binary = screen.getByTestId("goal-BINARY");
+    expect(binary.props.accessibilityState).toMatchObject({ selected: false });
+
+    fireEvent.press(binary);
+    expect(screen.getByTestId("goal-BINARY").props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+  });
+
+  it("labels text inputs and the submit button for screen readers", () => {
+    render(<CreateChallengeScreen />);
+    expect(screen.getByLabelText("Title")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create plan" })).toBeTruthy();
+    expect(screen.getByTestId("title-input").props.accessibilityLabelledBy).toBe(
+      "create-title-label",
+    );
+  });
+
+  it("marks the heading as a header", () => {
+    render(<CreateChallengeScreen />);
+    expect(screen.getByRole("header", { name: "Create custom plan" })).toBeTruthy();
   });
 });

@@ -302,3 +302,45 @@ describe("UpgradeScreen — default deps", () => {
     expect(screen.getByTestId("upgrade-unavailable")).toBeTruthy();
   });
 });
+
+// ─── Accessibility ──────────────────────────────────────────────────────────
+
+describe("UpgradeScreen — accessibility", () => {
+  it("exposes subscribe + restore as accessible buttons and the offering as a labelled group", async () => {
+    const props = configuredProps();
+    render(<UpgradeScreen {...props} />);
+
+    await waitFor(() => expect(screen.getByTestId("upgrade-offering")).toBeTruthy());
+
+    expect(screen.getByRole("button", { name: "Subscribe" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Restore purchases" })).toBeTruthy();
+    expect(screen.getByLabelText("Premium Monthly, $4.99")).toBeTruthy();
+    expect(screen.getByRole("header", { name: "Go Premium" })).toBeTruthy();
+  });
+
+  it("marks subscribe disabled when no package is available", async () => {
+    const props = configuredProps({
+      loadOfferings: jest.fn().mockResolvedValue(makeOffering([])),
+    });
+    render(<UpgradeScreen {...props} />);
+
+    await waitFor(() => expect(screen.getByTestId("upgrade-no-offering")).toBeTruthy());
+    expect(
+      screen.getByTestId("upgrade-subscribe").props.accessibilityState?.disabled,
+    ).toBe(true);
+  });
+
+  it("announces the error state as an alert after a failed purchase", async () => {
+    const props = configuredProps({
+      purchase: jest.fn().mockRejectedValue(new Error("Purchase failed")),
+    });
+    render(<UpgradeScreen {...props} />);
+
+    await waitFor(() => expect(screen.getByTestId("upgrade-subscribe")).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("upgrade-subscribe"));
+    });
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+});

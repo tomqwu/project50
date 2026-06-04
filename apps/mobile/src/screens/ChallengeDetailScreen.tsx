@@ -12,7 +12,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   ScrollView,
   StyleSheet,
@@ -20,6 +20,7 @@ import {
 import { apiClient } from "../lib/apiClient";
 import type { ChallengeDetail } from "../lib/apiClient";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -168,7 +169,9 @@ export function ChallengeDetailScreen(
   if (error && !challenge) {
     return (
       <View style={styles.center} testID="detail-error">
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText} accessibilityRole="alert">
+          {error}
+        </Text>
       </View>
     );
   }
@@ -187,22 +190,30 @@ export function ChallengeDetailScreen(
   if (editing) {
     return (
       <ScrollView style={styles.container} testID="detail-edit">
-        <Text style={styles.heading}>Edit plan</Text>
+        <Text style={styles.heading} accessibilityRole="header">
+          Edit plan
+        </Text>
 
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Title</Text>
+          <Text style={styles.label} nativeID="edit-title-label">
+            Title
+          </Text>
           <TextInput
             style={styles.input}
             value={title}
             onChangeText={setTitle}
             placeholderTextColor="#666"
             testID="edit-title-input"
+            accessibilityLabel="Title"
+            accessibilityLabelledBy="edit-title-label"
           />
         </View>
 
         {challenge.goalType === "TARGET" && (
           <View style={styles.fieldGroup} testID="edit-target-fields">
-            <Text style={styles.label}>Daily target</Text>
+            <Text style={styles.label} nativeID="edit-target-label">
+              Daily target
+            </Text>
             <TextInput
               style={styles.input}
               value={dailyTarget}
@@ -210,23 +221,36 @@ export function ChallengeDetailScreen(
               keyboardType="decimal-pad"
               placeholderTextColor="#666"
               testID="edit-daily-target-input"
+              accessibilityLabel="Daily target"
+              accessibilityLabelledBy="edit-target-label"
             />
-            <Text style={[styles.label, styles.labelSpaced]}>Unit</Text>
+            <Text
+              style={[styles.label, styles.labelSpaced]}
+              nativeID="edit-unit-label"
+            >
+              Unit
+            </Text>
             <TextInput
               style={styles.input}
               value={unit}
               onChangeText={setUnit}
               placeholderTextColor="#666"
               testID="edit-unit-input"
+              accessibilityLabel="Unit"
+              accessibilityLabelledBy="edit-unit-label"
             />
           </View>
         )}
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Visibility</Text>
-          <View style={styles.segmentRow}>
+          <View
+            style={styles.segmentRow}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Visibility"
+          >
             {VISIBILITIES.map((v) => (
-              <TouchableOpacity
+              <Pressable
                 key={v.value}
                 style={[
                   styles.segment,
@@ -234,6 +258,10 @@ export function ChallengeDetailScreen(
                 ]}
                 onPress={() => setVisibility(v.value)}
                 testID={`edit-visibility-${v.value}`}
+                android_ripple={ripple()}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: visibility === v.value }}
+                accessibilityLabel={v.label}
               >
                 <Text
                   style={[
@@ -243,29 +271,37 @@ export function ChallengeDetailScreen(
                 >
                   {v.label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </View>
 
         {error && (
-          <View style={styles.errorContainer} testID="edit-error">
+          <View
+            style={styles.errorContainer}
+            testID="edit-error"
+            accessibilityRole="alert"
+          >
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        <TouchableOpacity
+        <Pressable
           style={[styles.submitButton, busy && styles.submitButtonDisabled]}
           onPress={() => {
             void handleSave();
           }}
           disabled={busy}
           testID="save-button"
+          android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+          accessibilityRole="button"
+          accessibilityLabel={busy ? "Saving plan" : "Save"}
+          accessibilityState={{ disabled: busy, busy }}
         >
           <Text style={styles.submitText}>{busy ? "Saving..." : "Save"}</Text>
-        </TouchableOpacity>
+        </Pressable>
 
-        <TouchableOpacity
+        <Pressable
           style={styles.secondaryButton}
           onPress={() => {
             setEditing(false);
@@ -273,9 +309,13 @@ export function ChallengeDetailScreen(
           }}
           disabled={busy}
           testID="cancel-edit-button"
+          android_ripple={ripple()}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+          accessibilityState={{ disabled: busy }}
         >
           <Text style={styles.secondaryText}>Cancel</Text>
-        </TouchableOpacity>
+        </Pressable>
       </ScrollView>
     );
   }
@@ -284,7 +324,7 @@ export function ChallengeDetailScreen(
 
   return (
     <ScrollView style={styles.container} testID="detail-content">
-      <Text style={styles.title} testID="detail-title">
+      <Text style={styles.title} testID="detail-title" accessibilityRole="header">
         {challenge.title}
       </Text>
 
@@ -303,19 +343,31 @@ export function ChallengeDetailScreen(
       </Text>
 
       <View style={styles.statsRow}>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Streak: ${challenge.currentStreak}`}
+        >
           <Text style={styles.statValue} testID="detail-streak">
             {challenge.currentStreak}
           </Text>
           <Text style={styles.statLabel}>Streak</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Best streak: ${challenge.longestStreak}`}
+        >
           <Text style={styles.statValue} testID="detail-longest">
             {challenge.longestStreak}
           </Text>
           <Text style={styles.statLabel}>Best</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Badges: ${challenge.badges}`}
+        >
           <Text style={styles.statValue} testID="detail-badges">
             {challenge.badges}
           </Text>
@@ -324,51 +376,71 @@ export function ChallengeDetailScreen(
       </View>
 
       {error && (
-        <View style={styles.errorContainer} testID="detail-action-error">
+        <View
+          style={styles.errorContainer}
+          testID="detail-action-error"
+          accessibilityRole="alert"
+        >
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
 
-      <TouchableOpacity
+      <Pressable
         style={styles.submitButton}
         onPress={startEdit}
         testID="edit-button"
+        android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+        accessibilityRole="button"
+        accessibilityLabel="Edit plan"
       >
         <Text style={styles.submitText}>Edit plan</Text>
-      </TouchableOpacity>
+      </Pressable>
 
       {confirmingDelete ? (
         <View testID="delete-confirm">
-          <Text style={styles.confirmText}>Delete this plan permanently?</Text>
-          <TouchableOpacity
+          <Text style={styles.confirmText} accessibilityRole="alert">
+            Delete this plan permanently?
+          </Text>
+          <Pressable
             style={[styles.dangerButton, busy && styles.submitButtonDisabled]}
             onPress={() => {
               void handleDelete();
             }}
             disabled={busy}
             testID="confirm-delete-button"
+            android_ripple={ripple("rgba(255, 107, 107, 0.2)")}
+            accessibilityRole="button"
+            accessibilityLabel={busy ? "Deleting plan" : "Yes, delete"}
+            accessibilityState={{ disabled: busy, busy }}
           >
             <Text style={styles.dangerText}>
               {busy ? "Deleting..." : "Yes, delete"}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </Pressable>
+          <Pressable
             style={styles.secondaryButton}
             onPress={() => setConfirmingDelete(false)}
             disabled={busy}
             testID="cancel-delete-button"
+            android_ripple={ripple()}
+            accessibilityRole="button"
+            accessibilityLabel="Keep plan"
+            accessibilityState={{ disabled: busy }}
           >
             <Text style={styles.secondaryText}>Keep plan</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : (
-        <TouchableOpacity
+        <Pressable
           style={styles.dangerButton}
           onPress={() => setConfirmingDelete(true)}
           testID="delete-button"
+          android_ripple={ripple("rgba(255, 107, 107, 0.2)")}
+          accessibilityRole="button"
+          accessibilityLabel="Delete plan"
         >
           <Text style={styles.dangerText}>Delete plan</Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
     </ScrollView>
   );
@@ -445,6 +517,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    minHeight: 44,
     borderWidth: 1,
     borderColor: "#333",
   },
@@ -459,6 +532,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginRight: 8,
     marginBottom: 8,
+    minHeight: 44,
+    justifyContent: "center",
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: "#333",
   },
@@ -496,7 +572,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     marginBottom: 12,
+    ...elevation(2),
   },
   submitButtonDisabled: {
     opacity: 0.5,
@@ -511,6 +591,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 14,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: "#555",
     marginBottom: 32,
@@ -525,6 +608,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 14,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: "#ff6b6b",
     marginBottom: 12,

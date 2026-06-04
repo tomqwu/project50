@@ -621,12 +621,71 @@ describe("LogActivityScreen — submitting state", () => {
     });
 
     expect(screen.getByText("Logging...")).toBeTruthy();
-    // TouchableOpacity has accessibilityState.disabled
+    // Submit button exposes disabled + busy state
     expect(screen.getByTestId("submit-button").props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId("submit-button").props.accessibilityState?.busy).toBe(true);
 
     // Resolve and clean up
     await act(async () => {
       resolveLog({ activity: {}, dayStatus: {}, newMilestones: [] });
     });
+  });
+});
+
+describe("LogActivityScreen — accessibility", () => {
+  it("exposes mood chips as radios with a spoken name and selected state", () => {
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+
+    const great = screen.getByTestId("mood-5");
+    expect(great.props.accessibilityRole).toBe("radio");
+    expect(great.props.accessibilityLabel).toBe("Great");
+    expect(great.props.accessibilityState).toMatchObject({ selected: false });
+
+    fireEvent.press(great);
+    expect(screen.getByTestId("mood-5").props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+  });
+
+  it("exposes the BINARY done toggle as a checkbox with checked state", () => {
+    render(<LogActivityScreen {...BINARY_PROPS} />);
+
+    const toggle = screen.getByTestId("done-toggle");
+    expect(toggle.props.accessibilityRole).toBe("checkbox");
+    expect(toggle.props.accessibilityState).toMatchObject({ checked: false });
+
+    fireEvent.press(toggle);
+    expect(screen.getByTestId("done-toggle").props.accessibilityState).toMatchObject({
+      checked: true,
+    });
+  });
+
+  it("labels photo buttons and a selected photo for screen readers", async () => {
+    mockPickImage.mockResolvedValueOnce({
+      uri: "file://p.jpg",
+      width: 10,
+      height: 10,
+      mimeType: "image/jpeg",
+    });
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+
+    expect(screen.getByRole("button", { name: "Take photo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add photo" })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("add-photo-button"));
+    });
+
+    const preview = screen.getByTestId("photo-preview");
+    expect(preview.props.accessibilityRole).toBe("image");
+    expect(preview.props.accessibilityLabel).toBe("Selected activity photo");
+  });
+
+  it("labels the amount input and marks the heading as a header", () => {
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+    const amount = screen.getByTestId("amount-input");
+    expect(amount.props.accessibilityLabel).toBe("Amount in km");
+    expect(amount.props.accessibilityLabelledBy).toBe("log-amount-label");
+    expect(screen.getByRole("header")).toBeTruthy();
   });
 });

@@ -103,7 +103,9 @@ export function DashboardScreen(): React.JSX.Element {
   if (error) {
     return (
       <View style={styles.center} testID="dashboard-error">
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText} accessibilityRole="alert">
+          {error}
+        </Text>
       </View>
     );
   }
@@ -119,7 +121,9 @@ export function DashboardScreen(): React.JSX.Element {
   return (
     <ScrollView style={styles.container} testID="dashboard-content">
       {/* Challenge title */}
-      <Text style={styles.title} testID="challenge-title">{vm.title}</Text>
+      <Text style={styles.title} testID="challenge-title" accessibilityRole="header">
+        {vm.title}
+      </Text>
 
       {/* Day number */}
       <Text style={styles.dayNumber} testID="day-number">
@@ -128,19 +132,35 @@ export function DashboardScreen(): React.JSX.Element {
 
       {/* Streak */}
       <View style={styles.statsRow}>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Streak: ${vm.currentStreak}`}
+        >
           <Text style={styles.statValue} testID="current-streak">{vm.currentStreak}</Text>
           <Text style={styles.statLabel}>Streak</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Best streak: ${vm.longestStreak}`}
+        >
           <Text style={styles.statValue} testID="longest-streak">{vm.longestStreak}</Text>
           <Text style={styles.statLabel}>Best</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Badges: ${vm.badges}`}
+        >
           <Text style={styles.statValue} testID="badges">{vm.badges}</Text>
           <Text style={styles.statLabel}>Badges</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Cheers: ${vm.cheering}`}
+        >
           <Text style={styles.statValue} testID="cheering">{vm.cheering}</Text>
           <Text style={styles.statLabel}>Cheers</Text>
         </View>
@@ -148,7 +168,9 @@ export function DashboardScreen(): React.JSX.Element {
 
       {/* Today's progress */}
       <View style={styles.progressSection}>
-        <Text style={styles.sectionTitle}>Today</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">
+          Today
+        </Text>
         {vm.todayProgress.goalType === "TARGET" ? (
           <Text style={styles.progressText} testID="today-progress">
             {`${vm.todayProgress.totalAmount} / ${vm.todayProgress.dailyTarget ?? 0} ${vm.todayProgress.unit ?? ""}`}
@@ -166,7 +188,9 @@ export function DashboardScreen(): React.JSX.Element {
       {/* Other challenges */}
       {vm.otherChallenges.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Other Challenges</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Other Challenges
+          </Text>
           {vm.otherChallenges.map((c) => (
             <View key={c.id} style={styles.otherChallenge}>
               <Text style={styles.otherTitle}>{c.title}</Text>

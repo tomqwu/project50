@@ -9,7 +9,7 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
@@ -17,6 +17,7 @@ import { apiClient } from "../lib/apiClient";
 import type { ChallengeDetail, RecapListItem, RecapKind } from "../lib/apiClient";
 import { shareUrl } from "../lib/share";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -98,7 +99,9 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
   if (error || !challenge) {
     return (
       <View style={styles.center} testID="celebrate-error">
-        <Text style={styles.errorText}>{error ?? "Challenge not found"}</Text>
+        <Text style={styles.errorText} accessibilityRole="alert">
+          {error ?? "Challenge not found"}
+        </Text>
       </View>
     );
   }
@@ -106,23 +109,41 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
   return (
     <ScrollView style={styles.container} testID="celebrate-content">
       {/* Title */}
-      <Text style={styles.title} testID="celebrate-title">{challenge.title}</Text>
+      <Text style={styles.title} testID="celebrate-title" accessibilityRole="header">
+        {challenge.title}
+      </Text>
 
       {/* Stats row */}
       <View style={styles.statsRow}>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Streak: ${challenge.currentStreak}`}
+        >
           <Text style={styles.statValue} testID="celebrate-streak">{challenge.currentStreak}</Text>
           <Text style={styles.statLabel}>Streak</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Best streak: ${challenge.longestStreak}`}
+        >
           <Text style={styles.statValue} testID="celebrate-longest">{challenge.longestStreak}</Text>
           <Text style={styles.statLabel}>Best</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Badges: ${challenge.badges}`}
+        >
           <Text style={styles.statValue} testID="celebrate-badges">{challenge.badges}</Text>
           <Text style={styles.statLabel}>Badges</Text>
         </View>
-        <View style={styles.statBox}>
+        <View
+          style={styles.statBox}
+          accessible
+          accessibilityLabel={`Cheers: ${challenge.cheering}`}
+        >
           <Text style={styles.statValue} testID="celebrate-cheering">{challenge.cheering}</Text>
           <Text style={styles.statLabel}>Cheers</Text>
         </View>
@@ -131,7 +152,9 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
       {/* Milestones / earned badges */}
       {challenge.milestones.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Earned Badges</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Earned Badges
+          </Text>
           {challenge.milestones.map((m) => (
             <View key={m.id} style={styles.milestoneRow}>
               <Text style={styles.milestoneKind}>{m.kind}</Text>
@@ -144,7 +167,9 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
       {/* Existing recaps */}
       {recaps.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Past Recaps</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Past Recaps
+          </Text>
           {recaps.map((r) => (
             <View key={r.id} style={styles.recapRow} testID={`recap-item-${r.id}`}>
               <Text style={styles.recapKind}>{r.kind}</Text>
@@ -156,33 +181,49 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
 
       {/* Generate recap */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Generate Recap</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">
+          Generate Recap
+        </Text>
 
         {generating ? (
           <ActivityIndicator
             color={colors.volt}
             size="small"
             testID="generating-indicator"
+            accessibilityLabel="Generating recap"
           />
         ) : (
           <View style={styles.generateButtons}>
-            {(["DAY", "WEEK", "FIFTY"] as RecapKind[]).map((kind) => (
-              <TouchableOpacity
-                key={kind}
-                style={styles.generateButton}
-                onPress={() => { void handleGenerate(kind); }}
-                testID={`generate-${kind}`}
-              >
-                <Text style={styles.generateButtonText}>
-                  {kind === "DAY" ? "Generate Day Recap" : kind === "WEEK" ? "Generate Week Recap" : "Generate 50-Day Recap"}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {(["DAY", "WEEK", "FIFTY"] as RecapKind[]).map((kind) => {
+              const label =
+                kind === "DAY"
+                  ? "Generate Day Recap"
+                  : kind === "WEEK"
+                    ? "Generate Week Recap"
+                    : "Generate 50-Day Recap";
+              return (
+                <Pressable
+                  key={kind}
+                  style={styles.generateButton}
+                  onPress={() => { void handleGenerate(kind); }}
+                  testID={`generate-${kind}`}
+                  android_ripple={ripple()}
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                >
+                  <Text style={styles.generateButtonText}>{label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         )}
 
         {generateError ? (
-          <Text style={styles.generateErrorText} testID="generate-error">
+          <Text
+            style={styles.generateErrorText}
+            testID="generate-error"
+            accessibilityRole="alert"
+          >
             {generateError}
           </Text>
         ) : null}
@@ -190,13 +231,17 @@ export function CelebrateScreen({ challengeId }: CelebrateScreenProps): React.JS
         {generatedUrl ? (
           <View style={styles.resultBox}>
             <Text style={styles.recapUrlResult} testID="recap-url">{generatedUrl}</Text>
-            <TouchableOpacity
+            <Pressable
               style={styles.shareButton}
               onPress={() => { void handleShare(); }}
               testID="share-button"
+              android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+              accessibilityRole="button"
+              accessibilityLabel="Share recap"
+              accessibilityHint="Opens the system share sheet"
             >
               <Text style={styles.shareButtonText}>Share</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -293,6 +338,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 14,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.volt,
     marginBottom: 8,
@@ -323,6 +371,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
+    ...elevation(2),
   },
   shareButtonText: {
     color: colors.charcoal,

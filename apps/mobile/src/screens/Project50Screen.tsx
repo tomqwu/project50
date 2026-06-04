@@ -20,6 +20,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 import { useProject50 } from "../viewmodels/project50";
 import type { Project50RuleRow } from "../viewmodels/project50";
 
@@ -42,7 +43,9 @@ export function Project50Screen(): React.JSX.Element {
   if (error) {
     return (
       <View style={styles.center} testID="p50-error">
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText} accessibilityRole="alert">
+          {error}
+        </Text>
       </View>
     );
   }
@@ -57,7 +60,9 @@ export function Project50Screen(): React.JSX.Element {
     return (
       <ScrollView style={styles.container} testID="p50-active">
         {offline && <OfflineBanner />}
-        <Text style={styles.title}>Project 50</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          Project 50
+        </Text>
         <Text style={styles.dayLabel} testID="p50-day">{display.dayLabel}</Text>
         <Text style={styles.progress} testID="p50-progress">
           {`${display.progressLabel} rules today`}
@@ -74,7 +79,9 @@ export function Project50Screen(): React.JSX.Element {
   if (display.status === "FAILED") {
     return (
       <View style={styles.center} testID="p50-failed">
-        <Text style={styles.failedHeading}>Streak broken</Text>
+        <Text style={styles.failedHeading} accessibilityRole="header">
+          Streak broken
+        </Text>
         {display.failedDayLabel !== undefined && (
           <Text style={styles.failedDetail} testID="p50-failed-day">
             {`You missed ${display.failedDayLabel}`}
@@ -89,6 +96,10 @@ export function Project50Screen(): React.JSX.Element {
         <Pressable
           style={styles.cta}
           testID="p50-restart"
+          android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+          accessibilityRole="button"
+          accessibilityLabel="Restart Project 50"
+          accessibilityHint="Begins a new 50-day program from day one"
           onPress={() => void start(deviceTimezone())}
         >
           <Text style={styles.ctaText}>Restart Project 50</Text>
@@ -100,8 +111,16 @@ export function Project50Screen(): React.JSX.Element {
   if (display.status === "COMPLETED") {
     return (
       <View style={styles.center} testID="p50-completed">
-        <Text style={styles.celebrateEmoji}>🏆</Text>
-        <Text style={styles.title}>Project 50 complete!</Text>
+        <Text
+          style={styles.celebrateEmoji}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        >
+          🏆
+        </Text>
+        <Text style={styles.title} accessibilityRole="header">
+          Project 50 complete!
+        </Text>
         <Text style={styles.celebrateDetail} testID="p50-completed-days">
           {`You finished all ${display.completedDays} days. Incredible discipline.`}
         </Text>
@@ -112,7 +131,9 @@ export function Project50Screen(): React.JSX.Element {
   // NONE
   return (
     <View style={styles.center} testID="p50-none">
-      <Text style={styles.title}>Project 50</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        Project 50
+      </Text>
       <Text style={styles.intro}>
         7 daily rules. 50 days straight. Miss a day and the streak resets to
         zero. Ready?
@@ -120,6 +141,10 @@ export function Project50Screen(): React.JSX.Element {
       <Pressable
         style={styles.cta}
         testID="p50-start"
+        android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+        accessibilityRole="button"
+        accessibilityLabel="Start Project 50"
+        accessibilityHint="Begins the 50-day program"
         onPress={() => void start(deviceTimezone())}
       >
         <Text style={styles.ctaText}>Start Project 50</Text>
@@ -132,7 +157,7 @@ export function Project50Screen(): React.JSX.Element {
 function OfflineBanner(): React.JSX.Element {
   return (
     <View style={styles.offlineBanner} testID="p50-offline">
-      <Text style={styles.offlineText}>
+      <Text style={styles.offlineText} accessibilityRole="alert">
         Offline — changes will sync when you reconnect.
       </Text>
     </View>
@@ -150,10 +175,23 @@ function RuleRow({
     <Pressable
       style={styles.ruleRow}
       testID={`p50-rule-${rule.id}`}
+      android_ripple={ripple()}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: rule.done }}
+      accessibilityLabel={rule.title}
+      accessibilityHint={rule.detail}
       onPress={() => void onToggle(rule.id, !rule.done)}
     >
       <View style={[styles.checkbox, rule.done && styles.checkboxDone]}>
-        {rule.done && <Text style={styles.checkmark} testID={`p50-rule-${rule.id}-check`}>✓</Text>}
+        {rule.done && (
+          <Text
+            style={styles.checkmark}
+            testID={`p50-rule-${rule.id}-check`}
+            importantForAccessibility="no"
+          >
+            ✓
+          </Text>
+        )}
       </View>
       <View style={styles.ruleText}>
         <Text style={styles.ruleTitle}>{rule.title}</Text>
@@ -203,6 +241,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
+    minHeight: 44,
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
@@ -250,6 +289,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 28,
     borderRadius: 10,
+    minHeight: 44,
+    justifyContent: "center",
+    overflow: "hidden",
+    ...elevation(2),
   },
   ctaText: {
     color: colors.charcoal,

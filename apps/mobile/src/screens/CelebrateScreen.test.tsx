@@ -343,4 +343,44 @@ describe("CelebrateScreen", () => {
     });
     expect(screen.getByText("Challenge not found")).toBeTruthy();
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes generate buttons as accessible buttons and labels stats", async () => {
+    mockGetChallenge.mockResolvedValueOnce(mockChallengeDetail);
+    mockListRecaps.mockResolvedValueOnce(mockRecaps);
+
+    render(<CelebrateScreen challengeId="c1" />);
+    await waitFor(() => expect(screen.getByTestId("celebrate-content")).toBeTruthy());
+
+    expect(screen.getByRole("button", { name: "Generate Day Recap" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Generate Week Recap" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Generate 50-Day Recap" })).toBeTruthy();
+    expect(screen.getByLabelText("Streak: 10")).toBeTruthy();
+    expect(screen.getByLabelText("Best streak: 15")).toBeTruthy();
+  });
+
+  it("labels the share button once a recap URL is generated", async () => {
+    mockGetChallenge.mockResolvedValueOnce(mockChallengeDetail);
+    mockListRecaps.mockResolvedValueOnce([]);
+    mockGenerateRecap.mockResolvedValueOnce({ url: "https://cdn.example/r.mp4" });
+
+    render(<CelebrateScreen challengeId="c1" />);
+    await waitFor(() => expect(screen.getByTestId("celebrate-content")).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("generate-DAY"));
+    });
+
+    expect(screen.getByRole("button", { name: "Share recap" })).toBeTruthy();
+  });
+
+  it("announces the error state as an alert", async () => {
+    mockGetChallenge.mockRejectedValueOnce(new Error("Load failed"));
+    mockListRecaps.mockResolvedValueOnce([]);
+
+    render(<CelebrateScreen challengeId="c1" />);
+    await waitFor(() => expect(screen.getByTestId("celebrate-error")).toBeTruthy());
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
 });

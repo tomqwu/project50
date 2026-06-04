@@ -11,6 +11,7 @@ import {
 import { subscribeToDeepLinks } from "../lib/deeplink";
 import { registerAndSavePushToken } from "../lib/push";
 import { colors } from "../theme";
+import { elevation, ripple, uiFontFamily } from "../components/platform";
 
 interface SignInScreenProps {
   /** Called once a session token has been obtained and stored. */
@@ -70,11 +71,21 @@ export function SignInScreen({
   }, [onSignedIn]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>project50</Text>
+    <View
+      style={styles.container}
+      accessibilityRole="none"
+      accessibilityLabel="Sign in to project50"
+    >
+      <Text style={styles.title} accessibilityRole="header">
+        project50
+      </Text>
       <Pressable
         testID="signin-facebook"
         style={styles.button}
+        android_ripple={ripple("rgba(255, 255, 255, 0.24)")}
+        accessibilityRole="button"
+        accessibilityLabel="Continue with Facebook"
+        accessibilityHint="Signs you in using your Facebook account"
         onPress={() => void promptFacebook()}
       >
         <Text style={styles.buttonText}>Continue with Facebook</Text>
@@ -82,6 +93,10 @@ export function SignInScreen({
       <Pressable
         testID="signin-google"
         style={[styles.button, styles.googleButton]}
+        android_ripple={ripple("rgba(255, 255, 255, 0.24)")}
+        accessibilityRole="button"
+        accessibilityLabel="Continue with Google"
+        accessibilityHint="Signs you in using your Google account"
         onPress={() => void promptGoogle()}
       >
         <Text style={styles.buttonText}>Continue with Google</Text>
@@ -98,12 +113,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.charcoal,
     gap: 24,
   },
-  title: { color: colors.text, fontSize: 28, fontWeight: "700" },
+  title: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "700",
+    fontFamily: uiFontFamily(),
+  },
   button: {
     backgroundColor: "#1877F2",
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 16,
+    minHeight: 44,
+    justifyContent: "center",
+    overflow: "hidden",
+    ...elevation(2),
   },
   googleButton: { backgroundColor: "#DB4437" },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
