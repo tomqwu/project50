@@ -289,18 +289,31 @@ describe("LogActivityForm — timezone", () => {
     expect(expected.has(body.dayKey)).toBe(true);
   });
 
-  it("falls back to the browser zone when the challenge has no timezone", async () => {
+  // The server validates `asOf` with `challenge.timezone ?? "UTC"`, so for a
+  // null/blank challenge timezone the form MUST also use UTC (not the browser
+  // zone) or a valid submission is rejected as DAY_IN_FUTURE near midnight.
+  it.each([
+    ["null", null as string | null],
+    ["blank", "" as string | null],
+  ])("uses UTC (matching the server) when the challenge timezone is %s", async (_label, tz) => {
     mockFetch.mockResolvedValue({ ok: true, status: 201 });
 
-    render(<LogActivityForm challengeId="c1" goalType="BINARY" timezone={null} />);
+    const before = new Date();
+    render(<LogActivityForm challengeId="c1" goalType="BINARY" timezone={tz} />);
     fireEvent.click(screen.getByTestId("done-toggle"));
     fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
 
     await waitFor(() => {
-      const call = mockFetch.mock.calls[0] as [string, { body: string }];
-      const body = JSON.parse(call[1].body);
-      expect(body.dayKey).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(mockFetch).toHaveBeenCalled();
     });
+    const after = new Date();
+
+    const call = mockFetch.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(call[1].body);
+    // Identical to the server's localDayKey(now, "UTC"); window-bounded so a
+    // midnight tick can't make this flaky.
+    const expected = new Set([localDayKey(before, "UTC"), localDayKey(after, "UTC")]);
+    expect(expected.has(body.dayKey)).toBe(true);
   });
 });
 

@@ -153,10 +153,12 @@ export function LogActivityForm({
     setSubmitting(true);
 
     const body: Record<string, unknown> = {
-      // Derive the dayKey in the CHALLENGE timezone (the zone the server
-      // validates `asOf` against), falling back to the browser zone only when
-      // the challenge has none. localDayKey itself guards blank/invalid zones.
-      dayKey: localDayKey(new Date(), timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone),
+      // Derive the dayKey in the CHALLENGE timezone — the exact same zone (and
+      // the exact same `?? / blank → "UTC"` fallback) the server uses to
+      // validate `asOf`, so the client and server always agree on "today".
+      // Using the browser zone here would let a null-tz challenge be rejected
+      // as DAY_IN_FUTURE near midnight. localDayKey itself guards blank zones.
+      dayKey: localDayKey(new Date(), timezone || "UTC"),
       activityType: activityType ?? undefined,
       note: note || undefined,
       mood: mood ?? undefined,
