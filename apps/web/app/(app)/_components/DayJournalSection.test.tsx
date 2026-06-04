@@ -94,4 +94,81 @@ describe("DayJournalSection", () => {
     fireEvent.change(screen.getByLabelText(/what i learned/i), { target: { value: "retry" } });
     expect(screen.queryByTestId("journal-error")).not.toBeInTheDocument();
   });
+
+  it("does NOT confirm 'Saved' when the user edits while the save is in flight", async () => {
+    const d = deferred();
+    const onSave = vi.fn().mockReturnValue(d.promise);
+    render(<DayJournalSection onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "first" } });
+    fireEvent.click(screen.getByTestId("journal-save"));
+    expect(onSave).toHaveBeenCalledWith("first", "");
+
+    // The user keeps typing before the slow save resolves.
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "first + more" } });
+
+    d.resolve();
+    // The save that resolved was for "first", but the field now says "first + more",
+    // so we must NOT claim it is saved.
+    await waitFor(() => expect(screen.getByTestId("journal-save")).not.toBeDisabled());
+    expect(screen.queryByTestId("journal-saved")).not.toBeInTheDocument();
+  });
+
+  it("still confirms 'Saved' when an in-flight edit is reverted back to the submitted value", async () => {
+    const d = deferred();
+    const onSave = vi.fn().mockReturnValue(d.promise);
+    render(<DayJournalSection onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "won" } });
+    fireEvent.click(screen.getByTestId("journal-save"));
+
+    // Edit then revert to exactly what was submitted.
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "won more" } });
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "won" } });
+
+    d.resolve();
+    expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
+  });
+
+  it("resets the editor and saved flag when the active day changes", async () => {
+    const { rerender } = render(
+      <DayJournalSection
+        dayKey="2026-06-03"
+        journal={{ wins: "ran 5k", lessons: "start earlier" }}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    // Confirm a save so the "✓ Saved" flag is set.
+    fireEvent.click(screen.getByTestId("journal-save"));
+    expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
+
+    // The day rolls over under the mounted dashboard: new dayKey + fresh journal.
+    rerender(
+      <DayJournalSection dayKey="2026-06-04" onSave={vi.fn().mockResolvedValue(undefined)} />,
+    );
+
+    expect((screen.getByLabelText(/today's wins/i) as HTMLTextAreaElement).value).toBe("");
+    expect((screen.getByLabelText(/what i learned/i) as HTMLTextAreaElement).value).toBe("");
+    expect(screen.queryByTestId("journal-saved")).not.toBeInTheDocument();
+  });
+
+  it("does not leak unsaved edits across a day change, and saves under the new day", () => {
+    const onSaveDay1 = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <DayJournalSection dayKey="2026-06-03" onSave={onSaveDay1} />,
+    );
+    // Unsaved edit on day 1.
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "stale" } });
+
+    // Day rolls over before the user saved.
+    const onSaveDay2 = vi.fn().mockResolvedValue(undefined);
+    rerender(<DayJournalSection dayKey="2026-06-04" onSave={onSaveDay2} />);
+
+    expect((screen.getByLabelText(/today's wins/i) as HTMLTextAreaElement).value).toBe("");
+
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "new day" } });
+    fireEvent.click(screen.getByTestId("journal-save"));
+    expect(onSaveDay2).toHaveBeenCalledWith("new day", "");
+    expect(onSaveDay1).not.toHaveBeenCalled();
+  });
 });

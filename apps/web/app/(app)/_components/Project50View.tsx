@@ -391,6 +391,7 @@ export function Project50View({
         readDimensions={readDimensions}
       />
       <DayJournalSection
+        dayKey={today.dayKey}
         journal={today.journal}
         onSave={(wins, lessons) => onSaveJournal?.(wins, lessons) ?? Promise.resolve()}
       />
