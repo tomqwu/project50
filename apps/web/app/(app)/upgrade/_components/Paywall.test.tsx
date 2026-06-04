@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { Entitlement } from "@/lib/api/entitlements";
+
+const trackMock = vi.fn();
+vi.mock("@/lib/analytics", () => ({ track: (...a: unknown[]) => trackMock(...a) }));
+
 import { Paywall } from "./Paywall";
 
 const free: Entitlement = {
@@ -36,6 +40,7 @@ function mockFetch(body: unknown, { ok = true, status = 200 } = {}) {
 const assign = vi.fn();
 
 beforeEach(() => {
+  trackMock.mockReset();
   vi.stubGlobal("fetch", mockFetch({ url: "https://stripe/redirect" }));
   // jsdom's window.location.assign is a no-op we can spy on by replacing it.
   Object.defineProperty(window, "location", {
@@ -83,6 +88,7 @@ describe("Paywall — free user upgrade", () => {
       "/api/billing/checkout",
       expect.objectContaining({ method: "POST", body: undefined }),
     );
+    expect(trackMock).toHaveBeenCalledWith("upgrade_clicked", { trial: false });
   });
 
   it("includes a trialPeriodDays body and a trial label when a trial is offered", async () => {
@@ -95,6 +101,7 @@ describe("Paywall — free user upgrade", () => {
       "/api/billing/checkout",
       expect.objectContaining({ body: JSON.stringify({ trialPeriodDays: 7 }) }),
     );
+    expect(trackMock).toHaveBeenCalledWith("upgrade_clicked", { trial: true });
   });
 
   it("shows an error and does not redirect when the response is not ok", async () => {

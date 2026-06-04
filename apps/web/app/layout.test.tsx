@@ -14,6 +14,12 @@ vi.mock("./_components/ServiceWorkerRegister", () => ({
   ServiceWorkerRegister: () => null,
 }));
 
+// Mock AnalyticsProvider — uses useEffect, which can't run when the layout
+// tree is invoked directly (outside React's render) in these tests.
+vi.mock("./_components/AnalyticsProvider", () => ({
+  AnalyticsProvider: () => null,
+}));
+
 // Mock CookieConsent — identified by a marker so we can assert it renders.
 vi.mock("./_components/CookieConsent", () => ({
   CookieConsent: () => "cookie-consent",

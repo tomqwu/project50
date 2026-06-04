@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Card } from "@project50/ui";
 import type { Entitlement } from "@/lib/api/entitlements";
+import { track } from "@/lib/analytics";
 
 export interface PaywallProps {
   /** The signed-in user's resolved entitlement (plan, status, trial end). */
@@ -109,6 +110,8 @@ export function Paywall({ entitlement, billingConfigured, trialPeriodDays }: Pay
   }
 
   function handleUpgrade() {
+    // No-op unless analytics is configured + consented (see lib/analytics).
+    track("upgrade_clicked", { trial: trialPeriodDays !== undefined });
     void go("/api/billing/checkout", trialPeriodDays ? { trialPeriodDays } : undefined);
   }
 
