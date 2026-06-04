@@ -14,6 +14,11 @@ vi.mock("./_components/ServiceWorkerRegister", () => ({
   ServiceWorkerRegister: () => null,
 }));
 
+// Mock CookieConsent — identified by a marker so we can assert it renders.
+vi.mock("./_components/CookieConsent", () => ({
+  CookieConsent: () => "cookie-consent",
+}));
+
 import RootLayout, { metadata, viewport } from "./layout";
 
 describe("RootLayout", () => {
@@ -41,8 +46,22 @@ describe("RootLayout", () => {
     // body className should contain the font variable classes
     expect(body.props.className).toContain("--next-font-display");
     expect(body.props.className).toContain("--next-font-body");
-    // body children is now [ServiceWorkerRegister, children]
+    // body children is now [ServiceWorkerRegister, children, CookieConsent]
     const bodyChildren = body.props.children;
     expect(bodyChildren).toContain("content");
+  });
+
+  it("renders the global cookie consent banner in the body", () => {
+    const tree = RootLayout({ children: "content" });
+    const body = tree.props.children;
+    const bodyChildren = body.props.children as unknown[];
+    const hasConsent = bodyChildren.some(
+      (child) =>
+        typeof child === "object" &&
+        child !== null &&
+        // The mocked CookieConsent renders the marker string when invoked.
+        (child as { type?: () => unknown }).type?.() === "cookie-consent",
+    );
+    expect(hasConsent).toBe(true);
   });
 });
