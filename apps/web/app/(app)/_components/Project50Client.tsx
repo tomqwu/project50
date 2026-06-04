@@ -3,7 +3,11 @@
 import { useTransition } from "react";
 import { Project50View } from "./Project50View";
 import type { Project50State } from "@/lib/project50";
-import { startProject50Action, toggleRuleAction } from "../_actions/project50";
+import {
+  startProject50Action,
+  toggleRuleAction,
+  attachProject50MediaAction,
+} from "../_actions/project50";
 import { track } from "@/lib/analytics";
 
 export function Project50Client({ state }: { state: Project50State }) {
@@ -24,6 +28,10 @@ export function Project50Client({ state }: { state: Project50State }) {
       onToggle={(ruleId, done) => {
         track("rule_toggled", { ruleId, done });
         startTransition(() => void toggleRuleAction(ruleId, done));
+      }}
+      onAttachMedia={(objectKey, width, height) => {
+        track("project50_photo_added", {});
+        startTransition(() => void attachProject50MediaAction(objectKey, width, height));
       }}
     />
   );
