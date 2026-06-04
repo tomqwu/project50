@@ -20,6 +20,7 @@ import { CelebrateScreen } from "../screens/CelebrateScreen";
 import { Project50Screen } from "../screens/Project50Screen";
 import { CreateChallengeScreen } from "../screens/CreateChallengeScreen";
 import { ChallengeDetailScreen } from "../screens/ChallengeDetailScreen";
+import { UpgradeScreen } from "../screens/UpgradeScreen";
 import { colors } from "../theme";
 
 export type RootStackParamList = {
@@ -37,6 +38,7 @@ export type RootStackParamList = {
   Project50: undefined;
   CreateChallenge: undefined;
   ChallengeDetail: { challengeId: string };
+  Upgrade: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -82,6 +84,11 @@ export function AppNavigator(): React.JSX.Element {
           name="Feed"
           component={FeedScreen}
           options={{ title: "Feed" }}
+        />
+        <Stack.Screen
+          name="Upgrade"
+          component={UpgradeScreen}
+          options={{ title: "Premium" }}
         />
         <Stack.Screen
           name="Project50"
