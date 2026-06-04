@@ -255,6 +255,65 @@ describe("createChallenge", () => {
   });
 });
 
+// ─── updateChallenge ─────────────────────────────────────────────────────────
+
+describe("updateChallenge", () => {
+  const client = new ApiClient("http://localhost:3000");
+
+  it("calls PATCH /api/challenges/:id with body", async () => {
+    mockFetchOk({ id: "c1", title: "Run 10K" });
+    const input = { title: "Run 10K", dailyTarget: 10, unit: "km", visibility: "PRIVATE" as const };
+    await client.updateChallenge("c1", input);
+    const [url, init] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/challenges/c1");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+
+  it("returns updated challenge", async () => {
+    const data = { id: "c1", title: "Run 10K" };
+    mockFetchOk(data);
+    const result = await client.updateChallenge("c1", { title: "Run 10K" });
+    expect(result).toEqual(data);
+  });
+
+  it("throws ApiError on 404", async () => {
+    mockFetchError(404, "CHALLENGE_NOT_FOUND");
+    await expect(
+      client.updateChallenge("nope", { title: "x" }),
+    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+  });
+});
+
+// ─── deleteChallenge ─────────────────────────────────────────────────────────
+
+describe("deleteChallenge", () => {
+  const client = new ApiClient("http://localhost:3000");
+
+  it("calls DELETE /api/challenges/:id", async () => {
+    mockFetchOk({ ok: true });
+    await client.deleteChallenge("c1");
+    const [url, init] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/challenges/c1");
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("returns ok result", async () => {
+    mockFetchOk({ ok: true });
+    const result = await client.deleteChallenge("c1");
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("throws ApiError on 404", async () => {
+    mockFetchError(404, "CHALLENGE_NOT_FOUND");
+    await expect(client.deleteChallenge("nope")).rejects.toMatchObject({
+      status: 404,
+      code: "CHALLENGE_NOT_FOUND",
+    });
+  });
+});
+
 // ─── logActivity ─────────────────────────────────────────────────────────────
 
 describe("logActivity", () => {
