@@ -4,6 +4,9 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
@@ -238,6 +241,15 @@ export function newMediaKey(userId: string, ext: string, suffix: string): string
   return `media/${userId}/${suffix}.${ext}`;
 }
 
+/**
+ * The object-storage key prefix under which all of a user's uploaded media
+ * lives (`media/<userId>/`). Account deletion sweeps this prefix to remove any
+ * orphaned blobs. PURE — no env/IO. Identical across both backends.
+ */
+export function userMediaPrefix(userId: string): string {
+  return `media/${userId}/`;
+}
+
 /** Return a presigned PUT URL for uploading an object. */
 export async function presignPut(
   objectKey: string,
@@ -358,6 +370,83 @@ export async function checkStorage(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Delete a single object from storage by its objectKey.
+ *
+ * Idempotent: deleting a key that does not exist is a no-op on both backends
+ * (S3 DeleteObject is idempotent; Azure deleteIfExists swallows 404). Routes to
+ * the configured backend by env. Throws only on real errors (e.g. auth/network)
+ * so callers can decide whether to log-and-continue.
+ */
+export async function deleteObject(objectKey: string): Promise<void> {
+  if (useAzure()) {
+    await getAzureService()
+      .getContainerClient(getContainerName())
+      .deleteBlob(objectKey, { deleteSnapshots: "include" })
+      .catch((err: unknown) => {
+        // 404 (blob already gone) is fine; rethrow anything else.
+        const status = (err as { statusCode?: number })?.statusCode;
+        if (status === 404) return;
+        throw err;
+      });
+    return;
+  }
+  await getClient().send(
+    new DeleteObjectCommand({ Bucket: getBucket(), Key: objectKey }),
+  );
+}
+
+/**
+ * Belt-and-suspenders sweep: delete EVERY object under a user's media prefix
+ * (`media/<userId>/`). Used by account deletion alongside the explicit
+ * per-row objectKey deletes, so any blob that the DB no longer references is
+ * still removed (a real GDPR requirement).
+ *
+ * - S3/MinIO: paginate ListObjectsV2 by prefix and batch-delete (DeleteObjects,
+ *   up to 1000 keys/request).
+ * - Azure Blob: list blobs by prefix and delete each.
+ *
+ * Safe no-op when the prefix is empty (no objects listed). Routes by env.
+ */
+export async function deleteUserMedia(userId: string): Promise<void> {
+  const prefix = userMediaPrefix(userId);
+
+  if (useAzure()) {
+    const container = getAzureService().getContainerClient(getContainerName());
+    for await (const blob of container.listBlobsFlat({ prefix })) {
+      await container.deleteBlob(blob.name, { deleteSnapshots: "include" });
+    }
+    return;
+  }
+
+  const client = getClient();
+  const bucket = getBucket();
+  let continuationToken: string | undefined;
+  do {
+    const listed = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    const keys = (listed.Contents ?? [])
+      .map((o) => o.Key)
+      .filter((k): k is string => Boolean(k));
+    if (keys.length > 0) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys.map((Key) => ({ Key })) },
+        }),
+      );
+    }
+    continuationToken = listed.IsTruncated
+      ? listed.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
 }
 
 // Export for testing (reset singletons)

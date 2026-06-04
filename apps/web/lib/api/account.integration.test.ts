@@ -3,6 +3,15 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
+// Object storage is mocked: this is a DB integration test, and we assert the
+// deletion flow calls into storage with the right keys (no real S3/Azure).
+const deleteObject = vi.fn().mockResolvedValue(undefined);
+const deleteUserMedia = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/storage", () => ({
+  deleteObject: (key: string) => deleteObject(key),
+  deleteUserMedia: (uid: string) => deleteUserMedia(uid),
+}));
+
 import { prisma, resetDb, createUser } from "../../test/db";
 import {
   getAccount,
@@ -11,7 +20,12 @@ import {
   exportAccountData,
 } from "./account";
 
-beforeEach(resetDb);
+beforeEach(() => {
+  vi.clearAllMocks();
+  deleteObject.mockResolvedValue(undefined);
+  deleteUserMedia.mockResolvedValue(undefined);
+  return resetDb();
+});
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -182,6 +196,128 @@ describe("deleteAccount", () => {
     expect(await prisma.follow.count({ where: { followerId: alice.id } })).toBe(0);
     // Other users are untouched.
     expect(await prisma.user.findUnique({ where: { id: bob.id } })).not.toBeNull();
+  });
+
+  it("deletes the user's uploaded media blobs (day photos, activity photos, recaps) before removing the DB row", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(alice.id, { title: "Run" });
+    const activity = await prisma.activity.create({
+      data: { challengeId: challenge.id, userId: alice.id, dayKey: "2026-06-01" },
+    });
+    // One of each media kind, all under media/<uid>/.
+    await prisma.activityMedia.create({
+      data: {
+        activityId: activity.id,
+        objectKey: `media/${alice.id}/act-1.jpg`,
+        width: 100,
+        height: 100,
+      },
+    });
+    await prisma.project50DayMedia.create({
+      data: {
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        objectKey: `media/${alice.id}/day-1.jpg`,
+        width: 100,
+        height: 100,
+      },
+    });
+    await prisma.recap.create({
+      data: {
+        challengeId: challenge.id,
+        kind: "DAY",
+        objectKey: `media/${alice.id}/recap-1.mp4`,
+      },
+    });
+
+    await deleteAccount(alice.id);
+
+    // Every recorded objectKey was deleted explicitly.
+    const deletedKeys = deleteObject.mock.calls.map((c) => c[0]).sort();
+    expect(deletedKeys).toEqual(
+      [
+        `media/${alice.id}/act-1.jpg`,
+        `media/${alice.id}/day-1.jpg`,
+        `media/${alice.id}/recap-1.mp4`,
+      ].sort(),
+    );
+    // Plus the belt-and-suspenders prefix sweep for this user.
+    expect(deleteUserMedia).toHaveBeenCalledOnce();
+    expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
+    // The DB row is gone.
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
+  });
+
+  it("only deletes THIS user's media, never another user's blobs", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    const aliceCh = await createChallenge(alice.id, { title: "Alice" });
+    const bobCh = await createChallenge(bob.id, { title: "Bob" });
+    await prisma.recap.create({
+      data: {
+        challengeId: aliceCh.id,
+        kind: "DAY",
+        objectKey: `media/${alice.id}/a.mp4`,
+      },
+    });
+    await prisma.recap.create({
+      data: {
+        challengeId: bobCh.id,
+        kind: "DAY",
+        objectKey: `media/${bob.id}/b.mp4`,
+      },
+    });
+
+    await deleteAccount(alice.id);
+
+    const deletedKeys = deleteObject.mock.calls.map((c) => c[0]);
+    expect(deletedKeys).toEqual([`media/${alice.id}/a.mp4`]);
+    expect(deleteUserMedia).toHaveBeenCalledOnce();
+    expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
+    // Bob's media row and account are untouched.
+    expect(await prisma.recap.count({ where: { challengeId: bobCh.id } })).toBe(1);
+  });
+
+  it("completes (deletes the user + sweeps the prefix) even if a single blob delete throws", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(alice.id, { title: "Run" });
+    await prisma.recap.create({
+      data: {
+        challengeId: challenge.id,
+        kind: "DAY",
+        objectKey: `media/${alice.id}/boom.mp4`,
+      },
+    });
+    deleteObject.mockRejectedValueOnce(new Error("storage 500"));
+
+    await expect(deleteAccount(alice.id)).resolves.toBeUndefined();
+
+    // The failure is swallowed; the prefix sweep + DB delete still happen.
+    expect(deleteUserMedia).toHaveBeenCalledOnce();
+    expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
+  });
+
+  it("still deletes the user when the prefix sweep itself throws", async () => {
+    const alice = await createUser({ handle: "alice" });
+    deleteUserMedia.mockRejectedValueOnce(new Error("list failed"));
+
+    await expect(deleteAccount(alice.id)).resolves.toBeUndefined();
+
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
+  });
+
+  it("sweeps the prefix even when the user has no recorded media", async () => {
+    const alice = await createUser({ handle: "alice" });
+
+    await deleteAccount(alice.id);
+
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(deleteUserMedia).toHaveBeenCalledOnce();
+    expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
   });
 
   it("rejects when the user does not exist", async () => {
