@@ -1,0 +1,59 @@
+{
+  "$comment": "Provider-agnostic ACTIVATION FUNNEL dashboard spec for Project 50. Illustrative config — NOT a native export of any one tool. On import, map `query` to your warehouse SQL / Amplitude / PostHog and adapt the `events` table & `props` JSON access to your schema. Grounded in apps/web/lib/analytics.ts and docs/ANALYTICS.md §2.",
+  "schemaVersion": 1,
+  "title": "Project 50 — Activation funnel",
+  "description": "Visit -> signup -> project50_started -> first perfect day (7/7) -> day-50 completion.",
+  "target": "warehouse (SQL); adapt for Amplitude/PostHog funnel builder on import",
+  "source": {
+    "table": "events",
+    "columns": ["event", "user_id", "anonymous_id", "ts", "props"],
+    "notes": "Events emitted by track() in apps/web/lib/analytics.ts. `props` is JSON. `signup` is reserved (no call site yet); `day50_completed` is a recommended addition — until both exist, derive those steps from the product DB."
+  },
+  "variables": [
+    {
+      "name": "window_days",
+      "label": "Lookback (days of signups)",
+      "type": "interval",
+      "default": 30
+    }
+  ],
+  "panels": [
+    {
+      "id": "funnel_steps",
+      "title": "Funnel — counts by step",
+      "type": "funnel",
+      "metric": "Distinct users reaching each step (signup -> started -> perfect day)",
+      "query": "WITH signups AS (SELECT user_id, MIN(ts) AS signed_up_at FROM events WHERE event = 'signup' AND ts >= NOW() - INTERVAL '${window_days} days' GROUP BY user_id), started AS (SELECT DISTINCT user_id FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false'), perfect_day AS (SELECT user_id FROM events WHERE event = 'rule_toggled' AND (props->>'done') = 'true' GROUP BY user_id, DATE(ts) HAVING COUNT(DISTINCT props->>'ruleId') >= 7) SELECT COUNT(*) AS signups, COUNT(*) FILTER (WHERE s.user_id IN (SELECT user_id FROM started)) AS started, COUNT(*) FILTER (WHERE s.user_id IN (SELECT user_id FROM perfect_day)) AS perfect_day FROM signups s;"
+    },
+    {
+      "id": "activation_rate",
+      "title": "Activation rate (started / signup)",
+      "type": "stat",
+      "unit": "percent",
+      "metric": "Share of signups that started their first challenge",
+      "query": "SELECT COUNT(DISTINCT st.user_id)::float / NULLIF(COUNT(DISTINCT su.user_id), 0) AS activation_rate FROM (SELECT DISTINCT user_id FROM events WHERE event = 'signup') su LEFT JOIN (SELECT DISTINCT user_id FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false') st USING (user_id);"
+    },
+    {
+      "id": "started_daily",
+      "title": "Challenges started per day",
+      "type": "timeseries",
+      "metric": "Daily count of project50_started (first starts vs restarts)",
+      "query": "SELECT DATE(ts) AS day, COUNT(*) FILTER (WHERE (props->>'restarted') = 'false') AS first_starts, COUNT(*) FILTER (WHERE (props->>'restarted') = 'true') AS restarts FROM events WHERE event = 'project50_started' AND ts >= NOW() - INTERVAL '${window_days} days' GROUP BY day ORDER BY day;"
+    },
+    {
+      "id": "perfect_day_rate",
+      "title": "Reached a perfect day (7/7)",
+      "type": "stat",
+      "unit": "percent",
+      "metric": "Share of starters who hit at least one all-7-rules day — the strongest early predictor of finishing",
+      "query": "WITH started AS (SELECT DISTINCT user_id FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false'), perfect AS (SELECT user_id FROM events WHERE event = 'rule_toggled' AND (props->>'done') = 'true' GROUP BY user_id, DATE(ts) HAVING COUNT(DISTINCT props->>'ruleId') >= 7) SELECT COUNT(DISTINCT p.user_id)::float / NULLIF(COUNT(DISTINCT s.user_id), 0) AS perfect_day_rate FROM started s LEFT JOIN perfect p USING (user_id);"
+    },
+    {
+      "id": "upgrade_intent",
+      "title": "Upgrade intent (upgrade_clicked)",
+      "type": "timeseries",
+      "metric": "Daily upgrade_clicked, split by whether a trial was requested",
+      "query": "SELECT DATE(ts) AS day, COUNT(*) FILTER (WHERE (props->>'trial') = 'true') AS with_trial, COUNT(*) FILTER (WHERE (props->>'trial') = 'false') AS without_trial FROM events WHERE event = 'upgrade_clicked' AND ts >= NOW() - INTERVAL '${window_days} days' GROUP BY day ORDER BY day;"
+    }
+  ]
+}

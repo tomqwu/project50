@@ -1,0 +1,45 @@
+{
+  "$comment": "Provider-agnostic RETENTION dashboard spec for Project 50. Illustrative config — NOT a native export of any one tool. On import, map `query` to your warehouse SQL / Amplitude / PostHog retention builder and adapt the `events` table & `props` JSON access to your schema. Grounded in apps/web/lib/analytics.ts and docs/ANALYTICS.md §3-4.",
+  "schemaVersion": 1,
+  "title": "Project 50 — Retention & streak survival",
+  "description": "D1/D7/D30, weekly cohorts, and streak survival across the 50-day program. Day 0 = the user's project50_started (restarted=false); 'active' = at least one rule_toggled that day.",
+  "target": "warehouse (SQL); adapt for Amplitude/PostHog retention builder on import",
+  "source": {
+    "table": "events",
+    "columns": ["event", "user_id", "ts", "props"],
+    "notes": "Anchor cohorts on project50_started (restarted=false). Activity signal is rule_toggled. The most accurate streak-survival / day-50 completion comes from the product DB (challenge day index + streak state); the event-based survival panel here is a proxy."
+  },
+  "panels": [
+    {
+      "id": "classic_retention",
+      "title": "D1 / D7 / D30 retention",
+      "type": "stat-row",
+      "unit": "percent",
+      "metric": "Share of the activation cohort active (>=1 rule_toggled) on day 1, 7, 30",
+      "query": "WITH cohort AS (SELECT user_id, MIN(DATE(ts)) AS d0 FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false' GROUP BY user_id), active_days AS (SELECT DISTINCT user_id, DATE(ts) AS day FROM events WHERE event = 'rule_toggled') SELECT COUNT(DISTINCT c.user_id) AS cohort_size, COUNT(DISTINCT a1.user_id)::float / COUNT(DISTINCT c.user_id) AS d1, COUNT(DISTINCT a7.user_id)::float / COUNT(DISTINCT c.user_id) AS d7, COUNT(DISTINCT a30.user_id)::float / COUNT(DISTINCT c.user_id) AS d30 FROM cohort c LEFT JOIN active_days a1 ON a1.user_id = c.user_id AND a1.day = c.d0 + 1 LEFT JOIN active_days a7 ON a7.user_id = c.user_id AND a7.day = c.d0 + 7 LEFT JOIN active_days a30 ON a30.user_id = c.user_id AND a30.day = c.d0 + 30;"
+    },
+    {
+      "id": "weekly_cohorts",
+      "title": "Weekly cohort retention (triangle)",
+      "type": "cohort-heatmap",
+      "metric": "For each activation-week cohort, distinct users active in each subsequent week. Normalize each row by its week_offset=0 value for retention %.",
+      "query": "WITH cohort AS (SELECT user_id, DATE_TRUNC('week', MIN(ts)) AS cohort_week FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false' GROUP BY user_id), activity AS (SELECT DISTINCT user_id, DATE_TRUNC('week', ts) AS active_week FROM events WHERE event = 'rule_toggled') SELECT c.cohort_week, ((a.active_week - c.cohort_week) / 7) AS week_offset, COUNT(DISTINCT a.user_id) AS retained FROM cohort c JOIN activity a ON a.user_id = c.user_id AND a.active_week >= c.cohort_week GROUP BY c.cohort_week, week_offset ORDER BY c.cohort_week, week_offset;"
+    },
+    {
+      "id": "streak_survival",
+      "title": "Streak survival across 50 days",
+      "type": "timeseries",
+      "unit": "percent",
+      "metric": "Share of the cohort with a check-in (rule_toggled) on each day-offset 0..49 — a hard reset drops users out. Marks the days people most often break.",
+      "query": "WITH cohort AS (SELECT user_id, MIN(DATE(ts)) AS d0 FROM events WHERE event = 'project50_started' AND (props->>'restarted') = 'false' GROUP BY user_id), active AS (SELECT DISTINCT user_id, DATE(ts) AS day FROM events WHERE event = 'rule_toggled') SELECT (a.day - c.d0) AS day_offset, COUNT(DISTINCT a.user_id)::float / (SELECT COUNT(*) FROM cohort) AS surviving_share FROM cohort c JOIN active a ON a.user_id = c.user_id AND a.day BETWEEN c.d0 AND c.d0 + 49 GROUP BY day_offset ORDER BY day_offset;"
+    },
+    {
+      "id": "trial_to_paid",
+      "title": "Upgrade conversion (click -> paid, trial -> paid)",
+      "type": "stat-row",
+      "unit": "percent",
+      "metric": "Of users who fired upgrade_clicked, share now ACTIVE; of trial-requesters, share converted. Joins event stream to the subscriptions table (SubscriptionStatus).",
+      "query": "WITH clickers AS (SELECT user_id, BOOL_OR((props->>'trial') = 'true') AS wanted_trial FROM events WHERE event = 'upgrade_clicked' GROUP BY user_id) SELECT COUNT(*) AS clicked, COUNT(*) FILTER (WHERE s.status = 'ACTIVE') AS converted, COUNT(*) FILTER (WHERE s.status = 'ACTIVE')::float / NULLIF(COUNT(*),0) AS click_to_paid, COUNT(*) FILTER (WHERE c.wanted_trial AND s.status = 'ACTIVE')::float / NULLIF(COUNT(*) FILTER (WHERE c.wanted_trial), 0) AS trial_to_paid FROM clickers c LEFT JOIN subscriptions s ON s.user_id = c.user_id;"
+    }
+  ]
+}
