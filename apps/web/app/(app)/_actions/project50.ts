@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { startProject50, toggleRule } from "@/lib/project50";
+import {
+  startProject50,
+  toggleRule,
+  attachProject50DayMedia,
+} from "@/lib/project50";
 import { withActionLogging } from "@/lib/log-action";
 
 export const startProject50Action = withActionLogging(
@@ -19,6 +23,15 @@ export const toggleRuleAction = withActionLogging(
   async (ruleId: number, done: boolean) => {
     const uid = await requireUser();
     await toggleRule(uid, ruleId, done);
+    revalidatePath("/");
+  },
+);
+
+export const attachProject50MediaAction = withActionLogging(
+  "attachProject50MediaAction",
+  async (objectKey: string, width: number, height: number) => {
+    const uid = await requireUser();
+    await attachProject50DayMedia(uid, { objectKey, width, height });
     revalidatePath("/");
   },
 );

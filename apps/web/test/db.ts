@@ -13,7 +13,7 @@ import { prisma } from "@project50/db";
  */
 export async function resetDb(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE "User","Identity","Follow","Block","Report","Challenge","Activity","ActivityMedia","DayStatus","Reaction","Milestone","Recap","RuleCheck","Subscription","Referral","MagicLinkToken" RESTART IDENTITY CASCADE;`,
+    `TRUNCATE TABLE "User","Identity","Follow","Block","Report","Challenge","Activity","ActivityMedia","DayStatus","Reaction","Milestone","Recap","RuleCheck","Project50DayMedia","Subscription","Referral","MagicLinkToken" RESTART IDENTITY CASCADE;`,
   );
   _userCounter = 0;
 }

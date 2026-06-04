@@ -2,7 +2,14 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma, resetDb } from "@/test/db";
 import { addDays, PROJECT50_LENGTH_DAYS } from "@project50/core";
-import { startProject50, getProject50State, toggleRule, getProject50History } from "./project50";
+import {
+  startProject50,
+  getProject50State,
+  toggleRule,
+  getProject50History,
+  attachProject50DayMedia,
+  listProject50DayMedia,
+} from "./project50";
 
 beforeEach(resetDb);
 afterAll(async () => { await prisma.$disconnect(); });
@@ -202,5 +209,99 @@ describe("getProject50History", () => {
     expect(days[0]?.status).toBe("incomplete");
     // Day 2 is today
     expect(days[1]?.status).toBe("today");
+  });
+});
+
+describe("Project 50 day media", () => {
+  it("attachProject50DayMedia writes a row for today's local dayKey on the active run", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+
+    await attachProject50DayMedia(
+      u.id,
+      { objectKey: "media/u/a.jpg", width: 800, height: 600 },
+      NOW,
+    );
+
+    const rows = await prisma.project50DayMedia.findMany({ where: { challengeId: runId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      dayKey: "2026-06-02",
+      objectKey: "media/u/a.jpg",
+      width: 800,
+      height: 600,
+    });
+  });
+
+  it("uses the run timezone to pick the local dayKey (mirrors toggleRule)", async () => {
+    const u = await makeUser();
+    // 2026-06-02T02:00:00Z is still 2026-06-01 in America/Toronto (UTC-4).
+    const earlyUtc = new Date("2026-06-02T02:00:00Z");
+    const runId = await startProject50(u.id, "America/Toronto", earlyUtc);
+
+    await attachProject50DayMedia(
+      u.id,
+      { objectKey: "media/u/tz.jpg", width: 10, height: 20 },
+      earlyUtc,
+    );
+
+    const row = await prisma.project50DayMedia.findFirst({ where: { challengeId: runId } });
+    expect(row?.dayKey).toBe("2026-06-01");
+  });
+
+  it("allows multiple photos for the same day (no unique on dayKey)", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "k1", width: 1, height: 1 }, NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "k2", width: 2, height: 2 }, NOW);
+
+    const rows = await prisma.project50DayMedia.findMany({ where: { challengeId: runId } });
+    expect(rows).toHaveLength(2);
+  });
+
+  it("throws when there is no active run", async () => {
+    const u = await makeUser();
+    await expect(
+      attachProject50DayMedia(u.id, { objectKey: "k", width: 1, height: 1 }, NOW),
+    ).rejects.toThrow(/No active Project 50 run/);
+  });
+
+  it("listProject50DayMedia returns the day's photos oldest-first, each with a signed url", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "first", width: 1, height: 1 }, NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "second", width: 2, height: 2 }, NOW);
+
+    const media = await listProject50DayMedia(runId, "2026-06-02");
+    expect(media.map((m) => m.objectKey)).toEqual(["first", "second"]);
+    expect(media[0]?.width).toBe(1);
+    // presignGet yields a signed URL that embeds the object key.
+    expect(media[0]?.url).toContain("first");
+    expect(media[0]?.url).toMatch(/^https?:\/\//);
+  });
+
+  it("listProject50DayMedia returns [] for a day with no photos", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    expect(await listProject50DayMedia(runId, "2026-06-02")).toEqual([]);
+  });
+
+  it("getProject50State.today.media surfaces today's photos with signed urls", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "today-pic", width: 4, height: 3 }, NOW);
+
+    const state = await getProject50State(u.id, NOW);
+    expect(state.status).toBe("ACTIVE");
+    expect(state.today?.media).toHaveLength(1);
+    expect(state.today?.media[0]).toMatchObject({ objectKey: "today-pic", width: 4, height: 3 });
+    expect(state.today?.media[0]?.url).toContain("today-pic");
+  });
+
+  it("getProject50State.today.media is [] when today has no photos", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW);
+    const state = await getProject50State(u.id, NOW);
+    expect(state.today?.media).toEqual([]);
   });
 });

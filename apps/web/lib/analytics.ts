@@ -28,6 +28,7 @@ export type AnalyticsEvent =
   | "signup"
   | "project50_started"
   | "rule_toggled"
+  | "project50_photo_added"
   | "upgrade_clicked";
 
 /** Arbitrary, JSON-serializable properties attached to an event. */

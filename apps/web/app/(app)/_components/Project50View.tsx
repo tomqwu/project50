@@ -1,17 +1,180 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Card, Label } from "@project50/ui";
 import { PROJECT50_RULES, PROJECT50_LENGTH_DAYS } from "@project50/core";
-import type { Project50State } from "@/lib/project50";
+import type { Project50State, Project50DayMediaItem } from "@/lib/project50";
 import { Project50Calendar } from "./Project50Calendar";
+import { readImageDimensions } from "../challenges/[id]/log/LogActivityForm";
+
+/** Content-types accepted for a Project 50 day photo (images only — no video). */
+const ALLOWED_PHOTO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 interface Props {
   state: Project50State;
   onStart: () => void;
   onToggle: (ruleId: number, done: boolean) => void;
   onRestart: () => void;
+  /** Persist an uploaded photo against today (objectKey already PUT to storage). */
+  onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+  /** Injectable for testing — defaults to readImageDimensions. */
+  readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
+}
+
+/**
+ * "Today's photo" section: a "+ Add photo" control that runs the proven
+ * presign → PUT upload flow (same as LogActivityForm), then persists the photo
+ * via onAttachMedia, plus a thumbnail strip of today's already-attached photos.
+ *
+ * PHOTOS ONLY — images (png/jpeg/webp). Video is intentionally out of scope.
+ */
+function Project50PhotoSection({
+  media,
+  onAttachMedia,
+  readDimensions = readImageDimensions,
+}: {
+  media: Project50DayMediaItem[];
+  onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+  readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
+      setError("Only PNG, JPEG, and WebP images are supported.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setError(null);
+    setUploading(true);
+    try {
+      const { width, height } = await readDimensions(file);
+      const baseName =
+        file.name
+          .replace(/\.[^.]+$/, "")
+          .replace(/[^a-zA-Z0-9_-]/g, "_")
+          .slice(0, 64) || "upload";
+
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file.type, suffix: baseName }),
+      });
+      if (!presignRes.ok) {
+        setError("Failed to get upload URL. Please try again.");
+        return;
+      }
+      const { uploadUrl, objectKey } = (await presignRes.json()) as {
+        uploadUrl: string;
+        objectKey: string;
+      };
+
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": file.type },
+      });
+      if (!putRes.ok) {
+        setError("Photo upload failed. Please try again.");
+        return;
+      }
+
+      onAttachMedia?.(objectKey, width, height);
+    } catch {
+      setError("Photo upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  return (
+    <section style={{ margin: "28px 0 4px" }} aria-labelledby="today-photo-heading">
+      <h2
+        id="today-photo-heading"
+        style={{
+          fontFamily: "var(--font-display)",
+          textTransform: "uppercase",
+          fontSize: 16,
+          letterSpacing: "0.04em",
+          margin: "0 0 12px",
+        }}
+      >
+        Today&apos;s photo
+      </h2>
+
+      {media.length > 0 && (
+        <div
+          data-testid="today-photo-strip"
+          style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}
+        >
+          {media.map((m, i) => (
+            <img
+              key={m.objectKey}
+              src={m.url}
+              alt={`Today's photo ${i + 1}`}
+              data-testid="today-photo-thumb"
+              width={m.width}
+              height={m.height}
+              style={{
+                width: 72,
+                height: 72,
+                objectFit: "cover",
+                borderRadius: 10,
+                border: "1px solid var(--hairline)",
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <input
+        id="today-photo-input"
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={handleFileChange}
+        data-testid="today-photo-input"
+        disabled={uploading}
+        aria-label="Add a photo for today"
+        style={{ display: "none" }}
+      />
+      <label
+        htmlFor="today-photo-input"
+        data-testid="today-photo-add"
+        style={{
+          display: "inline-block",
+          padding: "10px 18px",
+          borderRadius: 10,
+          border: "1px dashed var(--hairline)",
+          background: "var(--card)",
+          color: "var(--muted)",
+          fontFamily: "var(--font-body, system-ui)",
+          fontSize: 14,
+          cursor: uploading ? "wait" : "pointer",
+        }}
+      >
+        {uploading ? "Uploading…" : "+ Add photo"}
+      </label>
+
+      {error && (
+        <p
+          data-testid="today-photo-error"
+          role="alert"
+          style={{ marginTop: 8, fontSize: 13, color: "var(--danger)" }}
+        >
+          {error}
+        </p>
+      )}
+    </section>
+  );
 }
 
 // Extra guidance surfaced in the per-rule help panel, keyed by rule id.
@@ -26,7 +189,14 @@ const RULE_HELP_TIPS: Record<number, string> = {
   7: "Reflection turns days into progress. Note one win and one lesson before bed.",
 };
 
-export function Project50View({ state, onStart, onToggle, onRestart }: Props) {
+export function Project50View({
+  state,
+  onStart,
+  onToggle,
+  onRestart,
+  onAttachMedia,
+  readDimensions,
+}: Props) {
   const [openHelpId, setOpenHelpId] = useState<number | null>(null);
 
   if (state.status === "NONE") {
@@ -204,6 +374,11 @@ export function Project50View({ state, onStart, onToggle, onRestart }: Props) {
           );
         })}
       </div>
+      <Project50PhotoSection
+        media={today.media}
+        onAttachMedia={onAttachMedia}
+        readDimensions={readDimensions}
+      />
       <Project50Calendar days={state.history?.days ?? []} />
     </div>
   );

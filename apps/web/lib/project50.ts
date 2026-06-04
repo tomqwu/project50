@@ -6,12 +6,24 @@ import {
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
+import { presignGet } from "@/lib/storage";
+
+/** One photo attached to a Project 50 day, with a signed view URL for display. */
+export interface Project50DayMediaItem {
+  objectKey: string;
+  width: number;
+  height: number;
+  /** Short-lived signed GET URL for the object (mirrors withMediaUrls). */
+  url: string;
+}
 
 export interface Project50Today {
   dayKey: string;
   dayNumber: number;
   checks: boolean[]; // length 7, index = ruleId - 1
   completedCount: number;
+  /** Photos attached to today, oldest first, each with a signed view URL. */
+  media: Project50DayMediaItem[];
 }
 
 export type Project50DayStatus = "complete" | "incomplete" | "today" | "future";
@@ -81,12 +93,32 @@ async function buildToday(runId: string, startDate: string, todayKey: string): P
   });
   const doneIds = new Set(checksRows.map((c) => c.ruleId));
   const checks = PROJECT50_RULE_IDS.map((id) => doneIds.has(id));
+  const media = await listProject50DayMedia(runId, todayKey);
   return {
     dayKey: todayKey,
     dayNumber: Math.max(1, dayNumber(startDate, todayKey)),
     checks,
     completedCount: checks.filter(Boolean).length,
+    media,
   };
+}
+
+/**
+ * List the photos attached to one day of a run, oldest first, each with a
+ * short-lived signed GET URL for display (mirrors lib/api/media withMediaUrls).
+ */
+export async function listProject50DayMedia(
+  runId: string,
+  dayKey: string,
+): Promise<Project50DayMediaItem[]> {
+  const rows = await prisma.project50DayMedia.findMany({
+    where: { challengeId: runId, dayKey },
+    orderBy: { createdAt: "asc" },
+    select: { objectKey: true, width: true, height: true },
+  });
+  return Promise.all(
+    rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })),
+  );
 }
 
 /**
@@ -214,5 +246,32 @@ export async function toggleRule(
     where: { challengeId_dayKey: { challengeId: run.id, dayKey: todayKey } },
     update: { completed },
     create: { challengeId: run.id, dayKey: todayKey, completed },
+  });
+}
+
+/**
+ * Attach a photo to TODAY on the user's active Project 50 run.
+ *
+ * Resolves the active run (throws if none, like toggleRule), then writes one
+ * Project50DayMedia row keyed to the run's local dayKey. Multiple photos per day
+ * are allowed, so this always inserts a new row. The objectKey must already
+ * point at an uploaded image (the client presigns + PUTs before calling this).
+ */
+export async function attachProject50DayMedia(
+  uid: string,
+  media: { objectKey: string; width: number; height: number },
+  now: Date = new Date(),
+): Promise<void> {
+  const run = await activeRun(uid);
+  if (!run) throw new Error("No active Project 50 run");
+  const todayKey = localDayKey(now, run.timezone);
+  await prisma.project50DayMedia.create({
+    data: {
+      challengeId: run.id,
+      dayKey: todayKey,
+      objectKey: media.objectKey,
+      width: media.width,
+      height: media.height,
+    },
   });
 }
