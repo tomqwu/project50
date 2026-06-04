@@ -38,7 +38,7 @@ let exported = nextConfig;
 
 if (sentryEnabled) {
   const { withSentryConfig } = await import("@sentry/nextjs");
-  exported = withSentryConfig(nextConfig, {
+  exported = withSentryConfig(exported, {
     // Suppress build-time logs unless explicitly debugging.
     silent: true,
     // Org/project + auth token are read from SENTRY_ORG / SENTRY_PROJECT /
@@ -59,6 +59,18 @@ if (sentryEnabled) {
       },
     },
   });
+}
+
+// Bundle analysis is OPT-IN: only wrap with @next/bundle-analyzer when
+// ANALYZE=true. Run `ANALYZE=true pnpm --filter @project50/web build` to emit
+// the interactive treemap reports (client.html / nodejs.html / edge.html under
+// apps/web/.next/analyze/). Normal builds and CI leave ANALYZE unset, so the
+// analyzer is a no-op and the build output is unchanged. The analyzer is applied
+// as the OUTERMOST wrapper so it observes the final (optionally Sentry-wrapped)
+// config and never interferes with the DSN-gated Sentry plugin above.
+if (process.env.ANALYZE === "true") {
+  const { default: withBundleAnalyzer } = await import("@next/bundle-analyzer");
+  exported = withBundleAnalyzer({ enabled: true })(exported);
 }
 
 export default exported;

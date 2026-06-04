@@ -11,7 +11,10 @@ const { mockFetch, mockNavigatorShare, mockClipboardWriteText } = vi.hoisted(() 
 // Mock global fetch
 vi.stubGlobal("fetch", mockFetch);
 
-import { RecapPanel } from "./RecapPanel";
+// Behavioral tests exercise the implementation directly. The public ./RecapPanel
+// entry is a thin next/dynamic(ssr:false) wrapper around this same component
+// (covered by RecapPanel.wrapper.test.tsx).
+import { RecapPanelClient as RecapPanel } from "./RecapPanelClient";
 import type { RecapItem } from "./RecapPanel";
 
 afterEach(() => {
