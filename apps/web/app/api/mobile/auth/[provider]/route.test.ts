@@ -9,18 +9,32 @@ vi.mock("@/lib/auth-callbacks", () => ({ resolveOAuthUser: vi.fn() }));
 vi.mock("@/lib/mobile-session", () => ({ mintSessionToken: vi.fn(), readBearerUser: vi.fn() }));
 import { resolveOAuthUser } from "@/lib/auth-callbacks";
 import { mintSessionToken } from "@/lib/mobile-session";
+import { LOCKOUT_CONFIG, resetLockout } from "@/lib/lockout";
+import { resetRateLimit } from "@/lib/rate-limit";
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  resetLockout();
+  resetRateLimit();
   process.env.FACEBOOK_CLIENT_ID = "appid";
   process.env.FACEBOOK_CLIENT_SECRET = "secret";
 });
 
-function req(body: unknown) {
+function req(body: unknown, ip?: string) {
   return new Request("http://test/api/mobile/auth/facebook", {
     method: "POST",
     body: JSON.stringify(body),
+    ...(ip ? { headers: { "x-forwarded-for": ip } } : {}),
   });
+}
+
+/** Queue a single failing FB token-exchange response. */
+function mockFailedExchange() {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(JSON.stringify({ error: { message: "bad code" } }), {
+      status: 400,
+    }),
+  );
 }
 const ctx = (provider: string) => ({ params: Promise.resolve({ provider }) });
 
@@ -63,5 +77,89 @@ describe("POST /api/mobile/auth/[provider]", () => {
     );
     const res = await POST(req({ code: "bad", redirectUri: "r" }), ctx("facebook"));
     expect(res.status).toBe(422);
+  });
+});
+
+describe("account lockout (#34)", () => {
+  const ip = "203.0.113.7";
+
+  it("locks the IP with a 429 + Retry-After after maxFailures failed exchanges", async () => {
+    mockFailedExchange();
+
+    // The first `maxFailures` attempts fail with 422 (provider verification).
+    for (let i = 0; i < LOCKOUT_CONFIG.maxFailures; i++) {
+      const res = await POST(
+        req({ code: "bad", redirectUri: "r" }, ip),
+        ctx("facebook"),
+      );
+      expect(res.status).toBe(422);
+    }
+
+    // The next attempt is rejected up front by the lockout — no fetch is made.
+    const fetchCalls = vi.mocked(globalThis.fetch).mock.calls.length;
+    const locked = await POST(
+      req({ code: "bad", redirectUri: "r" }, ip),
+      ctx("facebook"),
+    );
+    expect(locked.status).toBe(429);
+    expect(locked.headers.get("Retry-After")).toBe(
+      String(Math.ceil(LOCKOUT_CONFIG.lockoutMs / 1000)),
+    );
+    expect(await locked.json()).toEqual({
+      error: "locked_out",
+      detail: { retryAfterSeconds: Math.ceil(LOCKOUT_CONFIG.lockoutMs / 1000) },
+    });
+    // No additional fetch was issued for the locked-out request.
+    expect(vi.mocked(globalThis.fetch).mock.calls.length).toBe(fetchCalls);
+  });
+
+  it("does not lock a different IP", async () => {
+    mockFailedExchange();
+    for (let i = 0; i < LOCKOUT_CONFIG.maxFailures; i++) {
+      await POST(req({ code: "bad", redirectUri: "r" }, ip), ctx("facebook"));
+    }
+    // A different IP is unaffected and still reaches provider verification (422).
+    const other = await POST(
+      req({ code: "bad", redirectUri: "r" }, "198.51.100.2"),
+      ctx("facebook"),
+    );
+    expect(other.status).toBe(422);
+  });
+
+  it("clears failures on a successful exchange so the IP is not locked", async () => {
+    // First, a few (under-threshold) failures.
+    mockFailedExchange();
+    for (let i = 0; i < LOCKOUT_CONFIG.maxFailures - 1; i++) {
+      await POST(req({ code: "bad", redirectUri: "r" }, ip), ctx("facebook"));
+    }
+
+    // Then a successful exchange clears the counter.
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: "fb-at" }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "fb-1", name: "Al", email: "a@x.com" }), {
+          status: 200,
+        }),
+      );
+    vi.mocked(resolveOAuthUser).mockResolvedValue("uid-9");
+    vi.mocked(mintSessionToken).mockResolvedValue("minted-jwt");
+    const ok = await POST(
+      req({ code: "good", redirectUri: "r" }, ip),
+      ctx("facebook"),
+    );
+    expect(ok.status).toBe(200);
+
+    // After the success, the failure counter is reset: maxFailures-1 more
+    // failures still do not lock the IP.
+    mockFailedExchange();
+    for (let i = 0; i < LOCKOUT_CONFIG.maxFailures - 1; i++) {
+      const res = await POST(
+        req({ code: "bad", redirectUri: "r" }, ip),
+        ctx("facebook"),
+      );
+      expect(res.status).toBe(422);
+    }
   });
 });
