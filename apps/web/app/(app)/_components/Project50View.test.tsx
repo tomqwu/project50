@@ -233,7 +233,11 @@ describe("Project50View — today's photo section", () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ uploadUrl: "https://put.example/obj", objectKey: "media/u/obj.jpg" }),
+        json: async () => ({
+          uploadUrl: "https://put.example/obj",
+          objectKey: "media/u/obj.jpg",
+          uploadHeaders: { "content-type": "image/jpeg" },
+        }),
       })
       .mockResolvedValueOnce({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
@@ -258,9 +262,55 @@ describe("Project50View — today's photo section", () => {
     const presignCall = fetchMock.mock.calls[0]!;
     expect(presignCall[0]).toBe("/api/uploads/presign");
     expect(JSON.parse(presignCall[1].body)).toMatchObject({ contentType: "image/jpeg" });
-    // PUT goes to the presigned url with the file bytes
+    // PUT goes to the presigned url with the file bytes + presign headers
     expect(fetchMock.mock.calls[1]![0]).toBe("https://put.example/obj");
-    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ method: "PUT" });
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({
+      method: "PUT",
+      headers: { "content-type": "image/jpeg" },
+    });
+  });
+
+  it("spreads Azure uploadHeaders (x-ms-blob-type) onto the PUT", async () => {
+    const onAttachMedia = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          uploadUrl: "https://acct.blob.core.windows.net/cont/obj?sas",
+          objectKey: "media/u/obj.jpg",
+          uploadHeaders: {
+            "content-type": "image/jpeg",
+            "x-ms-blob-type": "BlockBlob",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Project50View
+        state={activeStateWithMedia([])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+        onAttachMedia={onAttachMedia}
+        readDimensions={readDimensions}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("today-photo-input"), {
+      target: { files: [fakeFile("photo.jpg", "image/jpeg")] },
+    });
+
+    await waitFor(() =>
+      expect(onAttachMedia).toHaveBeenCalledWith("media/u/obj.jpg", 640, 480),
+    );
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({
+      method: "PUT",
+      headers: {
+        "content-type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+      },
+    });
   });
 
   it("rejects a non-image file with an error and never uploads", async () => {

@@ -5,3 +5,6 @@ node_modules/
 dist/
 build/
 coverage/
+
+# Claude Code session/worktree dir (machine-local)
+.claude/
