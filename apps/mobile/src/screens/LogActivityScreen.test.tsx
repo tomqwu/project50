@@ -35,15 +35,17 @@ jest.mock("../lib/apiClient", () => ({
 // Mock photo module
 jest.mock("../lib/photo", () => ({
   pickImageFromLibrary: jest.fn(),
+  pickImageFromCamera: jest.fn(),
   uploadPhoto: jest.fn(),
 }));
 
 import { apiClient } from "../lib/apiClient";
-import { pickImageFromLibrary, uploadPhoto } from "../lib/photo";
+import { pickImageFromCamera, pickImageFromLibrary, uploadPhoto } from "../lib/photo";
 import { LogActivityScreen } from "./LogActivityScreen";
 
 const mockLogActivity = apiClient.logActivity as jest.Mock;
 const mockPickImage = pickImageFromLibrary as jest.Mock;
+const mockPickCamera = pickImageFromCamera as jest.Mock;
 const mockUploadPhoto = uploadPhoto as jest.Mock;
 
 // ─── Default props ────────────────────────────────────────────────────────────
@@ -345,10 +347,100 @@ describe("LogActivityScreen — mood", () => {
 // ─── Photo flow ───────────────────────────────────────────────────────────────
 
 describe("LogActivityScreen — photo", () => {
-  it("renders Add photo button", () => {
+  it("renders Add photo and Take photo buttons", () => {
     render(<LogActivityScreen {...TARGET_PROPS} />);
     expect(screen.getByTestId("add-photo-button")).toBeTruthy();
+    expect(screen.getByTestId("take-photo-button")).toBeTruthy();
     expect(screen.getByText("Add photo")).toBeTruthy();
+    expect(screen.getByText("Take photo")).toBeTruthy();
+  });
+
+  it("shows photo preview after capturing from camera", async () => {
+    mockPickCamera.mockResolvedValueOnce({
+      uri: "file:///tmp/camera.jpg",
+      width: 1200,
+      height: 900,
+      mimeType: "image/jpeg",
+    });
+
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("take-photo-button"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeTruthy();
+    });
+    expect(mockPickCamera).toHaveBeenCalledTimes(1);
+    expect(mockPickImage).not.toHaveBeenCalled();
+    // Buttons swap to "retake" / "change" labels once a photo exists.
+    expect(screen.getByText("Retake photo")).toBeTruthy();
+    expect(screen.getByText("Change photo")).toBeTruthy();
+  });
+
+  it("does not show preview when camera capture is cancelled", async () => {
+    mockPickCamera.mockResolvedValueOnce(null);
+
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("take-photo-button"));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("photo-preview")).toBeNull();
+    });
+  });
+
+  it("shows alert when camera capture throws", async () => {
+    mockPickCamera.mockRejectedValueOnce(new Error("Camera unavailable"));
+
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("take-photo-button"));
+    });
+
+    expect(Alert.alert).toHaveBeenCalledWith("Photo error", "Camera unavailable");
+  });
+
+  it("uploads a camera-captured photo on submit", async () => {
+    mockPickCamera.mockResolvedValueOnce({
+      uri: "file:///tmp/camera.jpg",
+      width: 1200,
+      height: 900,
+      mimeType: "image/jpeg",
+    });
+    mockUploadPhoto.mockResolvedValueOnce({
+      objectKey: "media/u1/activity-2026-01-15.jpg",
+      width: 1200,
+      height: 900,
+    });
+    mockLogActivity.mockResolvedValueOnce({ activity: {}, dayStatus: {}, newMilestones: [] });
+
+    render(<LogActivityScreen {...TARGET_PROPS} />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("take-photo-button"));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId("submit-button"));
+
+    await waitFor(() => {
+      expect(mockUploadPhoto).toHaveBeenCalledWith(
+        apiClient,
+        "file:///tmp/camera.jpg",
+        "image/jpeg",
+        "jpg",
+        "activity-2026-01-15",
+        1200,
+        900,
+      );
+      expect(mockLogActivity).toHaveBeenCalledWith("c1", expect.objectContaining({
+        media: [{ objectKey: "media/u1/activity-2026-01-15.jpg", width: 1200, height: 900 }],
+      }));
+    });
   });
 
   it("shows photo preview after picking", async () => {
