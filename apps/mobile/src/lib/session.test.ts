@@ -30,9 +30,32 @@ jest.mock("./apiClient", () => ({
   ApiError: class ApiError extends Error {},
 }));
 
+// session.ts imports ./deeplink (which imports expo-linking). Mock deeplink so
+// session tests stay isolated from the native linking bridge; deeplink has its
+// own dedicated test suite.
+jest.mock("./deeplink", () => ({
+  OAUTH_CALLBACK_PATH: "oauth/callback",
+  parseOAuthRedirect: jest.fn(),
+}));
+
 import * as SecureStore from "expo-secure-store";
-import { saveToken, getToken, clearToken, signInDev, handleOAuthResult, signInWithGoogle, signInWithFacebook } from "./session";
+import {
+  saveToken,
+  getToken,
+  clearToken,
+  restoreSession,
+  signOut,
+  signInDev,
+  handleOAuthResult,
+  exchangeOAuthCode,
+  handleDeepLinkRedirect,
+  signInWithGoogle,
+  signInWithFacebook,
+} from "./session";
 import { apiClient } from "./apiClient";
+import { parseOAuthRedirect } from "./deeplink";
+
+const mockParseOAuthRedirect = parseOAuthRedirect as jest.Mock;
 
 const mockSecureStore = SecureStore as jest.Mocked<typeof SecureStore>;
 const globalFetch = (): jest.Mock => global.fetch as jest.Mock;
@@ -125,6 +148,35 @@ describe("clearToken", () => {
     mockSecureStore.deleteItemAsync.mockResolvedValueOnce(undefined);
     await clearToken();
     expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith("project50_session_token");
+  });
+});
+
+// ─── restoreSession ───────────────────────────────────────────────────────────
+
+describe("restoreSession", () => {
+  it("primes the apiClient and returns the token when one is stored", async () => {
+    mockSecureStore.getItemAsync.mockResolvedValueOnce("persisted-tok");
+    const token = await restoreSession();
+    expect(token).toBe("persisted-tok");
+    expect(apiClient.setToken).toHaveBeenCalledWith("persisted-tok");
+  });
+
+  it("returns null and does not set the apiClient when no token stored", async () => {
+    mockSecureStore.getItemAsync.mockResolvedValueOnce(null);
+    const token = await restoreSession();
+    expect(token).toBeNull();
+    expect(apiClient.setToken).not.toHaveBeenCalled();
+  });
+});
+
+// ─── signOut ──────────────────────────────────────────────────────────────────
+
+describe("signOut", () => {
+  it("clears the stored token and drops it from the apiClient", async () => {
+    mockSecureStore.deleteItemAsync.mockResolvedValueOnce(undefined);
+    await signOut();
+    expect(mockSecureStore.deleteItemAsync).toHaveBeenCalledWith("project50_session_token");
+    expect(apiClient.setToken).toHaveBeenCalledWith(null);
   });
 });
 
@@ -400,5 +452,121 @@ describe("signInWithFacebook", () => {
     const result = makeDismissResult();
     const token = await signInWithFacebook(result, "project50://redirect", "http://localhost:3000");
     expect(token).toBeNull();
+  });
+});
+
+// ─── exchangeOAuthCode ────────────────────────────────────────────────────────
+
+describe("exchangeOAuthCode", () => {
+  it("posts code + redirectUri to the provider exchange endpoint and stores the token", async () => {
+    mockFetchOk({ token: "ex-token" });
+    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
+
+    const token = await exchangeOAuthCode("google", "the-code", "project50://oauth/callback", "http://localhost:3000");
+
+    expect(token).toBe("ex-token");
+    const calls = globalFetch().mock.calls as Array<[string, RequestInit]>;
+    expect(calls[0]![0]).toBe("http://localhost:3000/api/mobile/auth/google");
+    const body = JSON.parse(calls[0]![1]!.body as string) as { code: string; redirectUri: string };
+    expect(body).toEqual({ code: "the-code", redirectUri: "project50://oauth/callback" });
+    expect(apiClient.setToken).toHaveBeenCalledWith("ex-token");
+  });
+
+  it("accepts the sessionToken alternate key", async () => {
+    mockFetchOk({ sessionToken: "ex-alt" });
+    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
+    const token = await exchangeOAuthCode("facebook", "c", "r", "http://localhost:3000");
+    expect(token).toBe("ex-alt");
+  });
+
+  it("returns null when the exchange response has no token", async () => {
+    mockFetchOk({});
+    const token = await exchangeOAuthCode("facebook", "c", "r", "http://localhost:3000");
+    expect(token).toBeNull();
+    expect(apiClient.setToken).not.toHaveBeenCalled();
+  });
+
+  it("throws when the exchange request fails", async () => {
+    mockFetchError(500);
+    await expect(
+      exchangeOAuthCode("google", "c", "r", "http://localhost:3000"),
+    ).rejects.toThrow("OAuth token exchange failed: 500");
+  });
+
+  it("uses the default base URL and default redirectUri when omitted", async () => {
+    delete process.env["EXPO_PUBLIC_API_BASE_URL"];
+    mockFetchOk({ token: "def" });
+    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
+
+    await exchangeOAuthCode("facebook", "c");
+
+    const calls = globalFetch().mock.calls as Array<[string, RequestInit]>;
+    expect(calls[0]![0]).toBe("http://localhost:3000/api/mobile/auth/facebook");
+    const body = JSON.parse(calls[0]![1]!.body as string) as { redirectUri: string };
+    // Default redirectUri comes from REDIRECT_URI (makeRedirectUri mock).
+    expect(body.redirectUri).toBe("project50://redirect");
+  });
+});
+
+// ─── handleDeepLinkRedirect ───────────────────────────────────────────────────
+
+describe("handleDeepLinkRedirect", () => {
+  it("exchanges the code from a parsed redirect and returns the token", async () => {
+    mockParseOAuthRedirect.mockReturnValueOnce({
+      provider: "google",
+      code: "dl-code",
+      state: "s",
+      error: null,
+    });
+    mockFetchOk({ token: "dl-token" });
+    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
+
+    const token = await handleDeepLinkRedirect("project50://oauth/callback?code=dl-code", "r", "http://localhost:3000");
+
+    expect(token).toBe("dl-token");
+    const calls = globalFetch().mock.calls as Array<[string, unknown]>;
+    expect(calls[0]![0]).toBe("http://localhost:3000/api/mobile/auth/google");
+  });
+
+  it("defaults provider to facebook when the redirect omits it", async () => {
+    mockParseOAuthRedirect.mockReturnValueOnce({
+      provider: null,
+      code: "dl-code",
+      state: null,
+      error: null,
+    });
+    mockFetchOk({ token: "dl-fb" });
+    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
+
+    await handleDeepLinkRedirect("project50://oauth/callback?code=dl-code", "r", "http://localhost:3000");
+
+    const calls = globalFetch().mock.calls as Array<[string, unknown]>;
+    expect(calls[0]![0]).toContain("/api/mobile/auth/facebook");
+  });
+
+  it("returns null (no exchange) when the redirect carries an error", async () => {
+    mockParseOAuthRedirect.mockReturnValueOnce({
+      provider: "google",
+      code: null,
+      state: null,
+      error: "access_denied",
+    });
+
+    const token = await handleDeepLinkRedirect("project50://oauth/callback?error=access_denied");
+    expect(token).toBeNull();
+    expect(globalFetch()).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the redirect has no code", async () => {
+    mockParseOAuthRedirect.mockReturnValueOnce({
+      provider: null,
+      code: null,
+      state: null,
+      error: null,
+    });
+
+    const token = await handleDeepLinkRedirect("project50://dashboard");
+    expect(token).toBeNull();
+    expect(globalFetch()).not.toHaveBeenCalled();
   });
 });

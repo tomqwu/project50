@@ -59,6 +59,22 @@ No additional exclusions. The 99% gate was established on `src/components/**`.
 - Added whole-file exclusion for `src/navigation/AppNavigator.tsx` via `coveragePathIgnorePatterns` (React Navigation native bridge wiring, zero own logic).
 - Added whole-file exclusion for `App.tsx` via `coveragePathIgnorePatterns` (`registerRootComponent` native call, zero own logic).
 
+### Task: Mobile auth parity + native OAuth redirect / deep links (#84, #102, #85, #103)
+- `src/lib/deeplink.ts`: 100% covered (pure parsing + a thin `subscribeToDeepLinks` wrapper around `expo-linking`'s `addEventListener` / `getInitialURL`). No exclusions — the native APIs are mocked in `deeplink.test.ts`.
+- `src/lib/session.ts`: added `restoreSession`, `signOut`, `exchangeOAuthCode`, `handleDeepLinkRedirect` — all 100% covered. `buildGoogleAuthRequest` / `buildFacebookAuthRequest` remain function-level `istanbul ignore next` (pre-existing exclusions; pure React-hook native wiring).
+- `src/screens/SignInScreen.tsx`: 100% covered (Facebook + Google + deep-link redirect paths, all driven via RNTL test seams and mocked `subscribeToDeepLinks`).
+
+#### Universal Links / App Links hosting requirement (TODO: host these)
+The native OAuth redirect can return to the app via the app scheme (`project50://oauth/callback`) **or** a verified domain link. The domain placeholder is `project50.app`, configured in `app.json`:
+- iOS `ios.associatedDomains: ["applinks:project50.app"]`
+- Android `android.intentFilters` with `autoVerify: true` for `https://project50.app/oauth/callback` + `/`, plus the `project50` custom scheme.
+
+For the verified-domain links to work, the following must be **hosted on `project50.app`** (not yet done):
+- **iOS**: `https://project50.app/.well-known/apple-app-site-association` — JSON mapping the app's `<TEAM_ID>.com.anonymous.project50` appID to the `applinks` paths (`/oauth/callback*`). Served with `Content-Type: application/json`, no redirects.
+- **Android**: `https://project50.app/.well-known/assetlinks.json` — declaring `com.anonymous.project50` + the release signing certificate's SHA-256 fingerprint for `delegate_permission/common.handle_all_urls`.
+
+Until these are hosted, the custom-scheme redirect (`project50://`) is the working path; the Universal/App Link config is in place and will activate once the well-known files are served.
+
 ## Device verification
 
 Jest/RNTL tests confirm component rendering and logic correctness in a Node environment. Full device verification (layout fidelity, native interactions, camera, OAuth) requires an iOS/Android simulator and is documented as pending ("code-complete + unit-tested, device verification pending simulator access").

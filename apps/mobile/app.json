@@ -13,19 +13,57 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.project50"
+      "bundleIdentifier": "com.anonymous.project50",
+      "associatedDomains": [
+        "applinks:project50.app"
+      ]
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#121013"
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "project50.app",
+              "pathPrefix": "/oauth/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "project50.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "project50"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "platforms": [
       "ios",
       "android"
     ],
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      "expo-linking"
     ]
   }
 }
