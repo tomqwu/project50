@@ -28,6 +28,25 @@ const capturedCalls: {
 
 // Capture the authorize fn from the Credentials provider config
 let capturedAuthorize: ((creds: Record<string, unknown>) => Promise<unknown>) | null = null;
+// Capture each credentials provider's authorize by its id (e2e / magic-link).
+const capturedAuthorizeById: Record<
+  string,
+  (creds: Record<string, unknown>) => Promise<unknown>
+> = {};
+
+// Stub the email + magic-link modules so we can toggle the magic-link provider
+// gate and drive its authorize without a DB.
+const { mockIsEmailConfigured, mockVerifyMagicLink } = vi.hoisted(() => ({
+  mockIsEmailConfigured: vi.fn((): boolean => false),
+  mockVerifyMagicLink: vi.fn(
+    async (...args: [string]): Promise<string | null> => {
+      void args;
+      return null;
+    },
+  ),
+}));
+vi.mock("@/lib/email", () => ({ isEmailConfigured: mockIsEmailConfigured }));
+vi.mock("@/lib/api/magic-link", () => ({ verifyMagicLink: mockVerifyMagicLink }));
 
 vi.mock("next-auth", () => ({
   default: (config: { providers: { id?: string }[] } & Record<string, unknown>) => {
@@ -49,6 +68,7 @@ vi.mock("next-auth/providers/credentials", () => ({
   default: (cfg: { id?: string; authorize?: (creds: Record<string, unknown>) => Promise<unknown> }) => {
     // Capture the authorize function so we can call it to cover auth.ts lines 21-28
     if (cfg.authorize) capturedAuthorize = cfg.authorize;
+    if (cfg.id && cfg.authorize) capturedAuthorizeById[cfg.id] = cfg.authorize;
     return { id: cfg.id ?? "credentials" };
   },
 }));
@@ -61,6 +81,9 @@ vi.mock("@/lib/auth-callbacks", () => ({
 beforeEach(() => {
   capturedCalls.length = 0;
   capturedAuthorize = null;
+  for (const k of Object.keys(capturedAuthorizeById)) delete capturedAuthorizeById[k];
+  mockIsEmailConfigured.mockReset().mockReturnValue(false);
+  mockVerifyMagicLink.mockReset().mockResolvedValue(null);
   vi.resetModules();
 });
 
@@ -240,5 +263,66 @@ describe("auth.ts hardening config", () => {
     await import("./auth");
 
     expect(capturedCalls.at(0)?.config).not.toHaveProperty("useSecureCookies");
+  });
+});
+
+describe("auth.ts magic-link provider (env-gated)", () => {
+  it("does NOT register the magic-link provider when email is unconfigured", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    mockIsEmailConfigured.mockReturnValue(false);
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "magic-link")).toBe(false);
+    expect(capturedAuthorizeById["magic-link"]).toBeUndefined();
+  });
+
+  it("registers the magic-link provider when email is configured", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    mockIsEmailConfigured.mockReturnValue(true);
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "magic-link")).toBe(true);
+    expect(capturedAuthorizeById["magic-link"]).toBeTypeOf("function");
+  });
+
+  it("authorize returns { id } when verifyMagicLink resolves a user", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    mockIsEmailConfigured.mockReturnValue(true);
+    mockVerifyMagicLink.mockResolvedValue("uid-123");
+
+    await import("./auth");
+    const authorize = capturedAuthorizeById["magic-link"]!;
+
+    const result = await authorize({ token: "raw-token" });
+    expect(mockVerifyMagicLink).toHaveBeenCalledWith("raw-token");
+    expect(result).toEqual({ id: "uid-123" });
+  });
+
+  it("authorize returns null for an invalid / unresolvable token", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    mockIsEmailConfigured.mockReturnValue(true);
+    mockVerifyMagicLink.mockResolvedValue(null);
+
+    await import("./auth");
+    const authorize = capturedAuthorizeById["magic-link"]!;
+
+    const result = await authorize({ token: "bad" });
+    expect(result).toBeNull();
+  });
+
+  it("authorize coerces a missing/non-string token to '' before verifying", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    mockIsEmailConfigured.mockReturnValue(true);
+    mockVerifyMagicLink.mockResolvedValue(null);
+
+    await import("./auth");
+    const authorize = capturedAuthorizeById["magic-link"]!;
+
+    await authorize({});
+    expect(mockVerifyMagicLink).toHaveBeenCalledWith("");
   });
 });

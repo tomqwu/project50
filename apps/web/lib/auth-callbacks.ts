@@ -56,8 +56,8 @@ async function uniqueHandle(base: string): Promise<string> {
  * - Existing identity → reuse its user, refresh profile.
  * - New identity → create a uniquely-handled user, then the identity.
  *
- * For the e2e Credentials provider, returns true immediately (the user was
- * already created in authorize()). Unknown providers are refused.
+ * For the e2e and magic-link Credentials providers, returns true immediately
+ * (the user was already resolved in authorize()). Unknown providers are refused.
  */
 export async function onSignIn({
   user,
@@ -66,7 +66,9 @@ export async function onSignIn({
   user: User;
   account?: Account | null;
 }): Promise<boolean> {
-  if (!account || account.provider === "e2e") return true;
+  if (!account || account.provider === "e2e" || account.provider === "magic-link") {
+    return true;
+  }
 
   const provider =
     account.provider === "google"

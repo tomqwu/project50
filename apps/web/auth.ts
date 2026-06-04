@@ -10,6 +10,8 @@ import {
   parseAuthSecrets,
   shouldUseSecureCookies,
 } from "@/lib/auth-config";
+import { isEmailConfigured } from "@/lib/email";
+import { verifyMagicLink } from "@/lib/api/magic-link";
 
 // Read the documented env names (GOOGLE_CLIENT_ID / FACEBOOK_CLIENT_ID, etc.).
 // Without explicit values, Auth.js v5 would look for AUTH_GOOGLE_ID / AUTH_FACEBOOK_ID
@@ -56,6 +58,28 @@ if (
           create: { handle, displayName: handle },
         });
         return { id: user.id, name: user.displayName };
+      },
+    }),
+  );
+}
+
+// Email magic-link sign-in (#50). ENV-GATED on isEmailConfigured() — exactly
+// like the e2e provider is gated — so it only registers when RESEND_API_KEY +
+// EMAIL_FROM are set. Absent → the provider is never offered and OAuth/e2e auth
+// is completely unchanged. It rides the existing JWT session machinery (no DB
+// adapter): authorize() validates the single-use token via verifyMagicLink and
+// returns the resolved user, establishing a normal session.
+if (isEmailConfigured()) {
+  providers.push(
+    Credentials({
+      id: "magic-link",
+      name: "Email magic link",
+      credentials: { token: {} },
+      authorize: async (creds) => {
+        const token = typeof creds?.token === "string" ? creds.token : "";
+        const userId = await verifyMagicLink(token);
+        if (!userId) return null;
+        return { id: userId };
       },
     }),
   );
