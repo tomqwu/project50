@@ -249,21 +249,46 @@ export function userMediaPrefix(userId: string): string {
   return `media/${userId}/`;
 }
 
-/** Return a presigned PUT URL for uploading an object. */
+/**
+ * Result of presigning a PUT: the upload URL plus the exact headers the browser
+ * (or any client) must send on the PUT request.
+ *
+ * `uploadHeaders` always carries `content-type`. On Azure Blob it ALSO carries
+ * `x-ms-blob-type: BlockBlob`, which the Put Blob REST API requires — without it
+ * Azure rejects the direct browser PUT. The S3/MinIO path sends only
+ * `content-type`, byte-identical to its previous behavior.
+ */
+export interface PresignPutResult {
+  uploadUrl: string;
+  uploadHeaders: Record<string, string>;
+}
+
+/** Return a presigned PUT URL plus the headers the client must send. */
 export async function presignPut(
   objectKey: string,
   contentType: string,
-): Promise<string> {
+): Promise<PresignPutResult> {
   if (useAzure()) {
     // create + write so a brand-new blob can be uploaded via the SAS URL.
-    return buildAzureSasUrl(objectKey, "racw");
+    const uploadUrl = await buildAzureSasUrl(objectKey, "racw");
+    return {
+      uploadUrl,
+      // Azure Put Blob requires the blob-type header on the PUT.
+      uploadHeaders: {
+        "content-type": contentType,
+        "x-ms-blob-type": "BlockBlob",
+      },
+    };
   }
   const command = new PutObjectCommand({
     Bucket: getBucket(),
     Key: objectKey,
     ContentType: contentType,
   });
-  return getSignedUrl(getClient(), command, { expiresIn: PRESIGN_EXPIRY });
+  const uploadUrl = await getSignedUrl(getClient(), command, {
+    expiresIn: PRESIGN_EXPIRY,
+  });
+  return { uploadUrl, uploadHeaders: { "content-type": contentType } };
 }
 
 /** Return a presigned GET URL for downloading/viewing an object. */

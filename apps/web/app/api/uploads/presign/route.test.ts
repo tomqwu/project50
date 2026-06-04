@@ -6,7 +6,10 @@ vi.mock("@/lib/session", () => ({
 }));
 
 vi.mock("@/lib/storage", () => ({
-  presignPut: vi.fn().mockResolvedValue("https://signed-put-url"),
+  presignPut: vi.fn().mockResolvedValue({
+    uploadUrl: "https://signed-put-url",
+    uploadHeaders: { "content-type": "image/jpeg" },
+  }),
   newMediaKey: vi.fn((userId: string, ext: string, suffix: string) => `media/${userId}/${suffix}.${ext}`),
   ensureBucket: vi.fn().mockResolvedValue(undefined),
 }));
@@ -19,7 +22,10 @@ import { POST } from "./route";
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(ensureBucket).mockResolvedValue(undefined);
-  vi.mocked(presignPut).mockResolvedValue("https://signed-put-url");
+  vi.mocked(presignPut).mockResolvedValue({
+    uploadUrl: "https://signed-put-url",
+    uploadHeaders: { "content-type": "image/jpeg" },
+  });
   vi.mocked(newMediaKey).mockImplementation(
     (userId: string, ext: string, suffix: string) => `media/${userId}/${suffix}.${ext}`,
   );
@@ -73,6 +79,34 @@ describe("POST /api/uploads/presign", () => {
     const body = await res.json();
     expect(body.uploadUrl).toBe("https://signed-put-url");
     expect(body.objectKey).toBe("media/user1/mysuffix.jpg");
+  });
+
+  it("forwards the S3 uploadHeaders from presignPut (content-type only)", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    vi.mocked(presignPut).mockResolvedValueOnce({
+      uploadUrl: "https://signed-put-url",
+      uploadHeaders: { "content-type": "image/jpeg" },
+    });
+    const res = await POST(makeRequest({ contentType: "image/jpeg", suffix: "s" }));
+    const body = await res.json();
+    expect(body.uploadHeaders).toEqual({ "content-type": "image/jpeg" });
+  });
+
+  it("forwards the Azure uploadHeaders from presignPut (adds x-ms-blob-type)", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user1");
+    vi.mocked(presignPut).mockResolvedValueOnce({
+      uploadUrl: "https://acct.blob.core.windows.net/cont/key?sas",
+      uploadHeaders: {
+        "content-type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+      },
+    });
+    const res = await POST(makeRequest({ contentType: "image/jpeg", suffix: "s" }));
+    const body = await res.json();
+    expect(body.uploadHeaders).toEqual({
+      "content-type": "image/jpeg",
+      "x-ms-blob-type": "BlockBlob",
+    });
   });
 
   it("returns 200 with uploadUrl and objectKey for image/png", async () => {

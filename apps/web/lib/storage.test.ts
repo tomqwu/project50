@@ -202,8 +202,8 @@ describe("userMediaPrefix", () => {
 
 describe("presignPut", () => {
   it("calls getSignedUrl with a PutObjectCommand carrying the right Bucket/Key/ContentType", async () => {
-    const url = await presignPut("media/u1/img.jpg", "image/jpeg");
-    expect(url).toBe("https://signed");
+    const { uploadUrl } = await presignPut("media/u1/img.jpg", "image/jpeg");
+    expect(uploadUrl).toBe("https://signed");
     expect(getSignedUrl).toHaveBeenCalledOnce();
     const [, cmd] = (getSignedUrl as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, { Bucket?: string; Key?: string; ContentType?: string }];
     expect(cmd.Bucket).toBe("project50-media");
@@ -213,8 +213,15 @@ describe("presignPut", () => {
 
   it("returns the signed URL from getSignedUrl", async () => {
     (getSignedUrl as ReturnType<typeof vi.fn>).mockResolvedValueOnce("https://put-url");
-    const url = await presignPut("some/key", "image/png");
-    expect(url).toBe("https://put-url");
+    const { uploadUrl } = await presignPut("some/key", "image/png");
+    expect(uploadUrl).toBe("https://put-url");
+  });
+
+  it("returns uploadHeaders with ONLY content-type for the S3 backend", async () => {
+    const { uploadHeaders } = await presignPut("some/key", "image/webp");
+    expect(uploadHeaders).toEqual({ "content-type": "image/webp" });
+    // No Azure-specific header on the S3 path (byte-identical behavior).
+    expect(uploadHeaders["x-ms-blob-type"]).toBeUndefined();
   });
 });
 
@@ -702,10 +709,15 @@ describe("Azure Blob backend", () => {
 
   describe("presignPut → Blob SAS URL", () => {
     it("returns a SAS URL with create+write perms scoped to the blob", async () => {
-      const url = await presignPut("media/u1/img.jpg", "image/jpeg");
+      const { uploadUrl: url, uploadHeaders } = await presignPut("media/u1/img.jpg", "image/jpeg");
       expect(getSignedUrl).not.toHaveBeenCalled();
       expect(url).toContain("https://acct.blob.core.windows.net/cont/media/u1/img.jpg");
       expect(url).toContain("?sv=2024");
+      // Azure Put Blob requires the blob-type header in addition to content-type.
+      expect(uploadHeaders).toEqual({
+        "content-type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+      });
       // racw permission requested for upload
       const { generateBlobSASQueryParameters, BlobSASPermissions } = await import(
         "@azure/storage-blob"
@@ -979,12 +991,17 @@ describe("Azure managed-identity backend (user-delegation SAS)", () => {
 
   describe("presignPut → user-delegation SAS URL", () => {
     it("signs a create+write SAS with the user-delegation key and account name", async () => {
-      const url = await presignPut("media/u1/img.jpg", "image/jpeg");
+      const { uploadUrl: url, uploadHeaders } = await presignPut("media/u1/img.jpg", "image/jpeg");
       expect(getSignedUrl).not.toHaveBeenCalled();
       expect(url).toContain(
         "https://acct.blob.core.windows.net/cont/media/u1/img.jpg",
       );
       expect(url).toContain("?sv=2024");
+      // Managed-identity mode still returns the Azure PUT headers.
+      expect(uploadHeaders).toEqual({
+        "content-type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+      });
       const { generateBlobSASQueryParameters, BlobSASPermissions } =
         await import("@azure/storage-blob");
       expect(vi.mocked(BlobSASPermissions.parse)).toHaveBeenCalledWith("racw");
