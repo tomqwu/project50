@@ -5,6 +5,8 @@ describe("core public API", () => {
   it("re-exports every domain function", () => {
     expect(typeof core.coreVersion).toBe("function");
     expect(typeof core.localDayKey).toBe("function");
+    expect(typeof core.safeTimeZone).toBe("function");
+    expect(typeof core.isValidTimeZone).toBe("function");
     expect(typeof core.addDays).toBe("function");
     expect(typeof core.dayNumber).toBe("function");
     expect(typeof core.computeDayCompletion).toBe("function");
