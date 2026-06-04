@@ -80,15 +80,30 @@ test("Project 50: start → check all 7 rules → 7/7 completes the day, and per
       await page.waitForTimeout(600);
     }
     await expect(row).toContainText("✓", { timeout: 20_000 });
-    await expect(page.getByText(new RegExp(`${ruleId} / 7 today`, "i"))).toBeVisible({
-      timeout: 20_000,
-    });
+    // While the day is INCOMPLETE the progress counter reads "n / 7 today". On
+    // the 7th check the day completes and that line is replaced by the
+    // day-complete banner (asserted after the loop), so only check the counter
+    // for rules 1..6.
+    if (ruleId < 7) {
+      await expect(page.getByText(new RegExp(`${ruleId} / 7 today`, "i"))).toBeVisible({
+        timeout: 20_000,
+      });
+    }
   }
 
-  // ─── Step 5: Reload → the completed 7/7 Day 1 state persists ─────────────────
+  // ─── Step 4b: 7/7 surfaces the "day complete · what's next" banner ──────────
+  const banner = page.getByTestId("day-complete-banner");
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  await expect(banner).toContainText(/Day 1 complete/i);
+  await expect(banner).toContainText(/7 \/ 7/);
+  await expect(banner).toContainText(/come back tomorrow for Day 2 of 50/i);
+
+  // ─── Step 5: Reload → the completed Day 1 state persists ────────────────────
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Day 1 \/ 50/i })).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByText(/7 \/ 7 today/i)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("day-complete-banner")).toContainText(/Day 1 complete/i, {
+    timeout: 20_000,
+  });
 });
