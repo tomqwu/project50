@@ -15,6 +15,38 @@ vi.mock("@aws-sdk/client-s3", () => ({
   CreateBucketCommand: vi.fn().mockImplementation((input) => ({ _type: "CreateBucket", ...input })),
 }));
 
+// ---------------------------------------------------------------------------
+// Azure Blob SDK mocks
+// ---------------------------------------------------------------------------
+const azureUpload = vi.fn().mockResolvedValue({});
+const azureCreateIfNotExists = vi.fn().mockResolvedValue({});
+const azureExists = vi.fn().mockResolvedValue(true);
+const getBlockBlobClient = vi.fn(() => ({ upload: azureUpload }));
+const getBlobClient = vi.fn((blobName: string) => ({
+  url: `https://acct.blob.core.windows.net/cont/${blobName}`,
+}));
+const getContainerClient = vi.fn(() => ({
+  createIfNotExists: azureCreateIfNotExists,
+  exists: azureExists,
+  getBlobClient,
+  getBlockBlobClient,
+}));
+
+vi.mock("@azure/storage-blob", () => ({
+  BlobServiceClient: vi.fn().mockImplementation((url: string) => ({
+    _url: url,
+    getContainerClient,
+  })),
+  StorageSharedKeyCredential: vi
+    .fn()
+    .mockImplementation((account: string, key: string) => ({ account, key })),
+  generateBlobSASQueryParameters: vi.fn((opts: { permissions: { toString(): string } }) => ({
+    toString: () => `sv=2024&sig=fake&sp=${opts.permissions.toString()}`,
+  })),
+  BlobSASPermissions: { parse: vi.fn((p: string) => ({ toString: () => p })) },
+  SASProtocol: { HttpsAndHttp: "https,http" },
+}));
+
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   presignPut,
@@ -26,6 +58,18 @@ import {
   _resetClientForTest,
 } from "./storage";
 
+function clearAzureEnv() {
+  delete process.env.AZURE_STORAGE_ACCOUNT;
+  delete process.env.AZURE_STORAGE_CONTAINER;
+  delete process.env.AZURE_STORAGE_KEY;
+}
+
+function setAzureEnv() {
+  process.env.AZURE_STORAGE_ACCOUNT = "myacct";
+  process.env.AZURE_STORAGE_CONTAINER = "media";
+  process.env.AZURE_STORAGE_KEY = Buffer.from("supersecretkey").toString("base64");
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   _resetClientForTest();
@@ -34,6 +78,8 @@ beforeEach(() => {
   process.env.S3_ENDPOINT = "http://localhost:9000";
   process.env.S3_ACCESS_KEY = "minioadmin";
   process.env.S3_SECRET_KEY = "minioadmin";
+  // Default to the S3 backend; Azure tests opt in explicitly.
+  clearAzureEnv();
 });
 
 describe("getClient (singleton / env fallbacks)", () => {
@@ -316,5 +362,115 @@ describe("checkStorage (readiness probe)", () => {
   it("returns false when the bucket HEAD throws (storage unreachable)", async () => {
     mockSend.mockRejectedValueOnce(new Error("connection refused"));
     await expect(checkStorage()).resolves.toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Azure Blob backend (env-selected; @azure/storage-blob mocked)
+// ---------------------------------------------------------------------------
+describe("Azure Blob backend", () => {
+  beforeEach(() => {
+    setAzureEnv();
+  });
+
+  describe("env selection", () => {
+    it("does NOT use Azure when only some vars are set (S3 path stays active)", async () => {
+      delete process.env.AZURE_STORAGE_KEY; // partial config → fall back to S3
+      await presignPut("media/u1/img.jpg", "image/jpeg");
+      // S3 presigner used, not Azure SAS
+      expect(getSignedUrl).toHaveBeenCalledOnce();
+      const { generateBlobSASQueryParameters } = await import("@azure/storage-blob");
+      expect(vi.mocked(generateBlobSASQueryParameters)).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("presignPut → Blob SAS URL", () => {
+    it("returns a SAS URL with create+write perms scoped to the blob", async () => {
+      const url = await presignPut("media/u1/img.jpg", "image/jpeg");
+      expect(getSignedUrl).not.toHaveBeenCalled();
+      expect(url).toContain("https://acct.blob.core.windows.net/cont/media/u1/img.jpg");
+      expect(url).toContain("?sv=2024");
+      // racw permission requested for upload
+      const { generateBlobSASQueryParameters, BlobSASPermissions } = await import(
+        "@azure/storage-blob"
+      );
+      expect(vi.mocked(BlobSASPermissions.parse)).toHaveBeenCalledWith("racw");
+      const [opts] = vi.mocked(generateBlobSASQueryParameters).mock.calls[0] as unknown as [
+        { containerName: string; blobName: string; expiresOn: Date; startsOn: Date },
+      ];
+      expect(opts.containerName).toBe("media");
+      expect(opts.blobName).toBe("media/u1/img.jpg");
+      // 5-minute (PRESIGN_EXPIRY) validity window
+      expect(opts.expiresOn.getTime() - opts.startsOn.getTime()).toBe(10 * 60 * 1000);
+    });
+  });
+
+  describe("presignGet → Blob SAS URL", () => {
+    it("returns a read-only SAS URL scoped to the blob", async () => {
+      const url = await presignGet("media/u1/img.jpg");
+      expect(getSignedUrl).not.toHaveBeenCalled();
+      expect(url).toContain("https://acct.blob.core.windows.net/cont/media/u1/img.jpg");
+      const { BlobSASPermissions } = await import("@azure/storage-blob");
+      expect(vi.mocked(BlobSASPermissions.parse)).toHaveBeenCalledWith("r");
+    });
+  });
+
+  describe("client lazy-init / singletons", () => {
+    it("constructs the BlobServiceClient and credential once across calls", async () => {
+      await presignPut("a", "image/png");
+      await presignGet("b");
+      const { BlobServiceClient, StorageSharedKeyCredential } = await import(
+        "@azure/storage-blob"
+      );
+      expect(vi.mocked(BlobServiceClient)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(StorageSharedKeyCredential)).toHaveBeenCalledTimes(1);
+      // Account endpoint built from AZURE_STORAGE_ACCOUNT
+      expect(vi.mocked(BlobServiceClient).mock.calls[0]?.[0]).toBe(
+        "https://myacct.blob.core.windows.net",
+      );
+    });
+  });
+
+  describe("putObject → block blob upload", () => {
+    it("ensures the container then uploads the buffer with content type", async () => {
+      const body = Buffer.from("recap-bytes");
+      const result = await putObject("media/u1/recap.mp4", body, "video/mp4");
+      expect(result).toBeUndefined();
+      expect(azureCreateIfNotExists).toHaveBeenCalledOnce();
+      expect(getBlockBlobClient).toHaveBeenCalledWith("media/u1/recap.mp4");
+      expect(azureUpload).toHaveBeenCalledWith(body, body.length, {
+        blobHTTPHeaders: { blobContentType: "video/mp4" },
+      });
+      // S3 path untouched
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it("propagates upload errors", async () => {
+      azureUpload.mockRejectedValueOnce(new Error("AuthorizationFailure"));
+      await expect(
+        putObject("media/u1/f.mp4", Buffer.from("x"), "video/mp4"),
+      ).rejects.toThrow("AuthorizationFailure");
+    });
+  });
+
+  describe("ensureBucket → container ensure", () => {
+    it("creates the container if missing via createIfNotExists", async () => {
+      await ensureBucket();
+      expect(azureCreateIfNotExists).toHaveBeenCalledOnce();
+      expect(getContainerClient).toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("checkStorage → container probe", () => {
+    it("returns true when the container exists() probe succeeds", async () => {
+      await expect(checkStorage()).resolves.toBe(true);
+      expect(azureExists).toHaveBeenCalledOnce();
+    });
+
+    it("returns false when the container probe throws", async () => {
+      azureExists.mockRejectedValueOnce(new Error("network down"));
+      await expect(checkStorage()).resolves.toBe(false);
+    });
   });
 });
