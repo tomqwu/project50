@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getChallengeByShareId } from "@/lib/api/challenges";
 import { CelebrateView } from "@/app/(app)/challenges/[id]/celebrate/CelebrateView";
 import type { MilestoneKind } from "@/app/(app)/challenges/[id]/celebrate/CelebrateView";
-import { dayNumber } from "@project50/core";
+import { dayNumber, localDayKey } from "@project50/core";
 
 export default async function PublicSharePage({
   params,
@@ -17,7 +17,9 @@ export default async function PublicSharePage({
     notFound();
   }
 
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // Derive the current day from the challenge timezone so the page and its OG
+  // social-share image (app/c/[shareId]/opengraph-image.tsx) agree near midnight.
+  const todayKey = localDayKey(new Date(), challenge.timezone ?? "UTC");
   const dayNum = Math.max(1, dayNumber(challenge.startDate, todayKey));
 
   const completedStatuses = challenge.dayStatuses.filter((ds) => ds.completed);

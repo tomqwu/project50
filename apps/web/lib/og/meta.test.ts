@@ -66,6 +66,19 @@ describe("resolveSiteUrl", () => {
     expect(url.origin).toBe("http://localhost:3000");
   });
 
+  it("skips a blank-string env value instead of crashing on new URL('')", () => {
+    const url = resolveSiteUrl({ AUTH_URL: "", NEXTAUTH_URL: "" });
+    expect(url.origin).toBe("http://localhost:3000");
+  });
+
+  it("skips whitespace-only values and trims the chosen one", () => {
+    const url = resolveSiteUrl({
+      NEXT_PUBLIC_SITE_URL: "   ",
+      AUTH_URL: "  https://auth.example.com  ",
+    });
+    expect(url.origin).toBe("https://auth.example.com");
+  });
+
   it("reads process.env by default", () => {
     expect(resolveSiteUrl()).toBeInstanceOf(URL);
   });

@@ -39,7 +39,11 @@ export const OG_DEFAULT_ALT = "project50 — 7 rules · 50 days · no days off";
  * absolute OG URLs match the deployed origin.
  */
 export function resolveSiteUrl(env: Record<string, string | undefined> = process.env): URL {
+  // Treat blank / whitespace-only values as unset — a stray `AUTH_URL=` in a
+  // copied .env must not win the nullish chain and crash `new URL("")`.
   const raw =
-    env.NEXT_PUBLIC_SITE_URL ?? env.AUTH_URL ?? env.NEXTAUTH_URL ?? "http://localhost:3000";
+    [env.NEXT_PUBLIC_SITE_URL, env.AUTH_URL, env.NEXTAUTH_URL]
+      .map((value) => value?.trim())
+      .find((value) => value) ?? "http://localhost:3000";
   return new URL(raw);
 }
