@@ -100,6 +100,15 @@ are **highly sensitive**.
 | `IG_TOKEN` | Instagram Graph API access token. **Highly sensitive.** | prod (optional) | **TODO: secret store**. | Re-issue via the Graph API; cadence per token expiry / on suspicion. |
 | `WECHAT_APP_ID` | WeChat app id (publishing integration). | prod (optional) | **TODO: secret store**. | Rotate the paired app secret in the WeChat console when that integration is finalized. |
 
+### Observability (optional)
+
+See [`OBSERVABILITY.md`](./OBSERVABILITY.md) for the metrics endpoint, dashboards
+and uptime monitoring.
+
+| Variable | Purpose | Environments | Where stored | Rotation |
+| --- | --- | --- | --- | --- |
+| `METRICS_TOKEN` | Bearer token guarding `GET /api/metrics` (`apps/web/app/api/metrics/route.ts`). **Unset → endpoint open** (only safe on a private network). **Set → callers must send `Authorization: Bearer ${METRICS_TOKEN}`** — required on any publicly reachable deployment, and on the Prometheus scrape config. | staging, prod (recommended) | **dev:** optional `.env`. **staging/prod:** **TODO: secret store** (also the scraper's secret). | Generate with `openssl rand -base64 32`; rotate the value + the Prometheus scrape credential together. Cadence: 180 days / on suspicion. |
+
 ### Test-only flags — NEVER set in production
 
 | Variable | Purpose | Environments | Where stored | Notes |

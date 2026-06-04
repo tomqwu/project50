@@ -1,10 +1,7 @@
 import { UnauthorizedError } from "@/lib/session";
 import { logger, serializeError } from "@/lib/logger";
-import {
-  checkRateLimit,
-  clientKey,
-  type RateLimitOptions,
-} from "@/lib/rate-limit";
+import { incRequest, observeLatency } from "@/lib/metrics";
+import { checkRateLimit, clientKey, type RateLimitOptions } from "@/lib/rate-limit";
 
 const log = logger.child({ scope: "api" });
 
@@ -52,23 +49,40 @@ export function enforceRateLimit(req: Request, opts: RateLimitOptions): void {
  * - UnauthorizedError → 401 {error:"unauthorized"}
  * - HttpError → {error:code, detail?} with its status
  * - Other errors → rethrow (Next.js will 500)
+ *
+ * Observability (#27): records request count (by status class) + latency for
+ * the route into the in-process metrics registry (`@/lib/metrics`), exposed at
+ * `/api/metrics`. Pass `route` (e.g. "GET /api/feed") to label the metric;
+ * existing callers that omit it are recorded under "unknown" — recording is
+ * best-effort and never alters the response.
  */
 export async function handleRoute(
   fn: () => Promise<Response>,
+  route = "unknown",
 ): Promise<Response> {
+  const start = performance.now();
+  const record = (status: number): void => {
+    incRequest(route, status);
+    observeLatency(route, performance.now() - start);
+  };
   try {
-    return await fn();
+    const res = await fn();
+    record(res.status);
+    return res;
   } catch (err) {
     if (err instanceof UnauthorizedError) {
+      record(401);
       return Response.json({ error: "unauthorized" }, { status: 401 });
     }
     if (err instanceof HttpError) {
+      record(err.status);
       const body: { error: string; detail?: unknown } = { error: err.code };
       if (err.detail !== undefined) body.detail = err.detail;
       return Response.json(body, { status: err.status });
     }
     // Unexpected error → log it (Next will 500). This is the high-value signal:
     // an unhandled failure in a route, with the error captured for triage.
+    record(500);
     log.error("unhandled route error", { error: serializeError(err) });
     throw err;
   }

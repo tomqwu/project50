@@ -4,15 +4,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock the dependency so we can test the http helpers in isolation.
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
-import {
-  HttpError,
-  notFound,
-  unprocessable,
-  handleRoute,
-  enforceRateLimit,
-} from "./http";
+import { HttpError, notFound, unprocessable, handleRoute, enforceRateLimit } from "./http";
 import { UnauthorizedError } from "@/lib/session";
 import { resetRateLimit } from "@/lib/rate-limit";
+import { renderPrometheus, resetMetrics } from "@/lib/metrics";
 
 describe("HttpError", () => {
   it("stores status, code, and detail", () => {
@@ -64,9 +59,7 @@ describe("unprocessable", () => {
 
 describe("handleRoute", () => {
   it("returns the response from fn when fn succeeds", async () => {
-    const res = await handleRoute(() =>
-      Promise.resolve(Response.json({ ok: true })),
-    );
+    const res = await handleRoute(() => Promise.resolve(Response.json({ ok: true })));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true });
   });
@@ -174,5 +167,50 @@ describe("enforceRateLimit", () => {
       error: "rate_limited",
       detail: { retryAfterSeconds: 58 },
     });
+  });
+});
+
+describe("handleRoute metrics instrumentation", () => {
+  beforeEach(() => resetMetrics());
+
+  it("records a request count + latency for a successful response", async () => {
+    await handleRoute(() => Promise.resolve(Response.json({ ok: true })), "GET /api/feed");
+    const out = renderPrometheus();
+    expect(out).toContain('http_requests_total{route="GET /api/feed",status="2xx"} 1');
+    expect(out).toContain('http_request_duration_ms_count{route="GET /api/feed"} 1');
+  });
+
+  it("records the mapped status for HttpError and UnauthorizedError", async () => {
+    await handleRoute(async () => {
+      throw new HttpError(404, "NOT_FOUND");
+    }, "GET /api/thing");
+    await handleRoute(async () => {
+      throw new UnauthorizedError("nope");
+    }, "GET /api/thing");
+
+    const out = renderPrometheus();
+    expect(out).toContain('http_requests_total{route="GET /api/thing",status="4xx"} 2');
+    expect(out).toContain('http_request_duration_ms_count{route="GET /api/thing"} 2');
+  });
+
+  it("records a 5xx for a rethrown unexpected error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
+    await expect(
+      handleRoute(async () => {
+        throw new Error("boom");
+      }, "POST /api/boom"),
+    ).rejects.toThrow("boom");
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+
+    expect(renderPrometheus()).toContain(
+      'http_requests_total{route="POST /api/boom",status="5xx"} 1',
+    );
+  });
+
+  it('labels the route "unknown" when no route is passed (back-compat)', async () => {
+    await handleRoute(() => Promise.resolve(Response.json({ ok: true })));
+    expect(renderPrometheus()).toContain('http_requests_total{route="unknown",status="2xx"} 1');
   });
 });
