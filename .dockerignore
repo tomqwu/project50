@@ -1,0 +1,22 @@
+# Build context is the repo root (Dockerfile at apps/web/Dockerfile). The image
+# does a fresh `pnpm install`, so none of these are needed in the context — and
+# excluding them keeps the ACR upload small.
+**/node_modules
+.git
+.gitignore
+**/.next
+**/.expo
+.claude
+**/coverage
+**/.turbo
+**/dist
+**/build
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/.terraform
+**/*.tfstate*
+**/.DS_Store
