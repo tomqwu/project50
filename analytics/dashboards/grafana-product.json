@@ -1,0 +1,82 @@
+{
+  "__comment": "Grafana dashboard model (importable) showing PRODUCT-ADJACENT traffic shape from the EXISTING Prometheus series at /api/metrics. This is a stopgap until an event analytics backend (funnel.json / retention.json) is connected: until then the only product signal in the metrics pipeline is request traffic on product routes (the analytics collector POST, the challenge actions, the paywall). Series come from apps/web/lib/metrics.ts: http_requests_total{route,status} and http_request_duration_ms{route}. Import via Grafana -> Dashboards -> New -> Import, then select your Prometheus data source. The `route` label values shown (e.g. 'POST /api/analytics') depend on what call sites pass to handleRoute(); unlabeled routes fall under route='unknown'. See docs/ANALYTICS.md and docs/OBSERVABILITY.md.",
+  "schemaVersion": 39,
+  "title": "Project 50 — Product traffic (Prometheus stopgap)",
+  "tags": ["project50", "product", "analytics"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Data source"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Analytics events received (POST /api/analytics)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Throughput of the analytics collector endpoint — a proxy for tracked-event volume reaching the server until a real sink drains window.p50Analytics.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{route=\"POST /api/analytics\"}[5m]))",
+          "legendFormat": "events/s"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Challenge action traffic",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Request rate on the routes behind starting a challenge and toggling rules — server-side echo of project50_started / rule_toggled activity. Adapt route names to whatever the call sites pass to handleRoute().",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(http_requests_total{route=~\".*(project50|rule|challenge).*\"}[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Paywall / billing traffic",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Request rate on upgrade/checkout routes — server-side echo of upgrade_clicked intent and Stripe Checkout starts.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(http_requests_total{route=~\".*(billing|checkout|upgrade).*\"}[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Product-route error rate %",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "5xx share on the product routes above — errors here directly break funnel steps (a failed challenge-start or checkout is a lost conversion).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate(http_requests_total{route=~\".*(project50|rule|challenge|billing|checkout|upgrade|analytics).*\",status=\"5xx\"}[5m])) / sum(rate(http_requests_total{route=~\".*(project50|rule|challenge|billing|checkout|upgrade|analytics).*\"}[5m]))",
+          "legendFormat": "5xx %"
+        }
+      ]
+    }
+  ]
+}

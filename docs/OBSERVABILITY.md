@@ -6,6 +6,12 @@ in the code in this repo today. Read alongside [`RUNBOOKS.md`](./RUNBOOKS.md)
 [`INCIDENT-RESPONSE.md`](./INCIDENT-RESPONSE.md) (severities, paging, comms) and
 [`SECRETS.md`](./SECRETS.md) (`METRICS_TOKEN`).
 
+> **Scope: infra, not product.** This doc covers *operational* metrics — is the
+> service up and fast (throughput, latency, error rate, per request). The
+> separate concern of *product* analytics — activation, retention, conversion,
+> per user/cohort, from `track()` events — lives in [`ANALYTICS.md`](./ANALYTICS.md)
+> with importable dashboards under [`/analytics/dashboards/`](../analytics/dashboards/).
+
 > **TODO (your infra):** the actual Prometheus/Grafana stack, uptime checker and
 > paging tool depend on your hosting choice and are **not yet provisioned**.
 > Everywhere you see **TODO** below, substitute your chosen tooling. The configs
