@@ -1,0 +1,124 @@
+# Scheduled offsite backups — Postgres dump + media-bucket sync.
+#
+# Implements:
+#   - #23  Automated backups + tested restore -> the `pg-backup` and
+#          `storage-sync` jobs below; the tested-restore RUNBOOK + quarterly
+#          test schedule live in docs/BACKUPS.md.
+#
+# DESIGN NOTES
+# ------------
+# This workflow is INERT until secrets are configured, exactly like deploy.yml.
+# A `preflight` job surfaces secret presence as boolean outputs (secrets cannot
+# be referenced in job-level `if:`), and every real job is gated on those. On a
+# fork or before secrets are added, the jobs are SKIPPED (not failed), so CI
+# stays green and nothing runs.
+#
+# Required repository secrets (see docs/BACKUPS.md / docs/SECRETS.md):
+#   DATABASE_URL        Postgres conn string for the DB to back up.
+#                       (DIRECT_URL is preferred for dumps when you have a pooler
+#                        — add it as a secret and the script uses it first.)
+#   BACKUP_S3_BUCKET    Offsite target for the dump, e.g. s3://proj50-backups/pg
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION
+#                       Creds for the offsite backup bucket (aws s3).
+#   BACKUP_S3_ENDPOINT  (optional) custom endpoint for R2 / MinIO.
+#   MEDIA_SRC           Source media bucket, e.g. s3://project50-media-prod
+#   MEDIA_DST           Backup media bucket, e.g. s3://project50-media-backup
+
+name: Backup
+
+on:
+  # Daily at 03:17 UTC (off-peak; odd minute avoids the top-of-hour stampede).
+  schedule:
+    - cron: "17 3 * * *"
+  # Allow on-demand backups from the Actions tab.
+  workflow_dispatch: {}
+
+concurrency:
+  # One backup run at a time; do not cancel an in-flight backup.
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: resolve whether the required secrets are present, as boolean outputs.
+  # Downstream jobs read these so the pipeline is inert (skipped) without
+  # secrets — mirrors deploy.yml's `preflight` pattern.
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: Preflight (secret gate)
+    runs-on: ubuntu-latest
+    outputs:
+      has_db: ${{ steps.check.outputs.has_db }}
+      has_media: ${{ steps.check.outputs.has_media }}
+    steps:
+      - id: check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          MEDIA_SRC: ${{ secrets.MEDIA_SRC }}
+          MEDIA_DST: ${{ secrets.MEDIA_DST }}
+        run: |
+          if [ -n "$DATABASE_URL" ] && [ -n "$BACKUP_S3_BUCKET" ]; then
+            echo "has_db=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_db=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DATABASE_URL/BACKUP_S3_BUCKET not set — pg-backup job will be skipped."
+          fi
+          if [ -n "$MEDIA_SRC" ] && [ -n "$MEDIA_DST" ]; then
+            echo "has_media=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_media=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::MEDIA_SRC/MEDIA_DST not set — storage-sync job will be skipped."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # #23 — Postgres logical backup, uploaded offsite. Inert without DB secrets.
+  # ---------------------------------------------------------------------------
+  pg-backup:
+    name: Postgres backup (pg_dump -> offsite)
+    needs: preflight
+    if: needs.preflight.outputs.has_db == 'true'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+      BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@v6
+      # The runner ships pg_dump, but pin a known major to match prod Postgres
+      # (16). `pg_dump` must be >= the server's major to dump it reliably.
+      - name: Install PostgreSQL 16 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+      - name: Run backup
+        run: ./scripts/backup/pg-backup.sh
+
+  # ---------------------------------------------------------------------------
+  # #23 — Mirror the media bucket to a backup bucket. Inert without media secrets.
+  # ---------------------------------------------------------------------------
+  storage-sync:
+    name: Media bucket sync
+    needs: preflight
+    if: needs.preflight.outputs.has_media == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SRC: ${{ secrets.MEDIA_SRC }}
+      DST: ${{ secrets.MEDIA_DST }}
+      S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Sync media bucket
+        run: ./scripts/backup/storage-sync.sh

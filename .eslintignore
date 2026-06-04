@@ -8,3 +8,6 @@ coverage/
 # k6 load-test scripts run in the k6 runtime (standalone binary), not Node.
 # They import from `k6/*` which ESLint cannot resolve, so exclude them.
 load-test/
+
+# Backup/restore tooling is POSIX shell, not JS — nothing for ESLint to lint.
+scripts/backup/
