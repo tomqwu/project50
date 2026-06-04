@@ -4,7 +4,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 // Mock next-auth/react used by SignInButtons (via Landing)
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
-import SignInPage from "./page";
+import SignInPage, { dynamic } from "./page";
 
 describe("SignInPage", () => {
   const originalEnv = process.env;
@@ -18,15 +18,48 @@ describe("SignInPage", () => {
     cleanup();
   });
 
+  it("is force-dynamic so OAuth env is read per-request at runtime (not baked at build)", () => {
+    // The provider buttons gate on runtime-injected env (GOOGLE_CLIENT_ID /
+    // FACEBOOK_CLIENT_ID). Static rendering would bake build-time env and hide
+    // buttons for providers configured only at runtime — breaking sign-in.
+    expect(dynamic).toBe("force-dynamic");
+  });
+
   it("renders the project50 heading with data-testid='home'", () => {
     render(<SignInPage />);
     expect(screen.getByTestId("home")).toHaveTextContent("project50");
   });
 
-  it("renders Google and Facebook buttons", () => {
+  it("renders Google and Facebook buttons when both client ids are set", () => {
+    process.env.GOOGLE_CLIENT_ID = "g-id";
+    process.env.FACEBOOK_CLIENT_ID = "fb-id";
     render(<SignInPage />);
     expect(screen.getByTestId("signin-google")).toBeInTheDocument();
     expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("hides the Google button when GOOGLE_CLIENT_ID is unset (Facebook stays)", () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    process.env.FACEBOOK_CLIENT_ID = "fb-id";
+    render(<SignInPage />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("hides the Facebook button when FACEBOOK_CLIENT_ID is unset", () => {
+    process.env.GOOGLE_CLIENT_ID = "g-id";
+    delete process.env.FACEBOOK_CLIENT_ID;
+    render(<SignInPage />);
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
+    expect(screen.getByTestId("signin-google")).toBeInTheDocument();
+  });
+
+  it("hides both OAuth buttons when neither client id is set", () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.FACEBOOK_CLIENT_ID;
+    render(<SignInPage />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
   });
 
   it("does NOT render e2e button when AUTH_E2E is not '1'", () => {

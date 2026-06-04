@@ -23,10 +23,35 @@ describe("SignInButtons", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders Google and Facebook buttons", () => {
-    render(<SignInButtons />);
+  it("renders Google and Facebook buttons when both are enabled", () => {
+    render(<SignInButtons googleEnabled facebookEnabled />);
     expect(screen.getByTestId("signin-google")).toBeInTheDocument();
     expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Google button when googleEnabled is false (default)", () => {
+    render(<SignInButtons facebookEnabled />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    // Facebook is unaffected by Google's gate.
+    expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("renders the Google button only when googleEnabled is true", () => {
+    render(<SignInButtons googleEnabled />);
+    expect(screen.getByTestId("signin-google")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Facebook button when facebookEnabled is false (default)", () => {
+    render(<SignInButtons googleEnabled />);
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
+    // Google is unaffected by Facebook's gate.
+    expect(screen.getByTestId("signin-google")).toBeInTheDocument();
+  });
+
+  it("renders neither OAuth button by default (both gates closed)", () => {
+    render(<SignInButtons />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
   });
 
   it("does NOT render e2e button when e2eEnabled is false (default)", () => {
@@ -40,13 +65,13 @@ describe("SignInButtons", () => {
   });
 
   it("calls signIn('google') on Google button click", () => {
-    render(<SignInButtons />);
+    render(<SignInButtons googleEnabled />);
     fireEvent.click(screen.getByTestId("signin-google"));
     expect(mockSignIn).toHaveBeenCalledWith("google", { callbackUrl: "/" });
   });
 
   it("calls signIn('facebook') on Facebook button click", () => {
-    render(<SignInButtons />);
+    render(<SignInButtons facebookEnabled />);
     fireEvent.click(screen.getByTestId("signin-facebook"));
     expect(mockSignIn).toHaveBeenCalledWith("facebook", { callbackUrl: "/" });
   });
