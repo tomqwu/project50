@@ -30,6 +30,7 @@ import {
   restorePurchases as defaultRestorePurchases,
 } from "../lib/iap";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 
 export interface UpgradeScreenProps {
   /** Test seam: override the IAP-configured check. */
@@ -137,7 +138,9 @@ export function UpgradeScreen({
   if (!configured) {
     return (
       <View style={styles.center} testID="upgrade-unavailable">
-        <Text style={styles.title}>Premium</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          Premium
+        </Text>
         <Text style={styles.body}>
           In-app purchases are unavailable in this build.
         </Text>
@@ -149,7 +152,9 @@ export function UpgradeScreen({
   if (premium) {
     return (
       <View style={styles.center} testID="upgrade-premium">
-        <Text style={styles.title}>You're Premium</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          You&apos;re Premium
+        </Text>
         <Text style={styles.body}>Thanks for supporting project50!</Text>
       </View>
     );
@@ -159,7 +164,11 @@ export function UpgradeScreen({
   if (loading) {
     return (
       <View style={styles.center} testID="upgrade-loading">
-        <ActivityIndicator color={colors.volt} size="large" />
+        <ActivityIndicator
+          color={colors.volt}
+          size="large"
+          accessibilityLabel="Loading subscription options"
+        />
       </View>
     );
   }
@@ -167,10 +176,17 @@ export function UpgradeScreen({
   // ─── Configured: offering (or empty) + actions ─────────────────────────────
   return (
     <View style={styles.container} testID="upgrade-screen">
-      <Text style={styles.title}>Go Premium</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        Go Premium
+      </Text>
 
       {premiumPackage ? (
-        <View style={styles.card} testID="upgrade-offering">
+        <View
+          style={styles.card}
+          testID="upgrade-offering"
+          accessible
+          accessibilityLabel={`${premiumPackage.product.title}, ${premiumPackage.product.priceString}`}
+        >
           <Text style={styles.packageTitle} testID="upgrade-package-title">
             {premiumPackage.product.title}
           </Text>
@@ -185,18 +201,22 @@ export function UpgradeScreen({
       )}
 
       {error ? (
-        <Text style={styles.error} testID="upgrade-error">
+        <Text style={styles.error} testID="upgrade-error" accessibilityRole="alert">
           {error}
         </Text>
       ) : null}
       {info ? (
-        <Text style={styles.info} testID="upgrade-info">
+        <Text style={styles.info} testID="upgrade-info" accessibilityRole="alert">
           {info}
         </Text>
       ) : null}
 
       {busy ? (
-        <ActivityIndicator color={colors.volt} testID="upgrade-busy" />
+        <ActivityIndicator
+          color={colors.volt}
+          testID="upgrade-busy"
+          accessibilityLabel="Processing"
+        />
       ) : null}
 
       <Pressable
@@ -204,6 +224,10 @@ export function UpgradeScreen({
         style={[styles.button, (!premiumPackage || busy) && styles.buttonDisabled]}
         disabled={!premiumPackage || busy}
         onPress={() => void handleSubscribe()}
+        android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+        accessibilityRole="button"
+        accessibilityLabel="Subscribe"
+        accessibilityState={{ disabled: !premiumPackage || busy, busy }}
       >
         <Text style={styles.buttonText}>Subscribe</Text>
       </Pressable>
@@ -213,6 +237,10 @@ export function UpgradeScreen({
         style={[styles.restoreButton, busy && styles.buttonDisabled]}
         disabled={busy}
         onPress={() => void handleRestore()}
+        android_ripple={ripple()}
+        accessibilityRole="button"
+        accessibilityLabel="Restore purchases"
+        accessibilityState={{ disabled: busy, busy }}
       >
         <Text style={styles.restoreText}>Restore Purchases</Text>
       </Pressable>
@@ -244,6 +272,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333",
     gap: 4,
+    ...elevation(1),
   },
   packageTitle: { color: colors.text, fontSize: 18, fontWeight: "600" },
   price: { color: colors.volt, fontSize: 16, fontWeight: "700" },
@@ -252,10 +281,20 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
+    ...elevation(2),
   },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: colors.charcoal, fontSize: 16, fontWeight: "700" },
-  restoreButton: { paddingVertical: 12, alignItems: "center" },
+  restoreButton: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
+  },
   restoreText: { color: colors.volt, fontSize: 14, fontWeight: "600" },
   error: { color: "#ff6b6b", fontSize: 14, textAlign: "center" },
   info: { color: colors.text, fontSize: 14, textAlign: "center", opacity: 0.85 },

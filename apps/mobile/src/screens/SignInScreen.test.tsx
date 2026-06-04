@@ -166,4 +166,17 @@ describe("SignInScreen", () => {
     await waitFor(() => expect(handleDeepLinkRedirect).toHaveBeenCalled());
     expect(onSignedIn).not.toHaveBeenCalled();
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes both auth buttons as accessible buttons with labels", () => {
+    const { getByRole } = render(<SignInScreen onSignedIn={jest.fn()} />);
+    expect(getByRole("button", { name: "Continue with Facebook" })).toBeTruthy();
+    expect(getByRole("button", { name: "Continue with Google" })).toBeTruthy();
+  });
+
+  it("marks the app name as a header for screen readers", () => {
+    const { getByRole } = render(<SignInScreen onSignedIn={jest.fn()} />);
+    expect(getByRole("header", { name: "project50" })).toBeTruthy();
+  });
 });

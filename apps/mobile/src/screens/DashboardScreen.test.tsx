@@ -391,4 +391,39 @@ describe("DashboardScreen", () => {
     // Falls back to "0 / 0 " (empty unit string)
     expect(screen.getByText("0 / 0 ")).toBeTruthy();
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("groups each stat with a descriptive accessibility label", async () => {
+    mockListChallenges.mockResolvedValueOnce([mockChallenge]);
+    mockGetChallenge.mockResolvedValueOnce(mockChallengeDetail);
+
+    render(<DashboardScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("current-streak")).toBeTruthy());
+    expect(screen.getByLabelText("Streak: 0")).toBeTruthy();
+    expect(screen.getByLabelText("Best streak: 2")).toBeTruthy();
+    expect(screen.getByLabelText(/^Badges: /)).toBeTruthy();
+    expect(screen.getByLabelText(/^Cheers: /)).toBeTruthy();
+  });
+
+  it("marks the challenge title and section titles as headers", async () => {
+    mockListChallenges.mockResolvedValueOnce([mockChallenge]);
+    mockGetChallenge.mockResolvedValueOnce(mockChallengeDetail);
+
+    render(<DashboardScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("challenge-title")).toBeTruthy());
+    const headers = screen.getAllByRole("header");
+    expect(headers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("announces the error state as an alert", async () => {
+    mockListChallenges.mockRejectedValueOnce(new Error("Network error"));
+
+    render(<DashboardScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("dashboard-error")).toBeTruthy());
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
 });

@@ -9,7 +9,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
   Alert,
@@ -20,6 +20,7 @@ import type { GoalType } from "@project50/core";
 import { pickImageFromCamera, pickImageFromLibrary, uploadPhoto } from "../lib/photo";
 import type { PickedImage } from "../lib/photo";
 import { colors } from "../theme";
+import { elevation, ripple, rippleBorderless } from "../components/platform";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,14 @@ const MOOD_LABELS: Record<number, string> = {
   3: "🙂",
   4: "😊",
   5: "🎉",
+};
+// Spoken names for screen readers — emoji alone is read inconsistently.
+const MOOD_NAMES: Record<number, string> = {
+  1: "Very bad",
+  2: "Bad",
+  3: "Okay",
+  4: "Good",
+  5: "Great",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -136,7 +145,9 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
   if (success) {
     return (
       <View style={styles.center} testID="log-success">
-        <Text style={styles.successText}>Activity logged!</Text>
+        <Text style={styles.successText} accessibilityRole="header">
+          Activity logged!
+        </Text>
       </View>
     );
   }
@@ -144,14 +155,14 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
   return (
     <ScrollView style={styles.container} testID="log-screen">
       {/* Activity type header */}
-      <Text style={styles.heading} testID="log-heading">
+      <Text style={styles.heading} testID="log-heading" accessibilityRole="header">
         {`Log ${goalType === "TARGET" ? `${unit ?? "progress"}` : "activity"}`}
       </Text>
 
       {/* TARGET: amount input */}
       {goalType === "TARGET" && (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>
+          <Text style={styles.label} nativeID="log-amount-label">
             {`Amount${unit ? ` (${unit})` : ""}`}
           </Text>
           <TextInput
@@ -162,6 +173,8 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
             placeholder={`Target: ${dailyTarget ?? 0}`}
             placeholderTextColor="#666"
             testID="amount-input"
+            accessibilityLabel={`Amount${unit ? ` in ${unit}` : ""}`}
+            accessibilityLabelledBy="log-amount-label"
           />
         </View>
       )}
@@ -169,21 +182,27 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
       {/* BINARY: done toggle */}
       {goalType === "BINARY" && (
         <View style={styles.fieldGroup}>
-          <TouchableOpacity
+          <Pressable
             style={[styles.doneButton, done && styles.doneButtonActive]}
             onPress={() => setDone((prev) => !prev)}
             testID="done-toggle"
+            android_ripple={ripple()}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: done }}
+            accessibilityLabel="Mark as done"
           >
             <Text style={[styles.doneButtonText, done && styles.doneButtonTextActive]}>
               {done ? "Done!" : "Mark as done"}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       )}
 
       {/* Note */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Note (optional)</Text>
+        <Text style={styles.label} nativeID="log-note-label">
+          Note (optional)
+        </Text>
         <TextInput
           style={[styles.input, styles.noteInput]}
           value={note}
@@ -192,22 +211,38 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
           placeholderTextColor="#666"
           multiline
           testID="note-input"
+          accessibilityLabel="Note"
+          accessibilityLabelledBy="log-note-label"
         />
       </View>
 
       {/* Mood */}
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Mood (optional)</Text>
-        <View style={styles.moodRow}>
+        <View
+          style={styles.moodRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Mood"
+        >
           {MOODS.map((m) => (
-            <TouchableOpacity
+            <Pressable
               key={m}
               style={[styles.moodChip, mood === m && styles.moodChipActive]}
               onPress={() => setMood((prev) => (prev === m ? null : m))}
               testID={`mood-${m}`}
+              android_ripple={rippleBorderless()}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: mood === m }}
+              accessibilityLabel={MOOD_NAMES[m]}
             >
-              <Text style={styles.moodEmoji}>{MOOD_LABELS[m]}</Text>
-            </TouchableOpacity>
+              <Text
+                style={styles.moodEmoji}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              >
+                {MOOD_LABELS[m]}
+              </Text>
+            </Pressable>
           ))}
         </View>
       </View>
@@ -215,37 +250,52 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
       {/* Photo */}
       <View style={styles.fieldGroup}>
         <View style={styles.photoButtonsRow}>
-          <TouchableOpacity
+          <Pressable
             style={[styles.photoButton, styles.photoButtonFlex]}
             onPress={() => { void handleTakePhoto(); }}
             testID="take-photo-button"
+            android_ripple={ripple()}
+            accessibilityRole="button"
+            accessibilityLabel={photo ? "Retake photo" : "Take photo"}
+            accessibilityHint="Opens the camera"
           >
             <Text style={styles.photoButtonText}>
               {photo ? "Retake photo" : "Take photo"}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </Pressable>
+          <Pressable
             style={[styles.photoButton, styles.photoButtonFlex]}
             onPress={() => { void handleAddPhoto(); }}
             testID="add-photo-button"
+            android_ripple={ripple()}
+            accessibilityRole="button"
+            accessibilityLabel={photo ? "Change photo" : "Add photo"}
+            accessibilityHint="Opens your photo library"
           >
             <Text style={styles.photoButtonText}>
               {photo ? "Change photo" : "Add photo"}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
         {photo && (
           <Image
             source={{ uri: photo.uri }}
             style={styles.photoPreview}
             testID="photo-preview"
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel="Selected activity photo"
           />
         )}
       </View>
 
       {/* Errors */}
       {errors.length > 0 && (
-        <View style={styles.errorContainer} testID="errors-container">
+        <View
+          style={styles.errorContainer}
+          testID="errors-container"
+          accessibilityRole="alert"
+        >
           {errors.map((err, i) => (
             <Text key={i} style={styles.errorText} testID={`error-${i}`}>
               {err}
@@ -255,16 +305,20 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
       )}
 
       {/* Submit */}
-      <TouchableOpacity
+      <Pressable
         style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
         onPress={() => { void handleSubmit(); }}
         disabled={submitting}
         testID="submit-button"
+        android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+        accessibilityRole="button"
+        accessibilityLabel={submitting ? "Logging activity" : "Log activity"}
+        accessibilityState={{ disabled: submitting, busy: submitting }}
       >
         <Text style={styles.submitText}>
           {submitting ? "Logging..." : "Log Activity"}
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -305,6 +359,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    minHeight: 44,
     borderWidth: 1,
     borderColor: "#333",
   },
@@ -317,6 +372,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: "#333",
   },
@@ -343,6 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1e1e1e",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: "#333",
   },
@@ -362,6 +421,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: "#555",
   },
@@ -395,7 +457,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     marginBottom: 32,
+    ...elevation(2),
   },
   submitButtonDisabled: {
     opacity: 0.5,

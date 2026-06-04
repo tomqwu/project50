@@ -16,7 +16,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
 } from "react-native";
@@ -24,6 +24,7 @@ import { apiClient } from "../lib/apiClient";
 import type { Challenge, GoalType } from "../lib/apiClient";
 import { localDayKey } from "@project50/core";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -114,7 +115,9 @@ export function CreateChallengeScreen(
   if (created) {
     return (
       <View style={styles.center} testID="create-success">
-        <Text style={styles.successText}>Plan created!</Text>
+        <Text style={styles.successText} accessibilityRole="header">
+          Plan created!
+        </Text>
         <Text style={styles.successTitle} testID="created-title">
           {created.title}
         </Text>
@@ -126,13 +129,15 @@ export function CreateChallengeScreen(
 
   return (
     <ScrollView style={styles.container} testID="create-screen">
-      <Text style={styles.heading} testID="create-heading">
+      <Text style={styles.heading} testID="create-heading" accessibilityRole="header">
         Create custom plan
       </Text>
 
       {/* Title */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Title</Text>
+        <Text style={styles.label} nativeID="create-title-label">
+          Title
+        </Text>
         <TextInput
           style={styles.input}
           value={title}
@@ -140,15 +145,21 @@ export function CreateChallengeScreen(
           placeholder="e.g. Read 20 pages"
           placeholderTextColor="#666"
           testID="title-input"
+          accessibilityLabel="Title"
+          accessibilityLabelledBy="create-title-label"
         />
       </View>
 
       {/* Goal type */}
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Goal type</Text>
-        <View style={styles.segmentRow}>
+        <View
+          style={styles.segmentRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Goal type"
+        >
           {GOAL_TYPES.map((g) => (
-            <TouchableOpacity
+            <Pressable
               key={g.value}
               style={[
                 styles.segment,
@@ -156,6 +167,10 @@ export function CreateChallengeScreen(
               ]}
               onPress={() => setGoalType(g.value)}
               testID={`goal-${g.value}`}
+              android_ripple={ripple()}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: goalType === g.value }}
+              accessibilityLabel={g.label}
             >
               <Text
                 style={[
@@ -165,7 +180,7 @@ export function CreateChallengeScreen(
               >
                 {g.label}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ))}
         </View>
       </View>
@@ -173,7 +188,9 @@ export function CreateChallengeScreen(
       {/* TARGET: dailyTarget + unit */}
       {goalType === "TARGET" && (
         <View style={styles.fieldGroup} testID="target-fields">
-          <Text style={styles.label}>Daily target</Text>
+          <Text style={styles.label} nativeID="create-target-label">
+            Daily target
+          </Text>
           <TextInput
             style={styles.input}
             value={dailyTarget}
@@ -182,8 +199,15 @@ export function CreateChallengeScreen(
             placeholder="e.g. 5"
             placeholderTextColor="#666"
             testID="daily-target-input"
+            accessibilityLabel="Daily target"
+            accessibilityLabelledBy="create-target-label"
           />
-          <Text style={[styles.label, styles.labelSpaced]}>Unit</Text>
+          <Text
+            style={[styles.label, styles.labelSpaced]}
+            nativeID="create-unit-label"
+          >
+            Unit
+          </Text>
           <TextInput
             style={styles.input}
             value={unit}
@@ -191,13 +215,17 @@ export function CreateChallengeScreen(
             placeholder="e.g. km, pages, minutes"
             placeholderTextColor="#666"
             testID="unit-input"
+            accessibilityLabel="Unit"
+            accessibilityLabelledBy="create-unit-label"
           />
         </View>
       )}
 
       {/* Start date */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Start date (YYYY-MM-DD)</Text>
+        <Text style={styles.label} nativeID="create-start-label">
+          Start date (YYYY-MM-DD)
+        </Text>
         <TextInput
           style={styles.input}
           value={startDate}
@@ -206,15 +234,21 @@ export function CreateChallengeScreen(
           placeholderTextColor="#666"
           autoCapitalize="none"
           testID="start-date-input"
+          accessibilityLabel="Start date"
+          accessibilityLabelledBy="create-start-label"
         />
       </View>
 
       {/* Visibility */}
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>Visibility</Text>
-        <View style={styles.segmentRow}>
+        <View
+          style={styles.segmentRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Visibility"
+        >
           {VISIBILITIES.map((v) => (
-            <TouchableOpacity
+            <Pressable
               key={v.value}
               style={[
                 styles.segment,
@@ -222,6 +256,10 @@ export function CreateChallengeScreen(
               ]}
               onPress={() => setVisibility(v.value)}
               testID={`visibility-${v.value}`}
+              android_ripple={ripple()}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: visibility === v.value }}
+              accessibilityLabel={v.label}
             >
               <Text
                 style={[
@@ -231,14 +269,18 @@ export function CreateChallengeScreen(
               >
                 {v.label}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ))}
         </View>
       </View>
 
       {/* Errors */}
       {errors.length > 0 && (
-        <View style={styles.errorContainer} testID="errors-container">
+        <View
+          style={styles.errorContainer}
+          testID="errors-container"
+          accessibilityRole="alert"
+        >
           {errors.map((err, i) => (
             <Text key={i} style={styles.errorText} testID={`error-${i}`}>
               {err}
@@ -248,18 +290,22 @@ export function CreateChallengeScreen(
       )}
 
       {/* Submit */}
-      <TouchableOpacity
+      <Pressable
         style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
         onPress={() => {
           void handleSubmit();
         }}
         disabled={submitting}
         testID="submit-button"
+        android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+        accessibilityRole="button"
+        accessibilityLabel={submitting ? "Creating plan" : "Create plan"}
+        accessibilityState={{ disabled: submitting, busy: submitting }}
       >
         <Text style={styles.submitText}>
           {submitting ? "Creating..." : "Create plan"}
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -303,6 +349,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    minHeight: 44,
     borderWidth: 1,
     borderColor: "#333",
   },
@@ -317,6 +364,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginRight: 8,
     marginBottom: 8,
+    minHeight: 44,
+    justifyContent: "center",
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: "#333",
   },
@@ -347,7 +397,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    overflow: "hidden",
     marginBottom: 32,
+    ...elevation(2),
   },
   submitButtonDisabled: {
     opacity: 0.5,

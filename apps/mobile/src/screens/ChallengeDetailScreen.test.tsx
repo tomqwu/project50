@@ -301,4 +301,45 @@ describe("ChallengeDetailScreen — delete", () => {
     expect(screen.queryByTestId("delete-confirm")).toBeNull();
     expect(screen.getByTestId("delete-button")).toBeTruthy();
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes the detail actions as accessible buttons", async () => {
+    await renderLoaded(TARGET_CHALLENGE);
+    expect(screen.getByRole("button", { name: "Edit plan" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete plan" })).toBeTruthy();
+    expect(screen.getByLabelText("Streak: 3")).toBeTruthy();
+    expect(screen.getByLabelText("Best streak: 7")).toBeTruthy();
+  });
+
+  it("exposes edit-form visibility options as radios and labels its inputs", async () => {
+    await renderLoaded(TARGET_CHALLENGE);
+    fireEvent.press(screen.getByTestId("edit-button"));
+
+    const priv = screen.getByTestId("edit-visibility-PRIVATE");
+    expect(priv.props.accessibilityRole).toBe("radio");
+    expect(priv.props.accessibilityState).toMatchObject({ selected: true });
+
+    expect(screen.getByLabelText("Title")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("marks the save button busy while saving", async () => {
+    await renderLoaded(TARGET_CHALLENGE);
+    fireEvent.press(screen.getByTestId("edit-button"));
+
+    let resolve!: (v: unknown) => void;
+    mockUpdate.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("save-button"));
+    });
+
+    expect(screen.getByTestId("save-button").props.accessibilityState?.busy).toBe(true);
+
+    await act(async () => {
+      resolve({ ...TARGET_CHALLENGE });
+    });
+  });
 });

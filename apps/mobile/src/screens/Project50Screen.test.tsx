@@ -187,4 +187,46 @@ describe("Project50Screen", () => {
     render(<Project50Screen />);
     expect(screen.queryByTestId("p50-offline")).toBeNull();
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes each rule row as a checkbox with its checked state", () => {
+    setHook({
+      display: {
+        status: "ACTIVE",
+        dayLabel: "Day 3/50",
+        progressLabel: "1/7",
+        rules: [
+          { id: 1, title: "Wake up", detail: "early", done: true },
+          { id: 2, title: "Routine", detail: "1h", done: false },
+        ],
+      },
+    });
+    render(<Project50Screen />);
+
+    const done = screen.getByRole("checkbox", { name: "Wake up" });
+    expect(done.props.accessibilityState).toMatchObject({ checked: true });
+    expect(done.props.accessibilityHint).toBe("early");
+
+    const notDone = screen.getByRole("checkbox", { name: "Routine" });
+    expect(notDone.props.accessibilityState).toMatchObject({ checked: false });
+  });
+
+  it("labels the start CTA as an accessible button", () => {
+    setHook({ display: { status: "NONE" } });
+    render(<Project50Screen />);
+    expect(screen.getByRole("button", { name: "Start Project 50" })).toBeTruthy();
+  });
+
+  it("labels the restart CTA as an accessible button", () => {
+    setHook({ display: { status: "FAILED" } });
+    render(<Project50Screen />);
+    expect(screen.getByRole("button", { name: "Restart Project 50" })).toBeTruthy();
+  });
+
+  it("exposes headers for screen readers", () => {
+    setHook({ display: ACTIVE_DISPLAY });
+    render(<Project50Screen />);
+    expect(screen.getByRole("header", { name: "Project 50" })).toBeTruthy();
+  });
 });

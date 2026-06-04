@@ -10,13 +10,14 @@ import {
   Text,
   Image,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
 import { apiClient } from "../lib/apiClient";
 import type { FeedActivity } from "../lib/apiClient";
 import { colors } from "../theme";
+import { elevation, ripple } from "../components/platform";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,9 @@ export function FeedScreen(): React.JSX.Element {
   if (error) {
     return (
       <View style={styles.center} testID="feed-error">
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText} accessibilityRole="alert">
+          {error}
+        </Text>
       </View>
     );
   }
@@ -133,7 +136,9 @@ function FeedCard({ item, onCheer }: FeedCardProps): React.JSX.Element {
       </View>
 
       {/* Challenge title + day */}
-      <Text style={styles.challengeTitle}>{item.challenge.title}</Text>
+      <Text style={styles.challengeTitle} accessibilityRole="header">
+        {item.challenge.title}
+      </Text>
       <Text style={styles.dayKey}>{item.dayKey}</Text>
 
       {/* Note */}
@@ -148,19 +153,30 @@ function FeedCard({ item, onCheer }: FeedCardProps): React.JSX.Element {
           style={styles.photo}
           testID={`feed-photo-${item.id}`}
           resizeMode="cover"
+          accessible
+          accessibilityRole="image"
+          accessibilityLabel={`Photo from @${item.user.handle}'s ${item.challenge.title} activity`}
         />
       ) : null}
 
       {/* Cheer row */}
       <View style={styles.cheerRow}>
-        <TouchableOpacity
+        <Pressable
           style={styles.cheerButton}
           onPress={() => onCheer(item.id)}
           testID={`cheer-button-${item.id}`}
+          android_ripple={ripple("rgba(18, 16, 19, 0.2)")}
+          accessibilityRole="button"
+          accessibilityLabel={`Cheer @${item.user.handle}`}
+          accessibilityHint="Adds a cheer to this activity"
         >
           <Text style={styles.cheerButtonText}>Cheer</Text>
-        </TouchableOpacity>
-        <Text style={styles.cheerCount} testID={`cheer-count-${item.id}`}>
+        </Pressable>
+        <Text
+          style={styles.cheerCount}
+          testID={`cheer-count-${item.id}`}
+          accessibilityLabel={`${item.cheerCount} cheers`}
+        >
           {item.cheerCount}
         </Text>
       </View>
@@ -189,6 +205,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#333",
+    ...elevation(1),
   },
   headerRow: {
     flexDirection: "row",
@@ -246,6 +263,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 14,
     paddingVertical: 6,
+    minHeight: 44,
+    justifyContent: "center",
+    overflow: "hidden",
   },
   cheerButtonText: {
     color: colors.charcoal,

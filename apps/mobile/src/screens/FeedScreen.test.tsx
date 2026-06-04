@@ -303,4 +303,41 @@ describe("FeedScreen", () => {
     // a2 is not affected
     expect(screen.getByTestId("cheer-count-a2").props.children).toBe(10);
   });
+
+  // ─── Accessibility ──────────────────────────────────────────────────────────
+
+  it("exposes the cheer button as an accessible button with a label", async () => {
+    mockGetFeed.mockResolvedValueOnce([makeFeedItem("a1")]);
+
+    render(<FeedScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("cheer-button-a1")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Cheer @alice" })).toBeTruthy();
+  });
+
+  it("labels the cheer count and a present photo for screen readers", async () => {
+    mockGetFeed.mockResolvedValueOnce([
+      makeFeedItem("a1", {
+        cheerCount: 7,
+        media: [{ url: "https://cdn.example/p.jpg", width: 100, height: 100 }],
+      }),
+    ]);
+
+    render(<FeedScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("feed-photo-a1")).toBeTruthy());
+    expect(screen.getByLabelText("7 cheers")).toBeTruthy();
+    const photo = screen.getByTestId("feed-photo-a1");
+    expect(photo.props.accessibilityRole).toBe("image");
+    expect(photo.props.accessibilityLabel).toContain("alice");
+  });
+
+  it("announces the error state as an alert", async () => {
+    mockGetFeed.mockRejectedValueOnce(new Error("Feed down"));
+
+    render(<FeedScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("feed-error")).toBeTruthy());
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
 });
