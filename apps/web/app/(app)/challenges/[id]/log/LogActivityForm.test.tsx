@@ -274,9 +274,13 @@ describe("LogActivityForm — Photo upload", () => {
   it("presigns, PUTs, and shows thumbnail after selecting a file", async () => {
     mockFetch
       .mockResolvedValueOnce({
-        // presign response
+        // presign response (S3 backend: content-type only)
         ok: true,
-        json: async () => ({ uploadUrl: "https://minio/bucket/key?sig=x", objectKey: "media/u1/photo_jpg.jpg" }),
+        json: async () => ({
+          uploadUrl: "https://minio/bucket/key?sig=x",
+          objectKey: "media/u1/photo_jpg.jpg",
+          uploadHeaders: { "content-type": "image/jpeg" },
+        }),
       })
       .mockResolvedValueOnce({
         // PUT response
@@ -310,7 +314,7 @@ describe("LogActivityForm — Photo upload", () => {
       }),
     );
 
-    // PUT called with upload URL
+    // PUT called with upload URL + the presign-provided headers
     expect(mockFetch).toHaveBeenNthCalledWith(
       2,
       "https://minio/bucket/key?sig=x",
@@ -322,6 +326,89 @@ describe("LogActivityForm — Photo upload", () => {
 
     // readDimensions was called with the file
     expect(mockReadDimensions).toHaveBeenCalledWith(file);
+  });
+
+  it("spreads Azure uploadHeaders (x-ms-blob-type) onto the PUT", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        // presign response (Azure backend: content-type + blob-type)
+        ok: true,
+        json: async () => ({
+          uploadUrl: "https://acct.blob.core.windows.net/cont/key?sas",
+          objectKey: "media/u1/photo_jpg.jpg",
+          uploadHeaders: {
+            "content-type": "image/jpeg",
+            "x-ms-blob-type": "BlockBlob",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true }); // PUT
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("photo-input"), {
+      target: { files: [makeImageFile("run.jpg", "image/jpeg")] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      "https://acct.blob.core.windows.net/cont/key?sas",
+      expect.objectContaining({
+        method: "PUT",
+        headers: {
+          "content-type": "image/jpeg",
+          "x-ms-blob-type": "BlockBlob",
+        },
+      }),
+    );
+  });
+
+  it("falls back to content-type PUT header when presign omits uploadHeaders", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        // legacy presign response without uploadHeaders
+        ok: true,
+        json: async () => ({
+          uploadUrl: "https://minio/up",
+          objectKey: "media/u1/photo_jpg.jpg",
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true }); // PUT
+
+    render(
+      <LogActivityForm
+        challengeId="c1"
+        goalType="TARGET"
+        readDimensions={mockReadDimensions}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("photo-input"), {
+      target: { files: [makeImageFile("run.jpg", "image/jpeg")] },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+    });
+
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      "https://minio/up",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
   });
 
   it("includes media in submit body after successful upload", async () => {

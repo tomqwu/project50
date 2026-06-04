@@ -152,6 +152,12 @@ export interface Reaction {
 export interface PresignResult {
   uploadUrl: string;
   objectKey: string;
+  /**
+   * Headers the client must send on the PUT. Always carries content-type; on
+   * Azure Blob also carries `x-ms-blob-type: BlockBlob` (required by Put Blob).
+   * Optional for backward compatibility with older API responses.
+   */
+  uploadHeaders?: Record<string, string>;
 }
 
 export type RecapKind = "DAY" | "WEEK" | "FIFTY";

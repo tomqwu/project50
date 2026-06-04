@@ -99,16 +99,19 @@ export function LogActivityForm({
         return;
       }
 
-      const { uploadUrl, objectKey } = (await presignRes.json()) as {
+      const { uploadUrl, objectKey, uploadHeaders } = (await presignRes.json()) as {
         uploadUrl: string;
         objectKey: string;
+        uploadHeaders?: Record<string, string>;
       };
 
-      // PUT the file bytes to the presigned URL
+      // PUT the file bytes to the presigned URL. Spread the presign-provided
+      // headers so backend-specific requirements (e.g. Azure's
+      // x-ms-blob-type: BlockBlob) are sent; fall back to content-type only.
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
-        headers: { "content-type": file.type },
+        headers: uploadHeaders ?? { "content-type": file.type },
       });
 
       if (!putRes.ok) {
