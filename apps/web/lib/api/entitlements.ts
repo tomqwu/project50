@@ -16,6 +16,13 @@ export type Plan = "free" | "premium";
 export interface Entitlement {
   plan: Plan;
   isPremium: boolean;
+  /** The raw subscription status; "NONE" when the user has no subscription. */
+  status: SubscriptionStatus;
+  /**
+   * When the current (paid or trial) period ends, if known. For a TRIALING
+   * subscription this is the trial-end the UI surfaces; null when unknown.
+   */
+  currentPeriodEnd: Date | null;
 }
 
 /**
@@ -29,21 +36,31 @@ const PREMIUM_STATUSES: ReadonlySet<SubscriptionStatus> = new Set(["ACTIVE", "TR
  * Pure mapping from a subscription status to an entitlement. Exposed for
  * testing and reuse; `getEntitlement` layers the DB read on top.
  */
-export function entitlementForStatus(status: SubscriptionStatus | null | undefined): Entitlement {
-  const isPremium = status != null && PREMIUM_STATUSES.has(status);
-  return { plan: isPremium ? "premium" : "free", isPremium };
+export function entitlementForStatus(
+  status: SubscriptionStatus | null | undefined,
+  currentPeriodEnd: Date | null = null,
+): Entitlement {
+  const resolved = status ?? "NONE";
+  const isPremium = PREMIUM_STATUSES.has(resolved);
+  return {
+    plan: isPremium ? "premium" : "free",
+    isPremium,
+    status: resolved,
+    currentPeriodEnd,
+  };
 }
 
 /**
  * Resolve a user's entitlement by reading their Subscription row. Users with no
  * subscription, or a non-premium status, are "free". ACTIVE / TRIALING → premium.
+ * Also surfaces the raw status and currentPeriodEnd (e.g. for trial countdowns).
  */
 export async function getEntitlement(uid: string): Promise<Entitlement> {
   const sub = await prisma.subscription.findUnique({
     where: { userId: uid },
-    select: { status: true },
+    select: { status: true, currentPeriodEnd: true },
   });
-  return entitlementForStatus(sub?.status);
+  return entitlementForStatus(sub?.status, sub?.currentPeriodEnd ?? null);
 }
 
 /**

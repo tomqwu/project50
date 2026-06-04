@@ -20,6 +20,9 @@ vi.mock("./_components/DeleteAccountSection", () => ({
     <div data-testid="delete-section">{handle}</div>
   ),
 }));
+vi.mock("./_components/BillingSection", () => ({
+  BillingSection: () => <div data-testid="billing-section" />,
+}));
 
 import SettingsPage from "./page";
 
@@ -49,5 +52,15 @@ describe("SettingsPage", () => {
     render(ui);
 
     expect(screen.getByTestId("delete-section")).toHaveTextContent("alice");
+  });
+
+  it("renders the billing entry-point section", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetAccount.mockResolvedValue({ handle: "alice", displayName: "Alice A" });
+
+    const ui = await SettingsPage();
+    render(ui);
+
+    expect(screen.getByTestId("billing-section")).toBeInTheDocument();
   });
 });
