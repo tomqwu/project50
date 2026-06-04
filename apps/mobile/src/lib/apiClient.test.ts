@@ -469,6 +469,53 @@ describe("getCapabilities", () => {
   });
 });
 
+// ─── Project 50 ───────────────────────────────────────────────────────────────
+
+describe("getProject50State", () => {
+  const client = new ApiClient("http://localhost:3000");
+
+  it("calls GET /api/project50/state", async () => {
+    mockFetchOk({ status: "NONE" });
+    await client.getProject50State();
+    const [url, init] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/project50/state");
+    expect(init.method).toBe("GET");
+  });
+
+  it("returns the state", async () => {
+    const data = { status: "NONE" as const };
+    mockFetchOk(data);
+    const result = await client.getProject50State();
+    expect(result).toEqual(data);
+  });
+});
+
+describe("startProject50", () => {
+  const client = new ApiClient("http://localhost:3000");
+
+  it("calls POST /api/project50/start with timezone body", async () => {
+    mockFetchOk({ status: "ACTIVE" }, 201);
+    await client.startProject50("America/New_York");
+    const [url, init] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/project50/start");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ timezone: "America/New_York" });
+  });
+});
+
+describe("toggleRule", () => {
+  const client = new ApiClient("http://localhost:3000");
+
+  it("calls POST /api/project50/toggle with ruleId + done body", async () => {
+    mockFetchOk({ status: "ACTIVE" });
+    await client.toggleRule(3, true);
+    const [url, init] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/project50/toggle");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ ruleId: 3, done: true });
+  });
+});
+
 // ─── Content-Type header ──────────────────────────────────────────────────────
 
 describe("Content-Type header", () => {

@@ -159,6 +159,38 @@ export interface PublishCapability {
 
 export type Capabilities = PublishCapability[];
 
+// ─── Project 50 ───────────────────────────────────────────────────────────────
+
+export interface Project50Today {
+  dayKey: string;
+  dayNumber: number;
+  /** length 7, index = ruleId - 1 */
+  checks: boolean[];
+  completedCount: number;
+}
+
+export type Project50DayStatus = "complete" | "incomplete" | "today" | "future";
+
+export interface Project50HistoryDay {
+  dayNumber: number;
+  dayKey: string;
+  status: Project50DayStatus;
+}
+
+export interface Project50History {
+  days: Project50HistoryDay[];
+}
+
+export interface Project50State {
+  status: "NONE" | "ACTIVE" | "FAILED" | "COMPLETED";
+  runId?: string;
+  today?: Project50Today;
+  history?: Project50History;
+  failedDayNumber?: number;
+  failedRuleId?: number;
+  completedDays?: number;
+}
+
 // ─── Error ──────────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -303,6 +335,20 @@ export class ApiClient {
 
   async getCapabilities(): Promise<Capabilities> {
     return this.request<Capabilities>("GET", "/api/publish/capabilities");
+  }
+
+  // ─── Project 50 ─────────────────────────────────────────────────────────────
+
+  async getProject50State(): Promise<Project50State> {
+    return this.request<Project50State>("GET", "/api/project50/state");
+  }
+
+  async startProject50(timezone: string): Promise<Project50State> {
+    return this.request<Project50State>("POST", "/api/project50/start", { timezone });
+  }
+
+  async toggleRule(ruleId: number, done: boolean): Promise<Project50State> {
+    return this.request<Project50State>("POST", "/api/project50/toggle", { ruleId, done });
   }
 }
 
