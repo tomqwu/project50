@@ -112,6 +112,12 @@ export interface LogActivityResult {
   newMilestones: Milestone[];
 }
 
+export interface FeedUser {
+  id: string;
+  handle: string;
+  displayName: string;
+}
+
 export interface FeedActivity {
   id: string;
   challengeId: string;
@@ -125,8 +131,13 @@ export interface FeedActivity {
   createdAt: string;
   media: ChallengeMedia[];
   challenge: Challenge;
+  user: FeedUser;
   cheerCount: number;
   hasPhoto: boolean;
+  /** True when the source challenge is a Project 50 run. */
+  isProject50: boolean;
+  /** 1-based day number within the Project 50 run (only when isProject50). */
+  project50Day?: number;
 }
 
 export interface Reaction {
