@@ -25,6 +25,13 @@ export interface CreateChallengeInput {
   visibility?: "PUBLIC" | "FOLLOWERS" | "PRIVATE";
 }
 
+export interface UpdateChallengeInput {
+  title?: string;
+  unit?: string;
+  dailyTarget?: number;
+  visibility?: "PUBLIC" | "FOLLOWERS" | "PRIVATE";
+}
+
 export interface ChallengeMedia {
   objectKey: string;
   url: string;
@@ -276,6 +283,14 @@ export class ApiClient {
 
   async createChallenge(input: CreateChallengeInput): Promise<Challenge> {
     return this.request<Challenge>("POST", "/api/challenges", input);
+  }
+
+  async updateChallenge(id: string, input: UpdateChallengeInput): Promise<Challenge> {
+    return this.request<Challenge>("PATCH", `/api/challenges/${id}`, input);
+  }
+
+  async deleteChallenge(id: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>("DELETE", `/api/challenges/${id}`);
   }
 
   // ─── Activities ───────────────────────────────────────────────────────────
