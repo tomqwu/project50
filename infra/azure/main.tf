@@ -130,10 +130,19 @@ resource "azurerm_storage_account" "media" {
   allow_nested_items_to_be_public = false
   tags                            = module.onboard.tags
 
-  # The web app uploads media via direct browser PUT to SAS URLs, so the Blob
-  # service must allow cross-origin PUT/GET from the app's origins (Azure's
-  # default CORS posture rejects them). Headers cover the SAS PUT contract
-  # (content-type + x-ms-blob-type:BlockBlob).
+  # Soft delete intentionally DISABLED (no delete_retention_policy /
+  # container_delete_retention_policy) so deleteObject is a permanent
+  # hard-erase — required for the GDPR account-deletion contract in
+  # apps/web/lib/storage.ts. Do not enable.
+  #
+  # azurerm has no `enabled = false` form for soft delete: the disabled
+  # state is expressed by OMITTING the retention-policy blocks, so this
+  # block is intentionally left without them.
+  #
+  # The cors_rule is required because the web app uploads media via direct
+  # browser PUT to SAS URLs, so the Blob service must allow cross-origin
+  # PUT/GET from the app's origins (Azure's default CORS posture rejects
+  # them). Headers cover the SAS PUT contract (content-type + x-ms-blob-type).
   blob_properties {
     cors_rule {
       allowed_origins    = ["https://www.project50.fit", "https://project50.fit"]
