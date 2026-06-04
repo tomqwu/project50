@@ -1,6 +1,6 @@
 import { prisma } from "@project50/db";
 import { notFound, unprocessable } from "./http";
-import { deleteObject, deleteUserMedia } from "@/lib/storage";
+import { deleteObject, deleteUserMedia, userMediaPrefix } from "@/lib/storage";
 
 /** Account fields a user can view/edit. */
 export interface Account {
@@ -308,8 +308,21 @@ export async function deleteAccount(uid: string): Promise<void> {
   // below would fail anyway) rather than erase blobs against a broken DB.
   const keys = await collectUserMediaKeys(uid);
 
+  // SECURITY: only ever delete blobs under THIS user's own media prefix. Some
+  // objectKeys are persisted as-supplied (e.g. attachProject50DayMedia), so a
+  // crafted/buggy row could carry a key pointing at another user's media or an
+  // arbitrary bucket path. Skip anything outside media/<uid>/; the prefix sweep
+  // below still removes all of the user's legitimate media regardless.
+  const prefix = userMediaPrefix(uid);
+
   // Delete each known blob; log + continue so one failure can't block erasure.
   for (const key of keys) {
+    if (!key.startsWith(prefix)) {
+      console.warn(
+        `deleteAccount: skipping out-of-prefix media key ${key} for ${uid}`,
+      );
+      continue;
+    }
     try {
       await deleteObject(key);
     } catch (err) {

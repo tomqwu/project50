@@ -5,11 +5,14 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 // Object storage is mocked: this is a DB integration test, and we assert the
 // deletion flow calls into storage with the right keys (no real S3/Azure).
+// userMediaPrefix is the real (pure) implementation so the in-prefix security
+// filter behaves exactly as it does in production.
 const deleteObject = vi.fn().mockResolvedValue(undefined);
 const deleteUserMedia = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/storage", () => ({
   deleteObject: (key: string) => deleteObject(key),
   deleteUserMedia: (uid: string) => deleteUserMedia(uid),
+  userMediaPrefix: (uid: string) => `media/${uid}/`,
 }));
 
 import { prisma, resetDb, createUser } from "../../test/db";
@@ -278,6 +281,51 @@ describe("deleteAccount", () => {
     expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
     // Bob's media row and account are untouched.
     expect(await prisma.recap.count({ where: { challengeId: bobCh.id } })).toBe(1);
+  });
+
+  it("never exact-deletes a DB key outside the user's own media prefix (only in-prefix keys + the sweep)", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    const challenge = await createChallenge(alice.id, { title: "Run" });
+    // A legitimate in-prefix key on one of alice's rows.
+    await prisma.recap.create({
+      data: {
+        challengeId: challenge.id,
+        kind: "DAY",
+        objectKey: `media/${alice.id}/ok.mp4`,
+      },
+    });
+    // A crafted/buggy row on alice's challenge whose objectKey points OUTSIDE
+    // her prefix (another user's media + an arbitrary bucket path).
+    await prisma.recap.create({
+      data: {
+        challengeId: challenge.id,
+        kind: "WEEK",
+        objectKey: `media/${bob.id}/victim.mp4`,
+      },
+    });
+    await prisma.project50DayMedia.create({
+      data: {
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        objectKey: "backups/db.sql",
+        width: 1,
+        height: 1,
+      },
+    });
+
+    await deleteAccount(alice.id);
+
+    // Only the in-prefix key is exact-deleted; the out-of-prefix keys are skipped.
+    const deletedKeys = deleteObject.mock.calls.map((c) => c[0]);
+    expect(deletedKeys).toEqual([`media/${alice.id}/ok.mp4`]);
+    expect(deletedKeys).not.toContain(`media/${bob.id}/victim.mp4`);
+    expect(deletedKeys).not.toContain("backups/db.sql");
+    // The prefix sweep still runs (removes all of alice's legitimate media).
+    expect(deleteUserMedia).toHaveBeenCalledOnce();
+    expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
   });
 
   it("completes (deletes the user + sweeps the prefix) even if a single blob delete throws", async () => {
