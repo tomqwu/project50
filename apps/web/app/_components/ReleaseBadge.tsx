@@ -32,8 +32,11 @@ export function ReleaseBadge() {
         fontFamily: "var(--font-body, system-ui, sans-serif)",
         fontSize: "11px",
         lineHeight: 1.5,
-        color: "var(--muted)",
-        opacity: 0.75,
+        // Dedicated accessible grey: at 11px this is "small text" and must meet
+        // WCAG AA 4.5:1 on --bg (#121013). --muted (#6e6c69) only hits 3.61 at
+        // this size; #8a8783 clears 4.5:1 with margin. No opacity (it degrades
+        // the effective contrast and trips the axe color-contrast check).
+        color: "#8a8783",
       }}
     >
       {releaseUrl ? (
@@ -42,7 +45,7 @@ export function ReleaseBadge() {
           target="_blank"
           rel="noopener noreferrer"
           data-testid="release-badge-link"
-          style={{ color: "var(--muted)", textDecoration: "none" }}
+          style={{ color: "#8a8783", textDecoration: "underline" }}
         >
           {idLine}
         </a>
