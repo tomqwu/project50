@@ -9,5 +9,11 @@
 
 import { registerRootComponent } from "expo";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+import { initCrashReporting } from "./src/lib/crash";
+
+// Env-gated crash/error reporting: initializes Sentry only when
+// EXPO_PUBLIC_SENTRY_DSN is set; a complete no-op otherwise so dev/CI/Expo Go
+// are unaffected.
+initCrashReporting();
 
 registerRootComponent(AppNavigator);

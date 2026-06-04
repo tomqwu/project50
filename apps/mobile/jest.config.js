@@ -52,7 +52,7 @@ const config = {
   // Also exclude `.pnpm` from the stop condition so the second node_modules/ inside .pnpm is checked.
   // Per jest-expo docs: https://docs.expo.dev/develop/unit-testing/#configuration
   transformIgnorePatterns: [
-    "/node_modules/(?!\\.pnpm|((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-screens|react-native-safe-area-context|expo-sharing)",
+    "/node_modules/(?!\\.pnpm|((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|@sentry/react-native|native-base|react-native-svg|react-native-screens|react-native-safe-area-context|expo-sharing)",
     "/node_modules/react-native-reanimated/plugin/",
   ],
 };
