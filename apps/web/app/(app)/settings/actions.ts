@@ -5,6 +5,11 @@ import { requireUser } from "@/lib/session";
 import { signOut } from "@/auth";
 import { HttpError } from "@/lib/api/http";
 import { updateAccount, deleteAccount, type Account } from "@/lib/api/account";
+import {
+  updateNotificationPrefs,
+  type NotificationPrefs,
+  type NotificationPrefsInput,
+} from "@/lib/api/notification-prefs";
 import { withActionLogging } from "@/lib/log-action";
 
 export type UpdateAccountResult =
@@ -30,6 +35,35 @@ export const updateAccountAction = withActionLogging(
     } catch (err) {
       // Expected validation failure: returned (not thrown), so it is not logged
       // as an error. Only genuinely unexpected throws reach withActionLogging.
+      if (err instanceof HttpError) {
+        return { ok: false, error: err.code };
+      }
+      throw err;
+    }
+  },
+);
+
+export type UpdateNotificationPrefsResult =
+  | { ok: true; prefs: NotificationPrefs }
+  | { ok: false; error: string };
+
+/**
+ * Server action invoked by the Notifications settings section. Updates the
+ * signed-in user's reminder/quiet-hours preferences and returns a discriminated
+ * result so the client can render success or a validation error without
+ * throwing across the action boundary.
+ */
+export const updateNotificationPrefsAction = withActionLogging(
+  "updateNotificationPrefsAction",
+  async (
+    input: NotificationPrefsInput,
+  ): Promise<UpdateNotificationPrefsResult> => {
+    const uid = await requireUser();
+    try {
+      const prefs = await updateNotificationPrefs(uid, input);
+      revalidatePath("/settings");
+      return { ok: true, prefs };
+    } catch (err) {
       if (err instanceof HttpError) {
         return { ok: false, error: err.code };
       }

@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+
+vi.mock("@/auth", () => ({ auth: vi.fn() }));
+
 import { prisma, resetDb } from "@/test/db";
 import {
   findUsersNeedingReminder,
@@ -109,6 +112,47 @@ describe("findUsersNeedingReminder", () => {
     await makeRun(b.id);
     const out = await findUsersNeedingReminder(NOW);
     expect(out.map((r) => r.userId).sort()).toEqual([a.id, b.id].sort());
+  });
+});
+
+describe("findUsersNeedingReminder — notification preferences (#122)", () => {
+  it("skips a user who has turned reminders off", async () => {
+    const u = await makeUser();
+    await makeRun(u.id);
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { remindersEnabled: false },
+    });
+    expect(await findUsersNeedingReminder(NOW)).toHaveLength(0);
+  });
+
+  it("skips a user currently within their quiet-hours window", async () => {
+    const u = await makeUser();
+    await makeRun(u.id);
+    // Make NOW's local hour fall inside an all-but-one-hour quiet window so the
+    // test is independent of the host timezone.
+    const localHour = NOW.getHours();
+    const start = localHour;
+    const end = (localHour + 1) % 24;
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { quietHoursStart: start, quietHoursEnd: end },
+    });
+    expect(await findUsersNeedingReminder(NOW)).toHaveLength(0);
+  });
+
+  it("still nudges a user whose quiet-hours window does not cover now", async () => {
+    const u = await makeUser();
+    await makeRun(u.id);
+    const localHour = NOW.getHours();
+    // A 1-hour window starting next hour — excludes the current local hour.
+    const start = (localHour + 1) % 24;
+    const end = (localHour + 2) % 24;
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { quietHoursStart: start, quietHoursEnd: end },
+    });
+    expect(await findUsersNeedingReminder(NOW)).toHaveLength(1);
   });
 });
 

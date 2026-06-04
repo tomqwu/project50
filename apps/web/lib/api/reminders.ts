@@ -21,6 +21,7 @@
 import { prisma } from "@project50/db";
 import { localDayKey, PROJECT50_RULE_IDS } from "@project50/core";
 import { isEmailConfigured, sendEmail } from "@/lib/email";
+import { isWithinQuietHours } from "@/lib/api/notification-prefs";
 import { logger } from "@/lib/logger";
 
 /** Placeholder domain for derived (non-real) recipient addresses. */
@@ -79,6 +80,11 @@ export async function findUsersNeedingReminder(
 
   const recipients: ReminderRecipient[] = [];
   for (const run of runs) {
+    // Respect notification preferences (#122): never nudge a user who has
+    // turned reminders off or who is currently within their quiet-hours window.
+    if (!run.owner.remindersEnabled) continue;
+    if (isWithinQuietHours(run.owner, now)) continue;
+
     const dayKey = localDayKey(now, run.timezone);
     const today = run.dayStatuses.find((ds) => ds.dayKey === dayKey);
     if (today?.completed) continue; // already 7/7 today → no nudge

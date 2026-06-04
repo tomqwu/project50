@@ -4,12 +4,14 @@ const {
   mockRequireUser,
   mockUpdateAccount,
   mockDeleteAccount,
+  mockUpdateNotificationPrefs,
   mockRevalidatePath,
   mockSignOut,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockUpdateAccount: vi.fn(),
   mockDeleteAccount: vi.fn(),
+  mockUpdateNotificationPrefs: vi.fn(),
   mockRevalidatePath: vi.fn(),
   mockSignOut: vi.fn(),
 }));
@@ -20,10 +22,17 @@ vi.mock("@/lib/api/account", () => ({
   updateAccount: mockUpdateAccount,
   deleteAccount: mockDeleteAccount,
 }));
+vi.mock("@/lib/api/notification-prefs", () => ({
+  updateNotificationPrefs: mockUpdateNotificationPrefs,
+}));
 vi.mock("@/auth", () => ({ signOut: mockSignOut }));
 
 import { HttpError } from "@/lib/api/http";
-import { updateAccountAction, deleteAccountAction } from "./actions";
+import {
+  updateAccountAction,
+  deleteAccountAction,
+  updateNotificationPrefsAction,
+} from "./actions";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -80,6 +89,68 @@ describe("updateAccountAction", () => {
       msg: "server action failed",
       scope: "action",
       action: "updateAccountAction",
+      error: { name: "Error", message: "db down" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+  });
+});
+
+describe("updateNotificationPrefsAction", () => {
+  it("updates prefs and revalidates on success", async () => {
+    mockUpdateNotificationPrefs.mockResolvedValue({
+      remindersEnabled: false,
+      quietHoursStart: 22,
+      quietHoursEnd: 7,
+    });
+
+    const result = await updateNotificationPrefsAction({
+      remindersEnabled: false,
+      quietHoursStart: 22,
+      quietHoursEnd: 7,
+    });
+
+    expect(mockUpdateNotificationPrefs).toHaveBeenCalledWith("u1", {
+      remindersEnabled: false,
+      quietHoursStart: 22,
+      quietHoursEnd: 7,
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/settings");
+    expect(result).toEqual({
+      ok: true,
+      prefs: { remindersEnabled: false, quietHoursStart: 22, quietHoursEnd: 7 },
+    });
+  });
+
+  it("returns the error code for an HttpError without logging it as an error", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpdateNotificationPrefs.mockRejectedValue(
+      new HttpError(422, "invalid_quiet_hours"),
+    );
+
+    const result = await updateNotificationPrefsAction({ quietHoursStart: 99 });
+
+    expect(result).toEqual({ ok: false, error: "invalid_quiet_hours" });
+    expect(mockRevalidatePath).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("logs and rethrows unexpected (non-HttpError) errors", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
+    mockUpdateNotificationPrefs.mockRejectedValue(new Error("db down"));
+
+    await expect(
+      updateNotificationPrefsAction({ remindersEnabled: false }),
+    ).rejects.toThrow("db down");
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      scope: "action",
+      action: "updateNotificationPrefsAction",
       error: { name: "Error", message: "db down" },
     });
 
