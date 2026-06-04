@@ -2,9 +2,15 @@
 import { describe, beforeEach, it, expect, afterAll } from "vitest";
 
 import { prisma, resetDb, createUser, createChallenge } from "../../test/db";
-import { getPublicProfile } from "./profile";
+import { clearCache } from "../cache";
+import { getPublicProfile, invalidatePublicProfile } from "./profile";
 
-beforeEach(resetDb);
+beforeEach(async () => {
+  await resetDb();
+  // The public-profile core is cached by handle; clear it so handles reused
+  // across tests (e.g. "alice") never serve a previous test's data.
+  await clearCache();
+});
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -139,5 +145,58 @@ describe("getPublicProfile", () => {
     const result = await getPublicProfile("alice");
 
     expect(result!.challenges).toEqual([]);
+  });
+
+  describe("caching", () => {
+    it("serves the cached public core: a later display-name change is not seen until invalidation", async () => {
+      await createUser({ handle: "alice", displayName: "Alice A" });
+
+      // Prime the cache.
+      const first = await getPublicProfile("alice");
+      expect(first!.displayName).toBe("Alice A");
+
+      // Mutate the DB directly (bypassing any invalidation).
+      await prisma.user.update({
+        where: { handle: "alice" },
+        data: { displayName: "Alice B" },
+      });
+
+      // Still served from cache -> old value.
+      const cachedResult = await getPublicProfile("alice");
+      expect(cachedResult!.displayName).toBe("Alice A");
+
+      // After invalidation the fresh value is returned.
+      await invalidatePublicProfile("alice");
+      const fresh = await getPublicProfile("alice");
+      expect(fresh!.displayName).toBe("Alice B");
+    });
+
+    it("computes isFollowing fresh on every call even when the core is cached", async () => {
+      const alice = await createUser({ handle: "alice" });
+      const bob = await createUser({ handle: "bob" });
+
+      // Prime the cache (no follow yet).
+      const before = await getPublicProfile("alice", bob.id);
+      expect(before!.isFollowing).toBe(false);
+
+      // Create the follow edge after the core was cached.
+      await prisma.follow.create({
+        data: { followerId: bob.id, followeeId: alice.id },
+      });
+
+      // Core is still cached, but isFollowing reflects the new edge.
+      const after = await getPublicProfile("alice", bob.id);
+      expect(after!.isFollowing).toBe(true);
+    });
+
+    it("does not cache a null result for an unknown handle", async () => {
+      // Miss for a not-yet-existing handle.
+      expect(await getPublicProfile("late")).toBeNull();
+
+      // Create the user; the next read must reflect it (null was not cached).
+      await createUser({ handle: "late", displayName: "Late L" });
+      const result = await getPublicProfile("late");
+      expect(result!.displayName).toBe("Late L");
+    });
   });
 });
