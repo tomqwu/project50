@@ -1,0 +1,48 @@
+# NOTE: the image is built from the REPO ROOT with `-f apps/web/Dockerfile`.
+# Docker/BuildKit resolves the ignore file as <dockerfile-path>.dockerignore
+# first, falling back to <context>/.dockerignore. Because this file lives at
+# apps/web/.dockerignore (not the context root), BuildKit picks it up via the
+# `apps/web/Dockerfile.dockerignore` convention only if symlinked; to be safe
+# the Dockerfile copies an explicit, minimal set of files rather than the whole
+# tree, so correctness never depends on this ignore. It still trims the build
+# context to keep builds fast and prevent secrets from entering the daemon.
+#
+# Patterns are relative to the build context (repo root).
+
+# Dependencies — reinstalled inside the image from the lockfile.
+**/node_modules
+
+# Build artifacts — rebuilt inside the image.
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/*.tsbuildinfo
+
+# Local Prisma generated output — regenerated in the build stage.
+**/.prisma
+
+# VCS / CI
+.git
+.github
+
+# Secrets / local env — never bake into the image.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Editor / OS cruft
+**/.DS_Store
+**/.vscode
+**/.idea
+
+# Tests / e2e output not needed at build time
+**/test-results
+**/playwright-report
+
+# Docker
+**/Dockerfile
+**/.dockerignore
+
+# Mobile app — irrelevant to the web image
+apps/mobile

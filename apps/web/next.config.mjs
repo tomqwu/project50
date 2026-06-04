@@ -1,4 +1,12 @@
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+// Monorepo root (two levels up from apps/web). Used as the standalone output
+// file tracing root so the trace reaches sibling workspace packages
+// (@project50/core, @project50/db, @project50/ui, @project50/recap) and the
+// hoisted pnpm store — required for the Docker standalone runner (see Dockerfile).
+const monorepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
  * Resolve release metadata for the in-app ReleaseBadge (see lib/build-info.ts).
@@ -90,6 +98,16 @@ function buildRemotePatterns() {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server bundle (.next/standalone) for the Docker image
+  // so the runner stage needs only Node + the traced files, not the full
+  // node_modules / pnpm store. See apps/web/Dockerfile.
+  output: "standalone",
+  // In a pnpm monorepo the trace must be rooted at the repo root so it follows
+  // workspace dependencies and the hoisted .pnpm store; otherwise the standalone
+  // output is missing the @project50/* packages and their transitive deps.
+  experimental: {
+    outputFileTracingRoot: monorepoRoot,
+  },
   // Inline release metadata (CalVer tag, commit SHA, build time, feature intro)
   // for the in-app ReleaseBadge. Derived from git locally; overridden by the
   // deploy pipeline from the GitHub release.
