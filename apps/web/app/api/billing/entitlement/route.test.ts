@@ -24,15 +24,20 @@ describe("GET /api/billing/entitlement", () => {
 
   it("returns the signed-in user's entitlement", async () => {
     vi.mocked(requireUser).mockResolvedValue("user-1");
+    const end = new Date("2026-09-01T00:00:00.000Z");
     vi.mocked(getEntitlement).mockResolvedValue({
       plan: "premium",
       isPremium: true,
+      status: "TRIALING",
+      currentPeriodEnd: end,
     });
     const res = await GET();
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
       plan: "premium",
       isPremium: true,
+      status: "TRIALING",
+      currentPeriodEnd: end.toISOString(),
     });
     expect(getEntitlement).toHaveBeenCalledWith("user-1");
   });

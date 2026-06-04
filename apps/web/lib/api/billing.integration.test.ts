@@ -12,18 +12,25 @@ vi.mock("@/lib/session", () => ({
 // Mock the stripe SDK so we never hit the network. The default export is the
 // Stripe constructor; each instance exposes the surface billing.ts uses. The
 // mocks live in vi.hoisted() so they exist when the (hoisted) vi.mock factory runs.
-const { createSession, constructEvent, stripeCtor } = vi.hoisted(() => {
+const { createSession, constructEvent, createPortal, stripeCtor } = vi.hoisted(() => {
   const createSession = vi.fn();
   const constructEvent = vi.fn();
+  const createPortal = vi.fn();
   const stripeCtor = vi.fn(() => ({
     checkout: { sessions: { create: createSession } },
+    billingPortal: { sessions: { create: createPortal } },
     webhooks: { constructEvent },
   }));
-  return { createSession, constructEvent, stripeCtor };
+  return { createSession, constructEvent, createPortal, stripeCtor };
 });
 vi.mock("stripe", () => ({ default: stripeCtor }));
 
-import { isBillingConfigured, createCheckoutSession, handleWebhookEvent } from "./billing";
+import {
+  isBillingConfigured,
+  createCheckoutSession,
+  createPortalSession,
+  handleWebhookEvent,
+} from "./billing";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -119,6 +126,101 @@ describe("createCheckoutSession", () => {
     }
     expect(thrown!.status).toBe(502);
     expect(thrown!.code).toBe("checkout_session_no_url");
+  });
+
+  it("omits trial settings by default", async () => {
+    createSession.mockResolvedValue({ url: "https://checkout.stripe/t0" });
+    await createCheckoutSession("u-notrial", "price_x");
+    const arg = createSession.mock.calls[0]![0];
+    expect(arg.subscription_data).toEqual({ metadata: { userId: "u-notrial" } });
+    expect(arg.subscription_data.trial_period_days).toBeUndefined();
+  });
+
+  it("passes trial_period_days to Stripe when a positive trial is requested", async () => {
+    createSession.mockResolvedValue({ url: "https://checkout.stripe/t" });
+    await createCheckoutSession("u-trial", "price_x", { trialPeriodDays: 7 });
+    const arg = createSession.mock.calls[0]![0];
+    expect(arg.subscription_data).toMatchObject({
+      metadata: { userId: "u-trial" },
+      trial_period_days: 7,
+    });
+  });
+
+  it("ignores a non-positive trial (no trial_period_days)", async () => {
+    createSession.mockResolvedValue({ url: "https://checkout.stripe/t2" });
+    await createCheckoutSession("u-trial0", "price_x", { trialPeriodDays: 0 });
+    const arg = createSession.mock.calls[0]![0];
+    expect(arg.subscription_data.trial_period_days).toBeUndefined();
+  });
+});
+
+describe("createPortalSession", () => {
+  it("throws 503 billing_not_configured when no key", async () => {
+    delete process.env.STRIPE_SECRET_KEY;
+    let thrown: HttpError | undefined;
+    try {
+      await createPortalSession("u1");
+    } catch (err) {
+      thrown = err as HttpError;
+    }
+    expect(thrown!.status).toBe(503);
+    expect(thrown!.code).toBe("billing_not_configured");
+    expect(createPortal).not.toHaveBeenCalled();
+  });
+
+  it("throws 409 when the user has no Stripe customer", async () => {
+    const user = await createUser();
+    let thrown: HttpError | undefined;
+    try {
+      await createPortalSession(user.id);
+    } catch (err) {
+      thrown = err as HttpError;
+    }
+    expect(thrown!.status).toBe(409);
+    expect(thrown!.code).toBe("no_billing_customer");
+    expect(createPortal).not.toHaveBeenCalled();
+  });
+
+  it("opens a billing portal for the user's Stripe customer and returns its url", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_portal" },
+    });
+    createPortal.mockResolvedValue({ url: "https://billing.stripe/portal" });
+    const url = await createPortalSession(user.id);
+    expect(url).toBe("https://billing.stripe/portal");
+    const arg = createPortal.mock.calls[0]![0];
+    expect(arg).toMatchObject({
+      customer: "cus_portal",
+      return_url: "https://app.test/settings",
+    });
+  });
+
+  it("falls back to localhost return_url when APP_BASE_URL is unset", async () => {
+    delete process.env.APP_BASE_URL;
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_p2" },
+    });
+    createPortal.mockResolvedValue({ url: "https://billing.stripe/p2" });
+    await createPortalSession(user.id);
+    expect(createPortal.mock.calls[0]![0].return_url).toBe("http://localhost:3000/settings");
+  });
+
+  it("throws 502 when Stripe returns a portal session without a url", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_p3" },
+    });
+    createPortal.mockResolvedValue({ url: null });
+    let thrown: HttpError | undefined;
+    try {
+      await createPortalSession(user.id);
+    } catch (err) {
+      thrown = err as HttpError;
+    }
+    expect(thrown!.status).toBe(502);
+    expect(thrown!.code).toBe("portal_session_no_url");
   });
 });
 

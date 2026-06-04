@@ -43,7 +43,28 @@ describe("POST /api/billing/checkout", () => {
     const res = await POST(postRequest({ priceId: "price_req" }));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ url: "https://pay/x" });
-    expect(createCheckoutSession).toHaveBeenCalledWith("user-1", "price_req");
+    expect(createCheckoutSession).toHaveBeenCalledWith("user-1", "price_req", {
+      trialPeriodDays: undefined,
+    });
+  });
+
+  it("passes a numeric trialPeriodDays through to createCheckoutSession", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user-trial");
+    vi.mocked(createCheckoutSession).mockResolvedValue("https://pay/trial");
+    const res = await POST(postRequest({ priceId: "price_req", trialPeriodDays: 7 }));
+    expect(res.status).toBe(200);
+    expect(createCheckoutSession).toHaveBeenCalledWith("user-trial", "price_req", {
+      trialPeriodDays: 7,
+    });
+  });
+
+  it("ignores a non-numeric trialPeriodDays", async () => {
+    vi.mocked(requireUser).mockResolvedValue("user-badtrial");
+    vi.mocked(createCheckoutSession).mockResolvedValue("https://pay/bt");
+    await POST(postRequest({ priceId: "price_req", trialPeriodDays: "nope" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith("user-badtrial", "price_req", {
+      trialPeriodDays: undefined,
+    });
   });
 
   it("falls back to STRIPE_PRICE_ID when body omits priceId", async () => {
@@ -52,7 +73,9 @@ describe("POST /api/billing/checkout", () => {
     vi.mocked(createCheckoutSession).mockResolvedValue("https://pay/y");
     const res = await POST(postRequest({}));
     expect(res.status).toBe(200);
-    expect(createCheckoutSession).toHaveBeenCalledWith("user-2", "price_env");
+    expect(createCheckoutSession).toHaveBeenCalledWith("user-2", "price_env", {
+      trialPeriodDays: undefined,
+    });
   });
 
   it("tolerates a missing/non-JSON body and uses the env price", async () => {
@@ -61,7 +84,9 @@ describe("POST /api/billing/checkout", () => {
     vi.mocked(createCheckoutSession).mockResolvedValue("https://pay/z");
     const res = await POST(postRequest());
     expect(res.status).toBe(200);
-    expect(createCheckoutSession).toHaveBeenCalledWith("user-2b", "price_env");
+    expect(createCheckoutSession).toHaveBeenCalledWith("user-2b", "price_env", {
+      trialPeriodDays: undefined,
+    });
   });
 
   it("returns 422 when no priceId is available", async () => {

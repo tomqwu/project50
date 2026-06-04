@@ -46,25 +46,77 @@ function getStripe(): Stripe {
   return new Stripe(key);
 }
 
+/** Options for {@link createCheckoutSession}. */
+export interface CheckoutOptions {
+  /**
+   * Length of a free trial to grant on the new subscription, in days. When
+   * provided and positive, it is passed straight through to Stripe as
+   * `subscription_data.trial_period_days` so Checkout starts the subscription in
+   * a trial (status `trialing`). Omitted / non-positive values start billing
+   * immediately. Safe by default: no trial unless explicitly requested.
+   */
+  trialPeriodDays?: number;
+}
+
 /**
  * Create a Stripe Checkout session for `uid` to subscribe to `priceId` and
  * return its hosted URL. The user id is stashed in `client_reference_id` and
  * subscription metadata so the webhook can attribute the resulting subscription
- * back to the user. Throws 503 when billing is not configured.
+ * back to the user. Optionally starts the subscription with a free trial via
+ * `opts.trialPeriodDays`. Throws 503 when billing is not configured.
  */
-export async function createCheckoutSession(uid: string, priceId: string): Promise<string> {
+export async function createCheckoutSession(
+  uid: string,
+  priceId: string,
+  opts: CheckoutOptions = {},
+): Promise<string> {
   const stripe = getStripe();
   const appUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
+    metadata: { userId: uid },
+  };
+  // Only attach a trial when explicitly requested with a positive day count.
+  if (typeof opts.trialPeriodDays === "number" && opts.trialPeriodDays > 0) {
+    subscriptionData.trial_period_days = opts.trialPeriodDays;
+  }
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: uid,
-    subscription_data: { metadata: { userId: uid } },
+    subscription_data: subscriptionData,
     success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/billing/cancel`,
   });
   if (!session.url) {
     throw new HttpError(502, "checkout_session_no_url");
+  }
+  return session.url;
+}
+
+/**
+ * Open a Stripe Billing Portal session for `uid` and return its hosted URL, so
+ * the user can manage / cancel their subscription and update payment methods.
+ * Resolves the user's Stripe customer from their local Subscription row.
+ * Throws 503 when billing is not configured, 409 "no_billing_customer" when the
+ * user has no Stripe customer yet, and 502 if Stripe returns no URL.
+ */
+export async function createPortalSession(uid: string): Promise<string> {
+  const stripe = getStripe();
+  const sub = await prisma.subscription.findUnique({
+    where: { userId: uid },
+    select: { stripeCustomerId: true },
+  });
+  const customerId = sub?.stripeCustomerId;
+  if (!customerId) {
+    throw new HttpError(409, "no_billing_customer");
+  }
+  const appUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const session = await stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${appUrl}/settings`,
+  });
+  if (!session.url) {
+    throw new HttpError(502, "portal_session_no_url");
   }
   return session.url;
 }
