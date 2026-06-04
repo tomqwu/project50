@@ -70,6 +70,16 @@ describe("Landing", () => {
     expect(screen.getByTestId("signin-e2e")).toBeInTheDocument();
   });
 
+  it("does NOT render the email form when emailEnabled is false (default)", () => {
+    render(<Landing />);
+    expect(screen.queryByTestId("signin-email-form")).toBeNull();
+  });
+
+  it("renders the email form when emailEnabled is true", () => {
+    render(<Landing emailEnabled />);
+    expect(screen.getByTestId("signin-email-form")).toBeInTheDocument();
+  });
+
   it("renders a 'How Project 50 works' link to /welcome in the sign-in card", () => {
     render(<Landing />);
     const link = screen.getByTestId("landing-how-it-works");

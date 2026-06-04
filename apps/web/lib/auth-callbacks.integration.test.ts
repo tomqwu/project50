@@ -178,6 +178,19 @@ describe("onSignIn — OAuth creates User + Identity", () => {
     expect(user.id).toBeUndefined(); // user.id not touched
   });
 
+  it("returns true WITHOUT creating an Identity for provider 'magic-link'", async () => {
+    const user = makeUser({ name: "Magic User" });
+    const account = makeAccount("magic-link", "ignored");
+
+    const result = await onSignIn({ user, account });
+    expect(result).toBe(true);
+
+    // The user was already resolved in authorize(); onSignIn must not create
+    // an Identity row or mutate user.id.
+    expect(await prisma.identity.count()).toBe(0);
+    expect(user.id).toBeUndefined();
+  });
+
   it("returns true WITHOUT touching DB when account is null", async () => {
     const user = makeUser();
     const result = await onSignIn({ user, account: null });

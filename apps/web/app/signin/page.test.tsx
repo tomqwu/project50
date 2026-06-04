@@ -41,6 +41,20 @@ describe("SignInPage", () => {
     expect(screen.getByTestId("signin-e2e")).toBeInTheDocument();
   });
 
+  it("does NOT render the email form when email is unconfigured", () => {
+    delete process.env.RESEND_API_KEY;
+    delete process.env.EMAIL_FROM;
+    render(<SignInPage />);
+    expect(screen.queryByTestId("signin-email-form")).toBeNull();
+  });
+
+  it("renders the email form when RESEND_API_KEY and EMAIL_FROM are set", () => {
+    process.env.RESEND_API_KEY = "re_x";
+    process.env.EMAIL_FROM = "a@b.co";
+    render(<SignInPage />);
+    expect(screen.getByTestId("signin-email-form")).toBeInTheDocument();
+  });
+
   it("renders the value proposition", () => {
     render(<SignInPage />);
     expect(screen.getByTestId("landing-value-prop")).toHaveTextContent(

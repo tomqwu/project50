@@ -64,6 +64,10 @@ enum SubscriptionStatus {
 model User {
   id               String        @id @default(cuid())
   handle           String        @unique
+  // Optional email, set when a user signs in via the email magic-link flow
+  // (#50). Unique so a given address maps to exactly one account; nullable so
+  // existing OAuth/e2e users (which never had an email column) stay valid.
+  email            String?       @unique
   displayName      String
   avatarUrl        String?
   isAdmin          Boolean       @default(false)
@@ -92,6 +96,25 @@ model User {
   remindersEnabled Boolean       @default(true)
   quietHoursStart  Int?
   quietHoursEnd    Int?
+}
+
+/// Single-use email magic-link sign-in tokens (#50). A request stores the SHA-256
+/// hash of a random token (never the raw token) with a short TTL; verification
+/// looks the hash up, checks it is unexpired and unused, and stamps `usedAt` so
+/// it cannot be replayed. Rows are env-gated: created only when email is
+/// configured, and safe to leave for OAuth/e2e-only deployments (the table is
+/// simply never written).
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Housekeeping: prune expired/old tokens and look up a user's pending links.
+  @@index([email])
+  @@index([expiresAt])
 }
 
 model Block {

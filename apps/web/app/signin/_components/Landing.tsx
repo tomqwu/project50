@@ -5,9 +5,10 @@ import { HowItWorksStrip, BenefitsGrid } from "./LandingSections";
 
 interface LandingProps {
   e2eEnabled?: boolean;
+  emailEnabled?: boolean;
 }
 
-export function Landing({ e2eEnabled = false }: LandingProps) {
+export function Landing({ e2eEnabled = false, emailEnabled = false }: LandingProps) {
   return (
     <div
       style={{
@@ -172,7 +173,7 @@ export function Landing({ e2eEnabled = false }: LandingProps) {
           >
             Create your free account and start Day 1 today.
           </p>
-          <SignInButtons e2eEnabled={e2eEnabled} />
+          <SignInButtons e2eEnabled={e2eEnabled} emailEnabled={emailEnabled} />
           <p
             style={{
               fontFamily: "var(--font-body, system-ui, sans-serif)",
