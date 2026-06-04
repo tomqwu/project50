@@ -53,22 +53,31 @@ enum ChallengeStatus {
   COMPLETED
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  NONE
+}
+
 model User {
-  id             String      @id @default(cuid())
-  handle         String      @unique
+  id             String        @id @default(cuid())
+  handle         String        @unique
   displayName    String
   avatarUrl      String?
-  isAdmin        Boolean     @default(false)
-  createdAt      DateTime    @default(now())
+  isAdmin        Boolean       @default(false)
+  createdAt      DateTime      @default(now())
   identities     Identity[]
   challenges     Challenge[]
   activities     Activity[]
   reactions      Reaction[]
-  following      Follow[]    @relation("follower")
-  followers      Follow[]    @relation("followee")
-  blocksMade     Block[]     @relation("BlocksMade")
-  blocksReceived Block[]     @relation("BlocksReceived")
+  following      Follow[]      @relation("follower")
+  followers      Follow[]      @relation("followee")
+  blocksMade     Block[]       @relation("BlocksMade")
+  blocksReceived Block[]       @relation("BlocksReceived")
   reports        Report[]
+  subscription   Subscription?
 }
 
 model Block {
@@ -239,4 +248,17 @@ model RuleCheck {
 
   @@unique([challengeId, dayKey, ruleId])
   @@index([challengeId, dayKey])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  status               SubscriptionStatus @default(NONE)
+  plan                 String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 }
