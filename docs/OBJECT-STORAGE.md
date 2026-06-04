@@ -88,7 +88,8 @@ grants time-limited access via **presigned URLs**; the CDN reads the origin via
 **Origin Access Control** (CloudFront) or a proxied custom domain (R2/CF).
 
 **Least-privilege IAM policy for the app identity** (S3) — read/write objects in
-the bucket, plus `HeadBucket` for the readiness check (drop `CreateBucket` once
+the bucket, **delete objects (incl. all versions) for GDPR account-deletion
+erasure**, plus `HeadBucket` for the readiness check (drop `CreateBucket` once
 the bucket is pre-created):
 
 ```json
@@ -96,25 +97,39 @@ the bucket is pre-created):
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AppObjectRW",
+      "Sid": "AppObjectRWDelete",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
       "Resource": "arn:aws:s3:::project50-media-prod/*"
     },
     {
-      "Sid": "AppBucketHead",
+      "Sid": "AppBucketHeadAndListVersions",
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:aws:s3:::project50-media-prod"
     }
   ]
 }
 ```
 
-> `HeadBucket` is authorized by `s3:ListBucket` on the bucket ARN. The app does
-> **not** need `s3:DeleteObject` (media is immutable) — omit it to limit blast
-> radius. If you keep `ensureBucket()` self-heal, also grant `s3:CreateBucket`;
-> pre-creating the bucket is preferred so you can drop it.
+> `HeadBucket` is authorized by `s3:ListBucket` on the bucket ARN. If you keep
+> `ensureBucket()` self-heal, also grant `s3:CreateBucket`; pre-creating the
+> bucket is preferred so you can drop it.
+>
+> **The delete + version permissions are REQUIRED for GDPR account-deletion
+> erasure** (`deleteUserMedia` / `deleteObject` in `apps/web/lib/storage.ts`).
+> On a versioned bucket (recommended below), the app enumerates object versions
+> via **`s3:ListBucketVersions`** and removes every version + delete marker via
+> **`s3:DeleteObjectVersion`** (plus **`s3:DeleteObject`** for the current
+> object); `s3:GetObject`/`s3:PutObject`/`s3:ListBucket` alone are not enough.
+> Omitting them does **not** surface as a hard error — account deletion logs the
+> AccessDenied and still completes — so the user's media would silently survive,
+> breaking the erasure promise. Do not drop them.
 
 ## CORS — direct browser PUT uploads
 

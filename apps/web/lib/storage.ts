@@ -382,8 +382,16 @@ export async function checkStorage(): Promise<boolean> {
  * non-versioned bucket the listing returns just the current objects (each with
  * VersionId "null"), so behavior is unchanged. Per-key failures surface via the
  * DeleteObjects `Errors` array. Safe no-op when nothing is listed.
+ *
+ * `exactKey`: when set, only versions whose Key is EXACTLY this string are
+ * deleted. S3 prefixes are not exact, so listing under `media/u1/photo.jpg`
+ * also returns siblings like `media/u1/photo.jpg.thumb`; the exact-key path
+ * (deleteObject) passes `exactKey` to avoid over-deleting those neighbors.
  */
-async function s3DeleteAllVersionsUnder(prefix: string): Promise<void> {
+async function s3DeleteAllVersionsUnder(
+  prefix: string,
+  exactKey?: string,
+): Promise<void> {
   const client = getClient();
   const bucket = getBucket();
   let keyMarker: string | undefined;
@@ -400,6 +408,8 @@ async function s3DeleteAllVersionsUnder(prefix: string): Promise<void> {
     // Both live versions and delete markers must be removed to erase the object.
     const objects = [...(listed.Versions ?? []), ...(listed.DeleteMarkers ?? [])]
       .filter((v): v is { Key: string; VersionId?: string } => Boolean(v.Key))
+      // For the exact-key path, drop prefix siblings (e.g. "<key>.thumb").
+      .filter((v) => exactKey === undefined || v.Key === exactKey)
       .map((v) => ({ Key: v.Key, VersionId: v.VersionId }));
     if (objects.length > 0) {
       const result = await client.send(
@@ -450,9 +460,9 @@ export async function deleteObject(objectKey: string): Promise<void> {
       });
     return;
   }
-  // ListObjectVersions Prefix is a literal prefix; the exact key is its own
-  // prefix, and on a non-versioned bucket this returns the single current key.
-  await s3DeleteAllVersionsUnder(objectKey);
+  // List under the key (S3 Prefix is not exact) but delete ONLY that exact
+  // key's versions — never prefix siblings like "<objectKey>.thumb".
+  await s3DeleteAllVersionsUnder(objectKey, objectKey);
 }
 
 /**

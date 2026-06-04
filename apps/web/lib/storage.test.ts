@@ -476,6 +476,42 @@ describe("deleteObject (S3 backend)", () => {
     ]);
   });
 
+  it("deletes ONLY the exact key, never prefix siblings like '<key>.thumb'", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        // S3 Prefix isn't exact, so the listing also returns a sibling whose
+        // key merely starts with the requested key. It must NOT be deleted.
+        Versions: [
+          { Key: "media/u1/photo.jpg", VersionId: "v1" },
+          { Key: "media/u1/photo.jpg.thumb", VersionId: "v1" },
+        ],
+        DeleteMarkers: [
+          { Key: "media/u1/photo.jpg.thumb", VersionId: "dm1" },
+        ],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({});
+    await deleteObject("media/u1/photo.jpg");
+
+    const [delCmd] = mockSend.mock.calls[1] as [
+      { Delete?: { Objects?: Array<{ Key: string; VersionId?: string }> } },
+    ];
+    // Only the exact key's version — the sibling's version + delete marker are kept.
+    expect(delCmd.Delete?.Objects).toEqual([
+      { Key: "media/u1/photo.jpg", VersionId: "v1" },
+    ]);
+  });
+
+  it("is a no-op (no DeleteObjects) when only prefix siblings match the exact key", async () => {
+    mockSend.mockResolvedValueOnce({
+      Versions: [{ Key: "media/u1/photo.jpg.thumb", VersionId: "v1" }],
+      IsTruncated: false,
+    });
+    await expect(deleteObject("media/u1/photo.jpg")).resolves.toBeUndefined();
+    // After filtering out the sibling there's nothing to delete.
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
   it("is a no-op when the key has no versions", async () => {
     mockSend.mockResolvedValueOnce({ Versions: [], IsTruncated: false });
     await expect(deleteObject("k")).resolves.toBeUndefined();
