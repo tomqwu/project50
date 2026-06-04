@@ -1,5 +1,18 @@
 # project50
 
+[![CI](https://github.com/tomqwu/project50/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tomqwu/project50/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tomqwu/project50?sort=semver&label=release)](https://github.com/tomqwu/project50/releases)
+[![Live](https://img.shields.io/website?url=https%3A%2F%2Fwww.project50.fit&label=www.project50.fit&up_message=online&down_message=offline)](https://www.project50.fit)
+![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
+
+![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-Postgres-2D3748?logo=prisma&logoColor=white)
+![Auth.js](https://img.shields.io/badge/Auth.js-v5-000?logo=auth0&logoColor=white)
+![Expo](https://img.shields.io/badge/Expo-SDK%2052-000?logo=expo&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
+![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform&logoColor=white)
+
 A social progress-tracking app built around **50-day challenges** — track your daily
 progress, follow friends, and celebrate milestones with shareable cards. Eventual
 integrations: Facebook, Instagram, WeChat.
