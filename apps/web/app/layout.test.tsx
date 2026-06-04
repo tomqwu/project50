@@ -30,6 +30,33 @@ import RootLayout, { metadata, viewport } from "./layout";
 describe("RootLayout", () => {
   it("exposes page metadata", () => {
     expect(metadata.title).toBe("project50");
+    expect(metadata.description).toBe("50-day challenges");
+  });
+
+  it("sets a metadataBase for absolute OG/Twitter URLs", () => {
+    expect(metadata.metadataBase).toBeInstanceOf(URL);
+  });
+
+  it("declares an Open Graph card pointing at the default OG image", () => {
+    const og = metadata.openGraph;
+    expect(og?.title).toBe("project50");
+    const images = og?.images as Array<{
+      url: string;
+      width: number;
+      height: number;
+    }>;
+    expect(images[0]?.url).toBe("/opengraph-image");
+    expect(images[0]?.width).toBe(1200);
+    expect(images[0]?.height).toBe(630);
+  });
+
+  it("declares a summary_large_image Twitter card", () => {
+    const tw = metadata.twitter as {
+      card?: string;
+      images?: string[];
+    };
+    expect(tw?.card).toBe("summary_large_image");
+    expect(tw?.images?.[0]).toBe("/twitter-image");
   });
 
   it("sets a mobile-friendly viewport (device-width, initial-scale 1)", () => {
