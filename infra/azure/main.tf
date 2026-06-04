@@ -16,6 +16,7 @@ terraform {
   required_providers {
     azurerm = { source = "hashicorp/azurerm", version = "~> 4.0" }
     random  = { source = "hashicorp/random", version = "~> 3.6" }
+    time    = { source = "hashicorp/time", version = "~> 0.12" }
   }
   backend "azurerm" {
     resource_group_name  = "rg-alz-tfstate"
@@ -136,8 +137,29 @@ resource "azurerm_storage_container" "media" {
   container_access_type = "private"
 }
 
+# ── Deployer Key Vault access ───────────────────────────────────────────────
+# The principal running `terraform apply` needs to WRITE secrets into the
+# RBAC-mode per-app Key Vault. The onboard module grants the app's UAMI read
+# access, but not the deployer — so grant it here (captured in code, not a
+# manual `az role assignment`), then wait for RBAC to propagate before the
+# secret writes below (data-plane RBAC is eventually-consistent — without the
+# wait the first apply races the grant and 403s).
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_role_assignment" "deployer_kv_secrets" {
+  scope                = module.onboard.key_vault_id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "time_sleep" "kv_rbac_propagation" {
+  depends_on      = [azurerm_role_assignment.deployer_kv_secrets]
+  create_duration = "60s"
+}
+
 # ── Secrets in Key Vault (UAMI already has Key Vault Secrets User via onboard)
 resource "azurerm_key_vault_secret" "database_url" {
+  depends_on = [time_sleep.kv_rbac_propagation]
   name = "database-url"
   value = format(
     "postgresql://%s:%s@%s:5432/%s?sslmode=require",
