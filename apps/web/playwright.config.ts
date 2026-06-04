@@ -2,6 +2,20 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // Visual-regression defaults (see e2e/visual.spec.ts). Baselines are
+  // linux-rendered (mcr.microsoft.com/playwright:v1.60.0-jammy) to match CI's
+  // ubuntu Chromium. A small maxDiffPixelRatio absorbs sub-pixel font-hinting
+  // noise; animations are frozen so transitions never flake a snapshot.
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.02,
+      animations: "disabled",
+    },
+  },
+  // Drop the OS suffix Playwright appends by default ("-linux"/"-darwin") so the
+  // committed baseline name is stable; baselines are generated in the linux
+  // container regardless of where the spec is invoked from.
+  snapshotPathTemplate: "{testDir}/{testFileDir}/__screenshots__/{arg}{ext}",
   use: {
     baseURL: "http://localhost:3000",
     // Pre-seed cookie consent: the consent banner is fixed at the bottom of the
