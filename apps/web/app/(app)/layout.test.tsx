@@ -64,12 +64,28 @@ describe("AppLayout", () => {
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
   });
 
+  it("lets the primary nav row wrap so its links don't overflow narrow screens", async () => {
+    const ui = await AppLayout({ children: <div /> });
+    render(ui);
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    const row = nav.querySelector("div");
+    expect(row).not.toBeNull();
+    expect(row).toHaveStyle({ flexWrap: "wrap" });
+  });
+
   it("renders a main landmark with id=main as the skip-link target", async () => {
     const ui = await AppLayout({ children: <div data-testid="child">page</div> });
     render(ui);
     const main = screen.getByRole("main");
     expect(main).toHaveAttribute("id", "main");
     expect(main).toContainElement(screen.getByTestId("child"));
+  });
+
+  it("gives the main content column horizontal padding so content never touches the screen edge on mobile", async () => {
+    const ui = await AppLayout({ children: <div /> });
+    render(ui);
+    const main = screen.getByRole("main");
+    expect(main).toHaveStyle({ paddingLeft: "16px", paddingRight: "16px" });
   });
 
   it("renders a skip-to-content link as the first focusable element", async () => {
