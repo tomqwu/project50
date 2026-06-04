@@ -78,6 +78,13 @@ model User {
   blocksReceived Block[]       @relation("BlocksReceived")
   reports        Report[]
   subscription   Subscription?
+  // Stable, per-user share code for the referral program (#127). Lazily
+  // populated by getOrCreateReferralCode; nullable so existing rows are valid.
+  referralCode   String?       @unique
+  // Referrals this user initiated (people they brought in).
+  referralsMade  Referral[]    @relation("ReferrerReferrals")
+  // The single referral that brought this user in, if any.
+  referredBy     Referral?     @relation("ReferredUser")
 }
 
 model Block {
@@ -261,4 +268,21 @@ model Subscription {
   currentPeriodEnd     DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
+}
+
+/// Referral program (#127): records that `referredUser` signed up via
+/// `referrer`'s code. `referredUserId` is unique so a user can be referred at
+/// most once; `code` captures the referrer's code at claim time. Cascades on
+/// either user's deletion.
+model Referral {
+  id             String   @id @default(cuid())
+  referrerId     String
+  referrer       User     @relation("ReferrerReferrals", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUserId String   @unique
+  referredUser   User     @relation("ReferredUser", fields: [referredUserId], references: [id], onDelete: Cascade)
+  code           String
+  createdAt      DateTime @default(now())
+
+  // Counting / listing a referrer's referrals, plus cascade on the referrer.
+  @@index([referrerId])
 }
