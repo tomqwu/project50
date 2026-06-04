@@ -168,9 +168,28 @@ resource "time_sleep" "kv_rbac_propagation" {
 }
 
 # ── Secrets in Key Vault (UAMI already has Key Vault Secrets User via onboard)
+# The APP connects as the least-privilege "p50app" role (CRUD on public schema,
+# NOT a superuser/owner). The role + grants are created by the SQL bootstrap in
+# infra/azure/sql/app-role.sql (run by the deployer as admin — the postgresql TF
+# provider can't reach the firewalled Azure DB at plan-time). var.app_db_password
+# is the password set there; it lives in Key Vault, not in TF state.
 resource "azurerm_key_vault_secret" "database_url" {
   depends_on = [time_sleep.kv_rbac_propagation]
   name       = "database-url"
+  value = format(
+    "postgresql://p50app:%s@%s:5432/%s?sslmode=require",
+    urlencode(var.app_db_password),
+    azurerm_postgresql_flexible_server.db.fqdn,
+    azurerm_postgresql_flexible_server_database.app.name,
+  )
+  key_vault_id = module.onboard.key_vault_id
+}
+
+# Admin connection — used ONLY by the deployer for `prisma migrate deploy` and
+# the role bootstrap, never by the running app. Kept in Key Vault for the runbook.
+resource "azurerm_key_vault_secret" "database_url_admin" {
+  depends_on = [time_sleep.kv_rbac_propagation]
+  name       = "database-url-admin"
   value = format(
     "postgresql://%s:%s@%s:5432/%s?sslmode=require",
     var.db_admin_login,
