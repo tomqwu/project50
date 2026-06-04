@@ -1,7 +1,76 @@
+/**
+ * Build the allow-list of remote image hosts for next/image optimization.
+ *
+ * Media in Project 50 lives in object storage (MinIO in dev/staging, S3 +
+ * CDN in prod). The public base URL is configured via S3_PUBLIC_URL (falling
+ * back to S3_ENDPOINT — see lib/storage.ts and .env.example). We derive the
+ * remotePattern from whichever is set so next/image can be pointed at the CDN
+ * host without code changes: just set S3_PUBLIC_URL to the CDN origin.
+ *
+ * NOTE: today's rendered media uses short-lived *presigned* GET URLs (5 min,
+ * query-signed — see lib/api/media.ts / lib/api/recap.ts), which are NOT good
+ * candidates for next/image (the signature query string makes the optimizer
+ * cache key churn on every request, and the URLs expire). Those remain raw
+ * <img>; see docs/CDN.md. This allow-list is here so that (a) any non-signed,
+ * CDN-served public media and (b) a future migration to public CDN URLs can
+ * use next/image without further config.
+ *
+ * @returns {NonNullable<import('next').NextConfig['images']>['remotePatterns']}
+ */
+function buildRemotePatterns() {
+  const origins = [
+    process.env.S3_PUBLIC_URL,
+    process.env.S3_ENDPOINT,
+    // Local MinIO default (matches lib/storage.ts fallback) so dev works
+    // out of the box with no env configured.
+    "http://localhost:9000",
+  ].filter(Boolean);
+
+  /** @type {NonNullable<NonNullable<import('next').NextConfig['images']>['remotePatterns']>} */
+  const patterns = [];
+  const seen = new Set();
+  for (const origin of origins) {
+    let url;
+    try {
+      url = new URL(origin);
+    } catch {
+      // Skip malformed origins rather than failing the build.
+      continue;
+    }
+    const protocol = url.protocol.replace(":", "");
+    if (protocol !== "http" && protocol !== "https") continue;
+    const key = `${protocol}//${url.hostname}:${url.port}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    patterns.push({
+      protocol,
+      hostname: url.hostname,
+      ...(url.port ? { port: url.port } : {}),
+      pathname: "/**",
+    });
+  }
+  return patterns;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@project50/core", "@project50/db", "@project50/recap", "@project50/ui"],
+  images: {
+    // Prefer modern formats; Next negotiates per Accept header and falls back.
+    formats: ["image/avif", "image/webp"],
+    // Allow next/image to optimize media served from the object-store/CDN
+    // origin(s). Env-driven (S3_PUBLIC_URL / S3_ENDPOINT) with a localhost
+    // MinIO default for dev.
+    remotePatterns: buildRemotePatterns(),
+    // Sensible responsive breakpoints. deviceSizes drives `sizes`-based
+    // srcset for full-width images; imageSizes covers fixed-size thumbnails.
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    // Cache optimized images at the Next layer for 24h; the CDN in front of
+    // the app provides the durable edge cache — see docs/CDN.md.
+    minimumCacheTTL: 60 * 60 * 24,
+  },
   webpack(config, { isServer }) {
     // ESM-first packages (like @project50/recap) use .js extensions in source imports.
     // Tell webpack to also look for .tsx/.ts when resolving .js for transpiled packages.
