@@ -19,10 +19,12 @@ interface Props {
   onRestart: () => void;
   /** Persist an uploaded photo against today (objectKey already PUT to storage). */
   onAttachMedia?: (objectKey: string, width: number, height: number) => void;
-  /** Persist today's journal (wins + lessons) for the active run. */
-  onSaveJournal?: (wins: string, lessons: string) => void;
-  /** True while a journal save server action is in flight. */
-  savingJournal?: boolean;
+  /**
+   * Persist today's journal (wins + lessons) for the active run. Resolves only on
+   * a successful save (and rejects on failure) so the editor can gate its
+   * "Saved" confirmation on the real outcome.
+   */
+  onSaveJournal?: (wins: string, lessons: string) => Promise<void>;
   /** Injectable for testing — defaults to readImageDimensions. */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
@@ -204,7 +206,6 @@ export function Project50View({
   onRestart,
   onAttachMedia,
   onSaveJournal,
-  savingJournal,
   readDimensions,
 }: Props) {
   const [openHelpId, setOpenHelpId] = useState<number | null>(null);
@@ -391,8 +392,7 @@ export function Project50View({
       />
       <DayJournalSection
         journal={today.journal}
-        onSave={(wins, lessons) => onSaveJournal?.(wins, lessons)}
-        pending={savingJournal}
+        onSave={(wins, lessons) => onSaveJournal?.(wins, lessons) ?? Promise.resolve()}
       />
       <Project50Calendar days={state.history?.days ?? []} />
     </div>

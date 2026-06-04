@@ -31,7 +31,7 @@ vi.mock("./Project50View", () => ({
     onRestart: () => void;
     onToggle: (id: number, done: boolean) => void;
     onAttachMedia?: (objectKey: string, width: number, height: number) => void;
-    onSaveJournal?: (wins: string, lessons: string) => void;
+    onSaveJournal?: (wins: string, lessons: string) => Promise<void> | void;
   }) => (
     <div>
       <button data-testid="start" onClick={onStart}>start</button>
@@ -57,6 +57,7 @@ beforeEach(() => {
   toggleAction.mockReset();
   attachAction.mockReset();
   saveJournalAction.mockReset();
+  saveJournalAction.mockResolvedValue(undefined);
 });
 
 afterEach(() => cleanup());

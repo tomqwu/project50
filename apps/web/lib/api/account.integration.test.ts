@@ -271,6 +271,14 @@ describe("exportAccountData", () => {
         done: true,
       },
     });
+    await prisma.dayJournal.create({
+      data: {
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        wins: "ran 5k",
+        lessons: "start earlier",
+      },
+    });
     await prisma.reaction.create({
       data: {
         activityId: activity.id,
@@ -320,6 +328,16 @@ describe("exportAccountData", () => {
         dayKey: "2026-06-01",
         ruleId: 1,
         done: true,
+        createdAt: expect.any(String),
+      },
+    ]);
+    expect(c.dayJournals).toEqual([
+      {
+        id: expect.any(String),
+        dayKey: "2026-06-01",
+        wins: "ran 5k",
+        lessons: "start earlier",
+        updatedAt: expect.any(String),
         createdAt: expect.any(String),
       },
     ]);

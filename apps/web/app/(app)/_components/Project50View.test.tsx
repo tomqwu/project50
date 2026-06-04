@@ -427,8 +427,8 @@ describe("Project50View — today's photo section", () => {
     expect(onAttachMedia).not.toHaveBeenCalled();
   });
 
-  it("renders the journal editor, prefilled, and Save threads through onSaveJournal", () => {
-    const onSaveJournal = vi.fn();
+  it("renders the journal editor, prefilled, and Save threads through onSaveJournal", async () => {
+    const onSaveJournal = vi.fn().mockResolvedValue(undefined);
     const state = activeStateWithMedia([]);
     state.today!.journal = { wins: "ran 5k", lessons: "earlier" };
     render(
@@ -442,9 +442,11 @@ describe("Project50View — today's photo section", () => {
     expect((screen.getByLabelText(/today's wins/i) as HTMLTextAreaElement).value).toBe("ran 5k");
     fireEvent.click(screen.getByTestId("journal-save"));
     expect(onSaveJournal).toHaveBeenCalledWith("ran 5k", "earlier");
+    // confirmation only after the (resolved) save
+    expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
   });
 
-  it("Save is a no-op (no throw) when onSaveJournal is not provided", () => {
+  it("Save is a no-op that still confirms when onSaveJournal is not provided", async () => {
     render(
       <Project50View
         state={activeStateWithMedia([])}
@@ -452,7 +454,7 @@ describe("Project50View — today's photo section", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("journal-save"));
-    expect(screen.getByTestId("journal-saved")).toBeInTheDocument();
+    expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
   });
 
   it("uploads successfully even when onAttachMedia is not provided (optional callback)", async () => {

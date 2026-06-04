@@ -5,10 +5,11 @@ import { useState } from "react";
 interface Props {
   /** Today's saved journal, if any — used to prefill the editor. */
   journal?: { wins: string; lessons: string };
-  /** Persist the current wins + lessons (server action round-trip). */
-  onSave: (wins: string, lessons: string) => void;
-  /** True while the save server action is in flight — disables the button. */
-  pending?: boolean;
+  /**
+   * Persist the current wins + lessons. Must resolve only once the save has
+   * succeeded and reject if it fails — the "Saved" confirmation is gated on it.
+   */
+  onSave: (wins: string, lessons: string) => Promise<void>;
 }
 
 const textareaStyle: React.CSSProperties = {
@@ -37,24 +38,37 @@ const labelStyle: React.CSSProperties = {
 /**
  * Per-day journal editor for the Project 50 check-in (rule #7 "Track progress").
  * Two labelled textareas — today's wins and what the user learned — with an
- * explicit Save button that shows a "Saved" confirmation. Prefilled from
- * `today.journal`; the confirmation clears on the next edit.
+ * explicit Save button. The "✓ Saved" confirmation is shown ONLY after the save
+ * resolves successfully; a rejected save surfaces an error instead. Prefilled
+ * from `today.journal`; the confirmation/error clear on the next edit.
  */
-export function DayJournalSection({ journal, onSave, pending = false }: Props) {
+export function DayJournalSection({ journal, onSave }: Props) {
   const [wins, setWins] = useState(journal?.wins ?? "");
   const [lessons, setLessons] = useState(journal?.lessons ?? "");
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(false);
 
   function edit(setter: (v: string) => void) {
     return (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setter(e.target.value);
       setSaved(false);
+      setError(false);
     };
   }
 
-  function handleSave() {
-    onSave(wins, lessons);
-    setSaved(true);
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    setError(false);
+    try {
+      await onSave(wins, lessons);
+      setSaved(true);
+    } catch {
+      setError(true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -105,7 +119,7 @@ export function DayJournalSection({ journal, onSave, pending = false }: Props) {
           type="button"
           data-testid="journal-save"
           onClick={handleSave}
-          disabled={pending}
+          disabled={saving}
           style={{
             padding: "10px 20px",
             borderRadius: 10,
@@ -115,19 +129,28 @@ export function DayJournalSection({ journal, onSave, pending = false }: Props) {
             fontFamily: "var(--font-body, system-ui)",
             fontWeight: 700,
             fontSize: 14,
-            cursor: pending ? "wait" : "pointer",
-            opacity: pending ? 0.6 : 1,
+            cursor: saving ? "wait" : "pointer",
+            opacity: saving ? 0.6 : 1,
           }}
         >
-          {pending ? "Saving…" : "Save"}
+          {saving ? "Saving…" : "Save"}
         </button>
-        {saved && !pending && (
+        {saved && !saving && (
           <span
             data-testid="journal-saved"
             role="status"
             style={{ color: "var(--accent)", fontSize: 13, fontWeight: 600 }}
           >
             ✓ Saved
+          </span>
+        )}
+        {error && !saving && (
+          <span
+            data-testid="journal-error"
+            role="alert"
+            style={{ color: "var(--danger)", fontSize: 13, fontWeight: 600 }}
+          >
+            Couldn&apos;t save — try again.
           </span>
         )}
       </div>

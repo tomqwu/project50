@@ -115,6 +115,14 @@ export interface AccountExport {
       done: boolean;
       createdAt: string;
     }>;
+    dayJournals: Array<{
+      id: string;
+      dayKey: string;
+      wins: string;
+      lessons: string;
+      updatedAt: string;
+      createdAt: string;
+    }>;
   }>;
   activities: Array<{
     id: string;
@@ -142,7 +150,7 @@ export interface AccountExport {
  * Assemble a complete, machine-readable export of the signed-in user's personal
  * data (GDPR data portability). Includes their profile plus every record tied
  * to them: their challenges (with each challenge's activities, day statuses,
- * milestones, recaps, and rule checks), their first-party activities and
+ * milestones, recaps, rule checks, and day journals), their first-party activities and
  * reactions, and their follow edges in both directions. Only data belonging to
  * this user is returned — other users' records are never included. Dates are
  * serialized to ISO strings. Throws 404 if no such user exists.
@@ -159,6 +167,7 @@ export async function exportAccountData(uid: string): Promise<AccountExport> {
           milestones: { orderBy: { earnedAt: "asc" } },
           recaps: { orderBy: { createdAt: "asc" } },
           ruleChecks: { orderBy: { createdAt: "asc" } },
+          dayJournals: { orderBy: { dayKey: "asc" } },
         },
       },
       activities: { orderBy: { createdAt: "asc" } },
@@ -223,6 +232,14 @@ export async function exportAccountData(uid: string): Promise<AccountExport> {
         ruleId: rc.ruleId,
         done: rc.done,
         createdAt: rc.createdAt.toISOString(),
+      })),
+      dayJournals: c.dayJournals.map((j) => ({
+        id: j.id,
+        dayKey: j.dayKey,
+        wins: j.wins,
+        lessons: j.lessons,
+        updatedAt: j.updatedAt.toISOString(),
+        createdAt: j.createdAt.toISOString(),
       })),
     })),
     activities: user.activities.map((a) => ({
