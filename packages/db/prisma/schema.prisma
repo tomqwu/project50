@@ -62,29 +62,36 @@ enum SubscriptionStatus {
 }
 
 model User {
-  id             String        @id @default(cuid())
-  handle         String        @unique
-  displayName    String
-  avatarUrl      String?
-  isAdmin        Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  identities     Identity[]
-  challenges     Challenge[]
-  activities     Activity[]
-  reactions      Reaction[]
-  following      Follow[]      @relation("follower")
-  followers      Follow[]      @relation("followee")
-  blocksMade     Block[]       @relation("BlocksMade")
-  blocksReceived Block[]       @relation("BlocksReceived")
-  reports        Report[]
-  subscription   Subscription?
+  id               String        @id @default(cuid())
+  handle           String        @unique
+  displayName      String
+  avatarUrl        String?
+  isAdmin          Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+  identities       Identity[]
+  challenges       Challenge[]
+  activities       Activity[]
+  reactions        Reaction[]
+  following        Follow[]      @relation("follower")
+  followers        Follow[]      @relation("followee")
+  blocksMade       Block[]       @relation("BlocksMade")
+  blocksReceived   Block[]       @relation("BlocksReceived")
+  reports          Report[]
+  subscription     Subscription?
   // Stable, per-user share code for the referral program (#127). Lazily
   // populated by getOrCreateReferralCode; nullable so existing rows are valid.
-  referralCode   String?       @unique
+  referralCode     String?       @unique
   // Referrals this user initiated (people they brought in).
-  referralsMade  Referral[]    @relation("ReferrerReferrals")
+  referralsMade    Referral[]    @relation("ReferrerReferrals")
   // The single referral that brought this user in, if any.
-  referredBy     Referral?     @relation("ReferredUser")
+  referredBy       Referral?     @relation("ReferredUser")
+  // Notification preferences (#122). Whether the user receives email reminders,
+  // and an optional quiet-hours window (local hours 0-23) during which the
+  // reminder sender stays silent. Nullable hours = no quiet window; when both
+  // are set the window may wrap past midnight (e.g. 22 → 7).
+  remindersEnabled Boolean       @default(true)
+  quietHoursStart  Int?
+  quietHoursEnd    Int?
 }
 
 model Block {
