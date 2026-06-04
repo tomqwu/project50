@@ -18,6 +18,8 @@ import { LogActivityScreen } from "../screens/LogActivityScreen";
 import { FeedScreen } from "../screens/FeedScreen";
 import { CelebrateScreen } from "../screens/CelebrateScreen";
 import { Project50Screen } from "../screens/Project50Screen";
+import { CreateChallengeScreen } from "../screens/CreateChallengeScreen";
+import { ChallengeDetailScreen } from "../screens/ChallengeDetailScreen";
 import { colors } from "../theme";
 
 export type RootStackParamList = {
@@ -33,6 +35,8 @@ export type RootStackParamList = {
   Feed: undefined;
   Celebrate: { challengeId: string };
   Project50: undefined;
+  CreateChallenge: undefined;
+  ChallengeDetail: { challengeId: string };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -90,6 +94,31 @@ export function AppNavigator(): React.JSX.Element {
         >
           {(props) => (
             <CelebrateScreen challengeId={props.route.params.challengeId} />
+          )}
+        </Stack.Screen>
+        <Stack.Screen
+          name="CreateChallenge"
+          options={{ title: "New Plan" }}
+        >
+          {(props) => (
+            <CreateChallengeScreen
+              onCreated={(challenge) =>
+                props.navigation.replace("ChallengeDetail", {
+                  challengeId: challenge.id,
+                })
+              }
+            />
+          )}
+        </Stack.Screen>
+        <Stack.Screen
+          name="ChallengeDetail"
+          options={{ title: "Plan" }}
+        >
+          {(props) => (
+            <ChallengeDetailScreen
+              challengeId={props.route.params.challengeId}
+              onDeleted={() => props.navigation.navigate("Dashboard")}
+            />
           )}
         </Stack.Screen>
       </Stack.Navigator>

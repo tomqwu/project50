@@ -23,6 +23,9 @@ vi.mock("./_components/DeleteAccountSection", () => ({
 vi.mock("./_components/BillingSection", () => ({
   BillingSection: () => <div data-testid="billing-section" />,
 }));
+vi.mock("./_components/DataExportSection", () => ({
+  DataExportSection: () => <div data-testid="export-section" />,
+}));
 
 import SettingsPage from "./page";
 
@@ -62,5 +65,15 @@ describe("SettingsPage", () => {
     render(ui);
 
     expect(screen.getByTestId("billing-section")).toBeInTheDocument();
+  });
+
+  it("renders the data export section", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetAccount.mockResolvedValue({ handle: "alice", displayName: "Alice A" });
+
+    const ui = await SettingsPage();
+    render(ui);
+
+    expect(screen.getByTestId("export-section")).toBeInTheDocument();
   });
 });

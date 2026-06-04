@@ -2,7 +2,22 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  use: { baseURL: "http://localhost:3000" },
+  use: {
+    baseURL: "http://localhost:3000",
+    // Pre-seed cookie consent: the consent banner is fixed at the bottom of the
+    // viewport and would intercept pointer events on page content, breaking the
+    // interaction flows in these e2e specs. Seeding "accepted" in localStorage
+    // means the banner never renders during e2e (real users still see it).
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: "http://localhost:3000",
+          localStorage: [{ name: "p50_cookie_consent", value: "accepted" }],
+        },
+      ],
+    },
+  },
   webServer: {
     command: "pnpm build && pnpm start -p 3000",
     url: "http://localhost:3000",

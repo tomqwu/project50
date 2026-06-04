@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Anton, Sora } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "./_components/ServiceWorkerRegister";
+import { CookieConsent } from "./_components/CookieConsent";
 import { DEFAULT_LOCALE, localeDirection } from "@/lib/i18n";
 
 const anton = Anton({
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className={`${anton.variable} ${sora.variable}`}>
         <ServiceWorkerRegister />
         {children}
+        <CookieConsent />
       </body>
     </html>
   );

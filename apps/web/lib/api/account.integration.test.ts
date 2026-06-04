@@ -4,7 +4,12 @@ import { describe, beforeEach, it, expect, afterAll, vi } from "vitest";
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
 import { prisma, resetDb, createUser } from "../../test/db";
-import { getAccount, updateAccount, deleteAccount } from "./account";
+import {
+  getAccount,
+  updateAccount,
+  deleteAccount,
+  exportAccountData,
+} from "./account";
 
 beforeEach(resetDb);
 
@@ -181,5 +186,191 @@ describe("deleteAccount", () => {
 
   it("rejects when the user does not exist", async () => {
     await expect(deleteAccount("nonexistent")).rejects.toThrow();
+  });
+});
+
+describe("exportAccountData", () => {
+  it("throws 404 ACCOUNT_NOT_FOUND for unknown user", async () => {
+    await expect(exportAccountData("nonexistent")).rejects.toMatchObject({
+      status: 404,
+      code: "ACCOUNT_NOT_FOUND",
+    });
+  });
+
+  it("includes the user's profile and follow edges in both directions", async () => {
+    const alice = await createUser({ handle: "alice", displayName: "Alice A" });
+    const bob = await createUser({ handle: "bob" });
+    const carol = await createUser({ handle: "carol" });
+    // alice follows bob; carol follows alice.
+    await prisma.follow.create({
+      data: { followerId: alice.id, followeeId: bob.id },
+    });
+    await prisma.follow.create({
+      data: { followerId: carol.id, followeeId: alice.id },
+    });
+
+    const data = await exportAccountData(alice.id);
+
+    expect(data.profile).toMatchObject({
+      id: alice.id,
+      handle: "alice",
+      displayName: "Alice A",
+      avatarUrl: null,
+      isAdmin: false,
+    });
+    expect(typeof data.profile.createdAt).toBe("string");
+    expect(typeof data.exportedAt).toBe("string");
+    expect(data.following).toEqual([
+      { followeeId: bob.id, createdAt: expect.any(String) },
+    ]);
+    expect(data.followers).toEqual([
+      { followerId: carol.id, createdAt: expect.any(String) },
+    ]);
+  });
+
+  it("includes the user's challenges with nested children and first-party activities and reactions", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice", displayName: "Alice A" });
+    const challenge = await createChallenge(alice.id, {
+      title: "Run",
+      goalType: "TARGET",
+      dailyTarget: 60,
+    });
+
+    const activity = await prisma.activity.create({
+      data: {
+        challengeId: challenge.id,
+        userId: alice.id,
+        dayKey: "2026-06-01",
+        activityType: "run",
+        amount: 5,
+        done: true,
+        note: "felt great",
+        mood: 4,
+      },
+    });
+    await prisma.dayStatus.create({
+      data: {
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        totalAmount: 5,
+        completed: true,
+      },
+    });
+    await prisma.milestone.create({
+      data: { challengeId: challenge.id, kind: "COMPLETED_7" },
+    });
+    await prisma.recap.create({
+      data: { challengeId: challenge.id, kind: "DAY", objectKey: "recaps/x.mp4" },
+    });
+    await prisma.ruleCheck.create({
+      data: {
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        ruleId: 1,
+        done: true,
+      },
+    });
+    await prisma.reaction.create({
+      data: {
+        activityId: activity.id,
+        userId: alice.id,
+        kind: "COMMENT",
+        text: "nice",
+      },
+    });
+
+    const data = await exportAccountData(alice.id);
+
+    expect(data.challenges).toHaveLength(1);
+    const c = data.challenges[0]!;
+    expect(c).toMatchObject({
+      id: challenge.id,
+      title: "Run",
+      goalType: "TARGET",
+      dailyTarget: 60,
+      kind: "STANDARD",
+      status: "ACTIVE",
+      visibility: "PUBLIC",
+    });
+    expect(c.activities).toEqual([
+      {
+        id: activity.id,
+        dayKey: "2026-06-01",
+        activityType: "run",
+        amount: 5,
+        done: true,
+        note: "felt great",
+        mood: 4,
+        createdAt: expect.any(String),
+      },
+    ]);
+    expect(c.dayStatuses).toEqual([
+      { dayKey: "2026-06-01", totalAmount: 5, completed: true },
+    ]);
+    expect(c.milestones).toEqual([
+      { kind: "COMPLETED_7", earnedAt: expect.any(String) },
+    ]);
+    expect(c.recaps).toEqual([
+      { id: expect.any(String), kind: "DAY", createdAt: expect.any(String) },
+    ]);
+    expect(c.ruleChecks).toEqual([
+      {
+        id: expect.any(String),
+        dayKey: "2026-06-01",
+        ruleId: 1,
+        done: true,
+        createdAt: expect.any(String),
+      },
+    ]);
+
+    // First-party activities and reactions appear at the top level too.
+    expect(data.activities).toEqual([
+      {
+        id: activity.id,
+        challengeId: challenge.id,
+        dayKey: "2026-06-01",
+        activityType: "run",
+        amount: 5,
+        done: true,
+        note: "felt great",
+        mood: 4,
+        createdAt: expect.any(String),
+      },
+    ]);
+    expect(data.reactions).toEqual([
+      {
+        id: expect.any(String),
+        activityId: activity.id,
+        kind: "COMMENT",
+        text: "nice",
+        createdAt: expect.any(String),
+      },
+    ]);
+  });
+
+  it("excludes other users' data", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    // Bob's own challenge + activity + reaction.
+    const bobChallenge = await createChallenge(bob.id, { title: "Bob run" });
+    const bobActivity = await prisma.activity.create({
+      data: { challengeId: bobChallenge.id, userId: bob.id, dayKey: "2026-06-01" },
+    });
+    await prisma.reaction.create({
+      data: { activityId: bobActivity.id, userId: bob.id, kind: "CHEER" },
+    });
+
+    const data = await exportAccountData(alice.id);
+
+    expect(data.challenges).toEqual([]);
+    expect(data.activities).toEqual([]);
+    expect(data.reactions).toEqual([]);
+    // Sanity: bob's export does contain his own data.
+    const bobData = await exportAccountData(bob.id);
+    expect(bobData.challenges).toHaveLength(1);
+    expect(bobData.activities).toHaveLength(1);
+    expect(bobData.reactions).toHaveLength(1);
   });
 });
