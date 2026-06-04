@@ -21,6 +21,7 @@ import { Project50Screen } from "../screens/Project50Screen";
 import { CreateChallengeScreen } from "../screens/CreateChallengeScreen";
 import { ChallengeDetailScreen } from "../screens/ChallengeDetailScreen";
 import { UpgradeScreen } from "../screens/UpgradeScreen";
+import { useAttribution } from "../hooks/useAttribution";
 import { colors } from "../theme";
 
 export type RootStackParamList = {
@@ -51,6 +52,10 @@ const screenOptions = {
 };
 
 export function AppNavigator(): React.JSX.Element {
+  // Fire-once install/acquisition attribution capture (config-gated, no-op-safe).
+  // Logic lives in the tested useAttribution hook; this file is coverage-excluded.
+  useAttribution();
+
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="SignIn" screenOptions={screenOptions}>
