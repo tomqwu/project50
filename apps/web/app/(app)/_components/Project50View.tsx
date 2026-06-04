@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Card, Label } from "@project50/ui";
-import { PROJECT50_RULES } from "@project50/core";
+import { PROJECT50_RULES, PROJECT50_LENGTH_DAYS } from "@project50/core";
 import type { Project50State } from "@/lib/project50";
 import { Project50Calendar } from "./Project50Calendar";
 
@@ -98,15 +98,47 @@ export function Project50View({ state, onStart, onToggle, onRestart }: Props) {
 
   // ACTIVE
   const today = state.today!;
+  const dayComplete = today.completedCount === PROJECT50_RULES.length;
+  const daysLeft = PROJECT50_LENGTH_DAYS - today.dayNumber;
+  const remaining = PROJECT50_RULES.length - today.completedCount;
+  const nextStep =
+    daysLeft <= 0
+      ? "That was your final day. Your run completes once today rolls over — check back to see Project 50 finished."
+      : `Nothing more to do today. Come back tomorrow for Day ${today.dayNumber + 1} of ${PROJECT50_LENGTH_DAYS} — ${daysLeft} ${daysLeft === 1 ? "day" : "days"} to go.`;
   return (
     <div style={{ padding: "32px" }}>
       <Label>Project 50</Label>
       <h1 style={{ fontFamily: "var(--font-display)", textTransform: "uppercase", fontSize: "28px", margin: "8px 0 4px" }}>
         Day {today.dayNumber} / 50
       </h1>
-      <p style={{ color: "var(--muted)", marginBottom: 24 }}>
-        {today.completedCount} / 7 today · miss one and you restart at Day 1
-      </p>
+      {dayComplete ? (
+        <div
+          data-testid="day-complete-banner"
+          role="status"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            background: "rgba(214,255,63,0.10)",
+            border: "1px solid var(--accent)",
+            borderRadius: 12,
+            padding: "14px 16px",
+            margin: "8px 0 24px",
+          }}
+        >
+          <strong style={{ color: "var(--accent)", fontSize: 15 }}>
+            ✓ Day {today.dayNumber} complete — 7 / 7, locked in
+          </strong>
+          <span style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
+            {daysLeft <= 0 ? "Final day done. " : ""}
+            {nextStep}
+          </span>
+        </div>
+      ) : (
+        <p style={{ color: "var(--muted)", marginBottom: 24 }}>
+          {today.completedCount} / 7 today · {remaining} to go · miss one and you restart at Day 1
+        </p>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {PROJECT50_RULES.map((r) => {
           const done = today.checks[r.id - 1] ?? false;
