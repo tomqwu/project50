@@ -427,6 +427,34 @@ describe("Project50View — today's photo section", () => {
     expect(onAttachMedia).not.toHaveBeenCalled();
   });
 
+  it("renders the journal editor, prefilled, and Save threads through onSaveJournal", () => {
+    const onSaveJournal = vi.fn();
+    const state = activeStateWithMedia([]);
+    state.today!.journal = { wins: "ran 5k", lessons: "earlier" };
+    render(
+      <Project50View
+        state={state}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+        onSaveJournal={onSaveJournal}
+      />,
+    );
+    // prefilled from today.journal
+    expect((screen.getByLabelText(/today's wins/i) as HTMLTextAreaElement).value).toBe("ran 5k");
+    fireEvent.click(screen.getByTestId("journal-save"));
+    expect(onSaveJournal).toHaveBeenCalledWith("ran 5k", "earlier");
+  });
+
+  it("Save is a no-op (no throw) when onSaveJournal is not provided", () => {
+    render(
+      <Project50View
+        state={activeStateWithMedia([])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("journal-save"));
+    expect(screen.getByTestId("journal-saved")).toBeInTheDocument();
+  });
+
   it("uploads successfully even when onAttachMedia is not provided (optional callback)", async () => {
     const fetchMock = vi
       .fn()

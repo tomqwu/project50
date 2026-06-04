@@ -8,10 +8,11 @@ import {
   toggleRuleAction,
   attachProject50MediaAction,
 } from "../_actions/project50";
+import { saveJournalAction } from "../_actions/journal";
 import { track } from "@/lib/analytics";
 
 export function Project50Client({ state }: { state: Project50State }) {
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   function start(restarted: boolean) {
@@ -33,6 +34,11 @@ export function Project50Client({ state }: { state: Project50State }) {
         track("project50_photo_added", {});
         startTransition(() => void attachProject50MediaAction(objectKey, width, height));
       }}
+      onSaveJournal={(wins, lessons) => {
+        track("project50_journal_saved", {});
+        startTransition(() => void saveJournalAction(wins, lessons));
+      }}
+      savingJournal={isPending}
     />
   );
 }
