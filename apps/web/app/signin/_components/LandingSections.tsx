@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { PROJECT50_RULES } from "@project50/core";
 
 /**
  * Presentational building blocks for the public marketing landing.
@@ -211,5 +212,251 @@ export function BenefitsGrid() {
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * The 7 daily rules — listed in full from the single source of truth in core.
+ * Numbered 1..7 as a semantic ordered list so screen readers and SEO see the
+ * real program. Detail copy uses --muted (passes 4.5:1 on --bg / --card).
+ */
+export function RulesShowcase() {
+  return (
+    <section
+      data-testid="landing-rules"
+      style={{
+        width: "100%",
+        maxWidth: "880px",
+        margin: "0 0 64px",
+        textAlign: "center",
+      }}
+    >
+      <p style={sectionLabelStyle}>No exceptions</p>
+      <h2 style={sectionTitleStyle}>The 7 daily rules</h2>
+      <p
+        style={{
+          fontFamily: "var(--font-body, system-ui, sans-serif)",
+          fontSize: "15px",
+          lineHeight: 1.6,
+          color: "var(--muted)",
+          margin: "-12px auto 28px",
+          maxWidth: "560px",
+        }}
+      >
+        Hit every one of these, every day, for 50 days. Miss a single rule and the streak resets to
+        Day 1.
+      </p>
+      <ol
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: "12px",
+          textAlign: "left",
+          counterReset: "rule",
+        }}
+      >
+        {PROJECT50_RULES.map((rule) => (
+          <li
+            key={rule.id}
+            data-testid="landing-rule"
+            style={{
+              background: "var(--card)",
+              border: "1px solid var(--hairline)",
+              borderRadius: "16px",
+              padding: "18px 18px",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "14px",
+            }}
+          >
+            <span
+              aria-hidden={true}
+              style={{
+                flexShrink: 0,
+                width: 30,
+                height: 30,
+                borderRadius: "50%",
+                border: "2px solid var(--accent)",
+                color: "var(--accent)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "var(--font-display, 'Anton', sans-serif)",
+                fontSize: 16,
+                lineHeight: 1,
+                fontWeight: 700,
+              }}
+            >
+              {rule.id}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <strong
+                style={{
+                  display: "block",
+                  fontFamily: "var(--font-body, system-ui, sans-serif)",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  color: "var(--text)",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    width: 1,
+                    height: 1,
+                    padding: 0,
+                    margin: -1,
+                    overflow: "hidden",
+                    clip: "rect(0 0 0 0)",
+                    whiteSpace: "nowrap",
+                    border: 0,
+                  }}
+                >
+                  Rule {rule.id}:{" "}
+                </span>
+                {rule.title}
+              </strong>
+              <span
+                style={{
+                  display: "block",
+                  marginTop: 4,
+                  fontFamily: "var(--font-body, system-ui, sans-serif)",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                  color: "var(--muted)",
+                }}
+              >
+                {rule.detail}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+// Which rules are pre-checked in the static preview (purely decorative).
+const PREVIEW_CHECKED = new Set<number>([1, 2, 3]);
+
+/**
+ * Inline "app preview" rendered from the real Momentum tokens — a faux Project
+ * 50 checklist card mirroring Project50View. Never a screenshot, so it can
+ * never go stale. Fully decorative; checkmarks are aria-hidden.
+ */
+export function AppPreview() {
+  const checkedCount = PROJECT50_RULES.filter((r) => PREVIEW_CHECKED.has(r.id)).length;
+  return (
+    <div
+      data-testid="landing-app-preview"
+      aria-label="Preview of the Project 50 daily checklist"
+      role="img"
+      style={{
+        width: "100%",
+        maxWidth: "360px",
+        background: "var(--bg)",
+        border: "1px solid var(--hairline)",
+        borderRadius: "24px",
+        padding: "24px 20px",
+        boxShadow: "0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px var(--hairline)",
+      }}
+    >
+      <p
+        style={{
+          fontFamily: "var(--font-body, system-ui, sans-serif)",
+          fontSize: "11px",
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: "var(--accent)",
+          fontWeight: 700,
+          margin: "0 0 6px",
+        }}
+      >
+        Project 50
+      </p>
+      <p
+        style={{
+          fontFamily: "var(--font-display, 'Anton', sans-serif)",
+          textTransform: "uppercase",
+          fontSize: "26px",
+          letterSpacing: "0.02em",
+          color: "var(--text)",
+          margin: "0 0 4px",
+          lineHeight: 1,
+        }}
+      >
+        Day 1 / 50
+      </p>
+      <p
+        style={{
+          fontFamily: "var(--font-body, system-ui, sans-serif)",
+          fontSize: "12px",
+          color: "var(--muted)",
+          margin: "0 0 18px",
+        }}
+      >
+        {checkedCount} / 7 today · {7 - checkedCount} to go
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {PROJECT50_RULES.map((rule) => {
+          const done = PREVIEW_CHECKED.has(rule.id);
+          return (
+            <div
+              key={rule.id}
+              data-testid="landing-preview-rule"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                background: "var(--card)",
+                border: "1px solid var(--hairline)",
+                borderRadius: "12px",
+                padding: "10px 12px",
+              }}
+            >
+              <span
+                aria-hidden={true}
+                data-testid={done ? "landing-preview-rule-checked" : undefined}
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 6,
+                  flexShrink: 0,
+                  border: "2px solid var(--accent)",
+                  background: done ? "var(--accent)" : "transparent",
+                  color: "var(--bg)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {done ? "✓" : ""}
+              </span>
+              <span style={{ minWidth: 0 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontFamily: "var(--font-body, system-ui, sans-serif)",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {rule.title}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
