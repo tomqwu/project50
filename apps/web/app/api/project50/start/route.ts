@@ -1,3 +1,4 @@
+import { isValidTimeZone } from "@project50/core";
 import { requireUser } from "@/lib/session";
 import { handleRoute, unprocessable } from "@/lib/api/http";
 import { getProject50State, startProject50 } from "@/lib/project50";
@@ -11,7 +12,10 @@ export async function POST(req: Request) {
     const uid = await requireUser();
     const body = await req.json().catch(() => ({}));
     const timezone: unknown = body?.timezone;
-    if (typeof timezone !== "string" || timezone.length === 0) {
+    // Reject blank AND malformed IANA zones so a bad value never persists and
+    // later breaks day/hour computations (startProject50 also normalizes as a
+    // defensive backstop).
+    if (typeof timezone !== "string" || !isValidTimeZone(timezone)) {
       unprocessable("INVALID_TIMEZONE");
     }
     await startProject50(uid, timezone as string);

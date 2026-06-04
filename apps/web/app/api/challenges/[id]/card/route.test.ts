@@ -19,12 +19,14 @@ vi.mock("@project50/db", () => ({
 }));
 
 // Mock @project50/core
-const { mockDayNumber } = vi.hoisted(() => ({
+const { mockDayNumber, mockLocalDayKey } = vi.hoisted(() => ({
   mockDayNumber: vi.fn(),
+  mockLocalDayKey: vi.fn(),
 }));
 
 vi.mock("@project50/core", () => ({
   dayNumber: mockDayNumber,
+  localDayKey: mockLocalDayKey,
 }));
 
 // Mock @/auth (needed transitively)
@@ -90,6 +92,35 @@ describe("GET /api/challenges/[id]/card", () => {
     );
   });
 
+  it("derives the day from the challenge timezone, not UTC", async () => {
+    mockPrismaFindUnique.mockResolvedValue({
+      ...publicChallenge,
+      timezone: "Asia/Shanghai",
+    });
+    mockLocalDayKey.mockReturnValue("2026-06-04");
+    mockDayNumber.mockReturnValue(4);
+
+    await GET(new Request("http://localhost"), { params: params("c1") });
+
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "Asia/Shanghai");
+    expect(mockDayNumber).toHaveBeenCalledWith("2026-06-01", "2026-06-04");
+    const el = JSON.stringify(vi.mocked(ImageResponse).mock.calls[0]![0]);
+    expect(el).toContain("Day 4 of 50");
+  });
+
+  it("falls back to UTC when the challenge has no timezone", async () => {
+    mockPrismaFindUnique.mockResolvedValue({
+      ...publicChallenge,
+      timezone: null,
+    });
+    mockLocalDayKey.mockReturnValue("2026-06-03");
+    mockDayNumber.mockReturnValue(3);
+
+    await GET(new Request("http://localhost"), { params: params("c1") });
+
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "UTC");
+  });
+
   it("uses buildCardModel output: headline and statText appear in JSX tree", async () => {
     mockPrismaFindUnique.mockResolvedValue(publicChallenge);
     mockDayNumber.mockReturnValue(25);
@@ -124,9 +155,7 @@ describe("GET /api/challenges/[id]/card", () => {
       goalType: "BINARY",
       unit: null,
       dailyTarget: null,
-      dayStatuses: [
-        { dayKey: "2026-06-01", totalAmount: 0, completed: true },
-      ],
+      dayStatuses: [{ dayKey: "2026-06-01", totalAmount: 0, completed: true }],
     };
     mockPrismaFindUnique.mockResolvedValue(binaryChallenge);
     mockDayNumber.mockReturnValue(1);

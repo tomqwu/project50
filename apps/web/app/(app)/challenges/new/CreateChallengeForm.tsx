@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Label } from "@project50/ui";
+import { localDayKey } from "@project50/core";
 
 export type GoalType = "TARGET" | "BINARY";
 export type Visibility = "PUBLIC" | "FOLLOWERS" | "PRIVATE";
@@ -39,8 +40,10 @@ const selectStyle: React.CSSProperties = {
 export function CreateChallengeForm() {
   const router = useRouter();
 
-  const today = new Date().toISOString().slice(0, 10);
   const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // The default start date is "today" in the user's local timezone, not a UTC
+  // slice — otherwise it can default to tomorrow/yesterday near local midnight.
+  const today = localDayKey(new Date(), defaultTimezone);
 
   const [title, setTitle] = useState("");
   const [goalType, setGoalType] = useState<GoalType>("TARGET");

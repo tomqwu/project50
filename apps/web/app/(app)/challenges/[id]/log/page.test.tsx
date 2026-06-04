@@ -65,4 +65,15 @@ describe("LogActivityPage", () => {
 
     expect(screen.getByText("Amount")).toBeInTheDocument();
   });
+
+  it("passes a null timezone through when the challenge has none", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue({ ...sampleChallenge, timezone: null });
+
+    const ui = await LogActivityPage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    // Form still renders; the null timezone exercises the `?? null` fallback.
+    expect(screen.getByTestId("amount-input")).toBeInTheDocument();
+  });
 });
