@@ -528,6 +528,47 @@ describe("deleteUserMedia (S3 backend)", () => {
     const [list2] = mockSend.mock.calls[2] as [{ ContinuationToken?: string }];
     expect(list2.ContinuationToken).toBe("tok-2");
   });
+
+  it("throws when DeleteObjects reports per-key Errors (partial failure not silently ignored)", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "media/u1/a.jpg" }, { Key: "media/u1/locked.jpg" }],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({
+        // S3 resolved OK but one key failed (e.g. object lock / access denied).
+        Errors: [
+          {
+            Key: "media/u1/locked.jpg",
+            Code: "AccessDenied",
+            Message: "Access Denied",
+          },
+        ],
+      });
+    await expect(deleteUserMedia("u1")).rejects.toThrow(
+      /failed to delete.*media\/u1\/locked\.jpg.*AccessDenied/s,
+    );
+  });
+
+  it("tolerates a missing/undefined Errors field as success", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "media/u1/a.jpg" }],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({ Errors: undefined });
+    await expect(deleteUserMedia("u1")).resolves.toBeUndefined();
+  });
+
+  it("includes placeholder fields when an Error entry omits Key/Code/Message", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "media/u1/a.jpg" }],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({ Errors: [{}] });
+    await expect(deleteUserMedia("u1")).rejects.toThrow(/1 object\(s\).*\?: \?/s);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -436,12 +436,24 @@ export async function deleteUserMedia(userId: string): Promise<void> {
       .map((o) => o.Key)
       .filter((k): k is string => Boolean(k));
     if (keys.length > 0) {
-      await client.send(
+      const result = await client.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: { Objects: keys.map((Key) => ({ Key })) },
         }),
       );
+      // DeleteObjects resolves "successfully" even when individual keys fail
+      // (object lock, access denied, …): the failures come back in `Errors`.
+      // Surface them so a partial failure isn't silently treated as success.
+      const errors = result.Errors ?? [];
+      if (errors.length > 0) {
+        const summary = errors
+          .map((e) => `${e.Key ?? "?"}: ${e.Code ?? "?"} ${e.Message ?? ""}`.trim())
+          .join("; ");
+        throw new Error(
+          `deleteUserMedia: ${errors.length} object(s) under "${prefix}" failed to delete — ${summary}`,
+        );
+      }
     }
     continuationToken = listed.IsTruncated
       ? listed.NextContinuationToken

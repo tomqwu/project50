@@ -292,22 +292,30 @@ async function collectUserMediaKeys(uid: string): Promise<string[]> {
  * edges in both directions. Throws if no such user exists.
  *
  * The DB cascade leaves no orphaned rows, but it does NOT touch object storage,
- * so we ALSO delete the user's uploaded media blobs (GDPR erasure): first the
- * exact objectKeys recorded in the DB, then a belt-and-suspenders sweep of the
- * whole `media/<userId>/` prefix to catch anything the DB no longer references.
+ * so we ALSO delete the user's uploaded media blobs (GDPR erasure): the exact
+ * objectKeys recorded in the DB, plus a belt-and-suspenders sweep of the whole
+ * `media/<userId>/` prefix to catch anything the DB no longer references.
  *
- * Resilience: media deletion runs BEFORE the DB delete and never aborts it. A
- * single blob delete that throws (e.g. transient storage error) is logged and
- * skipped; the prefix sweep and the DB delete still proceed, so account
- * deletion always completes. If storage is unconfigured/unreachable the sweep
- * is a safe no-op (or logs and continues).
+ * Ordering: we read the keys first, then delete the DB row, and only if that
+ * SUCCEEDS do we touch storage. This way a failed/aborted DB delete (transient
+ * error, or a stale/nonexistent uid) never destroys blobs while the account row
+ * is still present. Once the row is gone the storage cleanup is best-effort: a
+ * single blob delete or the prefix sweep that throws is logged and swallowed,
+ * so a storage hiccup doesn't surface an error after the account is already
+ * deleted. If storage is unconfigured/unreachable the cleanup is a safe no-op.
  */
 export async function deleteAccount(uid: string): Promise<void> {
   // Resolve the exact keys from the DB while the rows still exist. A failure
   // here means the DB is unreadable, so we let it propagate (the user.delete
-  // below would fail anyway) rather than erase blobs against a broken DB.
+  // below would fail anyway) rather than touch storage against a broken DB.
   const keys = await collectUserMediaKeys(uid);
 
+  // Remove the DB row (cascades all child rows). Throws if no such user — and
+  // in that case we deliberately do NOT proceed to delete any blobs.
+  await prisma.user.delete({ where: { id: uid } });
+
+  // The account row is now gone; clean up its media best-effort.
+  //
   // SECURITY: only ever delete blobs under THIS user's own media prefix. Some
   // objectKeys are persisted as-supplied (e.g. attachProject50DayMedia), so a
   // crafted/buggy row could carry a key pointing at another user's media or an
@@ -315,7 +323,7 @@ export async function deleteAccount(uid: string): Promise<void> {
   // below still removes all of the user's legitimate media regardless.
   const prefix = userMediaPrefix(uid);
 
-  // Delete each known blob; log + continue so one failure can't block erasure.
+  // Delete each known blob; log + continue so one failure can't block the rest.
   for (const key of keys) {
     if (!key.startsWith(prefix)) {
       console.warn(
@@ -336,7 +344,4 @@ export async function deleteAccount(uid: string): Promise<void> {
   } catch (err) {
     console.error(`deleteAccount: media prefix sweep failed for ${uid}`, err);
   }
-
-  // Finally remove the DB row (cascades all child rows). Throws if no such user.
-  await prisma.user.delete({ where: { id: uid } });
 }

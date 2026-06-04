@@ -343,7 +343,8 @@ describe("deleteAccount", () => {
 
     await expect(deleteAccount(alice.id)).resolves.toBeUndefined();
 
-    // The failure is swallowed; the prefix sweep + DB delete still happen.
+    // The blob failure is swallowed; the prefix sweep still runs and the DB row
+    // (already deleted before storage cleanup) stays gone.
     expect(deleteUserMedia).toHaveBeenCalledOnce();
     expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
     expect(await prisma.user.findUnique({ where: { id: alice.id } })).toBeNull();
@@ -368,8 +369,37 @@ describe("deleteAccount", () => {
     expect(deleteUserMedia).toHaveBeenCalledWith(alice.id);
   });
 
-  it("rejects when the user does not exist", async () => {
+  it("rejects when the user does not exist, and touches NO storage", async () => {
     await expect(deleteAccount("nonexistent")).rejects.toThrow();
+    // Storage cleanup runs only AFTER a successful DB delete, so a failed
+    // delete (stale/nonexistent uid) must never destroy any blobs.
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(deleteUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("does not touch storage when the DB delete fails after keys are collected", async () => {
+    const { createChallenge } = await import("../../test/db");
+    const alice = await createUser({ handle: "alice" });
+    const challenge = await createChallenge(alice.id, { title: "Run" });
+    await prisma.recap.create({
+      data: {
+        challengeId: challenge.id,
+        kind: "DAY",
+        objectKey: `media/${alice.id}/x.mp4`,
+      },
+    });
+    // Simulate a transient DB failure on the delete itself.
+    const spy = vi
+      .spyOn(prisma.user, "delete")
+      .mockRejectedValueOnce(new Error("db down"));
+
+    await expect(deleteAccount(alice.id)).rejects.toThrow("db down");
+
+    // No blobs deleted; the account row is still present.
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(deleteUserMedia).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(await prisma.user.findUnique({ where: { id: alice.id } })).not.toBeNull();
   });
 });
 
