@@ -118,6 +118,20 @@ function FeedCard({ item, onCheer }: FeedCardProps): React.JSX.Element {
 
   return (
     <View style={styles.card} testID={`feed-item-${item.id}`}>
+      {/* Handle + Project 50 badge */}
+      <View style={styles.headerRow}>
+        <Text style={styles.handle} testID={`feed-handle-${item.id}`}>
+          @{item.user.handle}
+        </Text>
+        {item.isProject50 ? (
+          <Text style={styles.badge} testID={`project50-badge-${item.id}`}>
+            {item.project50Day != null
+              ? `Project 50 · Day ${item.project50Day}`
+              : "Project 50"}
+          </Text>
+        ) : null}
+      </View>
+
       {/* Challenge title + day */}
       <Text style={styles.challengeTitle}>{item.challenge.title}</Text>
       <Text style={styles.dayKey}>{item.dayKey}</Text>
@@ -175,6 +189,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: "#333",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  handle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+    opacity: 0.9,
+  },
+  badge: {
+    color: colors.charcoal,
+    backgroundColor: colors.volt,
+    fontSize: 11,
+    fontWeight: "bold",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: "hidden",
   },
   challengeTitle: {
     color: colors.text,

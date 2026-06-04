@@ -51,9 +51,14 @@ const makeFeedItem = (id: string, overrides: Record<string, unknown> = {}) => ({
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-15T00:00:00.000Z",
   },
+  user: {
+    id: "u1",
+    handle: "alice",
+    displayName: "Alice",
+  },
   cheerCount: 3,
   hasPhoto: false,
-  userHandle: "alice",
+  isProject50: false,
   ...overrides,
 });
 
@@ -105,6 +110,46 @@ describe("FeedScreen", () => {
       expect(screen.getByTestId("feed-item-a1")).toBeTruthy();
     });
     expect(screen.getByText(/2026-01-15/)).toBeTruthy();
+  });
+
+  it("renders the user handle in feed card", async () => {
+    mockGetFeed.mockResolvedValueOnce([makeFeedItem("a1")]);
+    render(<FeedScreen />);
+    await waitFor(() => {
+      expect(screen.getByTestId("feed-handle-a1")).toBeTruthy();
+    });
+    expect(screen.getByText("@alice")).toBeTruthy();
+  });
+
+  it("renders Project 50 badge with day number when isProject50", async () => {
+    mockGetFeed.mockResolvedValueOnce([
+      makeFeedItem("a1", { isProject50: true, project50Day: 12 }),
+    ]);
+    render(<FeedScreen />);
+    await waitFor(() => {
+      expect(screen.getByTestId("project50-badge-a1")).toBeTruthy();
+    });
+    expect(screen.getByText("Project 50 · Day 12")).toBeTruthy();
+  });
+
+  it("renders Project 50 badge without day when project50Day is absent", async () => {
+    mockGetFeed.mockResolvedValueOnce([
+      makeFeedItem("a1", { isProject50: true, project50Day: undefined }),
+    ]);
+    render(<FeedScreen />);
+    await waitFor(() => {
+      expect(screen.getByTestId("project50-badge-a1")).toBeTruthy();
+    });
+    expect(screen.getByText("Project 50")).toBeTruthy();
+  });
+
+  it("does not render Project 50 badge when not a Project 50 run", async () => {
+    mockGetFeed.mockResolvedValueOnce([makeFeedItem("a1", { isProject50: false })]);
+    render(<FeedScreen />);
+    await waitFor(() => {
+      expect(screen.getByTestId("feed-item-a1")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("project50-badge-a1")).toBeNull();
   });
 
   it("renders note text in feed card", async () => {
