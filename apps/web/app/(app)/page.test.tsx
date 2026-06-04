@@ -41,6 +41,7 @@ vi.mock("@project50/core", async (importOriginal) => ({
 vi.mock("./_actions/project50", () => ({
   startProject50Action: mockStartAction,
   toggleRuleAction: mockToggleAction,
+  attachProject50MediaAction: vi.fn(),
 }));
 vi.mock("next/link", () => ({
   default: ({
@@ -89,6 +90,7 @@ describe("DashboardPage (Project 50)", () => {
         dayNumber: 3,
         checks: [false, false, false, false, false, false, false],
         completedCount: 0,
+        media: [],
       },
     });
 
@@ -137,6 +139,7 @@ describe("DashboardPage (Project 50)", () => {
         dayNumber: 3,
         checks: [false, false, false, false, false, false, false],
         completedCount: 0,
+        media: [],
       },
     });
 
