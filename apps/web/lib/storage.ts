@@ -476,6 +476,11 @@ async function s3DeleteAllVersionsUnder(
  * account the listing returns just the current blob, so behavior is unchanged.
  * Routes by env. Throws only on real errors (e.g. auth/network) so callers can
  * log-and-continue.
+ *
+ * The PERMANENT-erasure guarantee on Azure relies on the storage account having
+ * blob SOFT DELETE disabled (enforced in infra/azure/main.tf). With soft delete
+ * on, `deleteBlob` only marks blobs deleted and they remain restorable until the
+ * retention window expires — breaking the GDPR hard-erase contract.
  */
 export async function deleteObject(objectKey: string): Promise<void> {
   if (useAzure()) {

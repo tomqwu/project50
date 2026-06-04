@@ -129,6 +129,17 @@ resource "azurerm_storage_account" "media" {
   https_traffic_only_enabled      = true
   allow_nested_items_to_be_public = false
   tags                            = module.onboard.tags
+
+  blob_properties {
+    # Soft delete intentionally DISABLED (no delete_retention_policy /
+    # container_delete_retention_policy) so deleteObject is a permanent
+    # hard-erase — required for the GDPR account-deletion contract in
+    # apps/web/lib/storage.ts. Do not enable.
+    #
+    # azurerm has no `enabled = false` form for soft delete: the disabled
+    # state is expressed by OMITTING the retention-policy blocks, so this
+    # block is intentionally left without them.
+  }
 }
 
 resource "azurerm_storage_container" "media" {
