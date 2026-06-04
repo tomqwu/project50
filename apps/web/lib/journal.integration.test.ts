@@ -115,11 +115,26 @@ describe("upsertJournal / getTodayJournal", () => {
     ).rejects.toThrow(/day/i);
   });
 
-  it("accepts the previous local day as a valid submitted dayKey", async () => {
+  it("accepts the previous local day when it falls within the active run", async () => {
     const u = await makeUser();
-    const runId = await startProject50(u.id, "UTC", NOW); // server-now local day = 2026-06-02
+    // Run started a few days ago, so 2026-06-01 is a real day inside this run.
+    const start = new Date("2026-05-30T12:00:00Z"); // Day 1 = 2026-05-30
+    const runId = await startProject50(u.id, "UTC", start);
     await upsertJournal(u.id, { wins: "prev", lessons: "z" }, NOW, "2026-06-01");
     const row = await prisma.dayJournal.findFirst({ where: { challengeId: runId } });
     expect(row).toMatchObject({ dayKey: "2026-06-01", wins: "prev" });
+  });
+
+  it("rejects the previous local day when it is BEFORE the active run started", async () => {
+    const u = await makeUser();
+    // The run started TODAY (2026-06-02). A stale dashboard from a prior, failed
+    // run submits yesterday's dayKey — that day is before this run began, so it
+    // must be rejected rather than misfiled as a row before the run's start.
+    const runId = await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    await expect(
+      upsertJournal(u.id, { wins: "stale-run", lessons: "z" }, NOW, "2026-06-01"),
+    ).rejects.toThrow(/day/i);
+    const rows = await prisma.dayJournal.findMany({ where: { challengeId: runId } });
+    expect(rows).toHaveLength(0);
   });
 });

@@ -20,8 +20,12 @@ export interface JournalEntry {
  * server-now would file yesterday's reflection into today's journal. When the
  * client supplies its dayKey we persist under it instead of recomputing from
  * `now`, but only after validating it is the current or the immediately previous
- * local day; anything else (stale tab, future, clock skew) is rejected so we
- * never silently misfile an entry. Omitting it preserves the old behaviour.
+ * local day AND falls inside the active run's window [startDate .. currentDay].
+ * The run check matters because a user can fail a run and restart the same day:
+ * a stale dashboard from the OLD run could submit yesterday's dayKey, which is
+ * the "previous local day" yet lies before the NEW run began. Anything outside
+ * the window (stale tab, prior run, future, clock skew) is rejected so we never
+ * silently misfile an entry. Omitting submittedDayKey preserves the old behaviour.
  */
 export async function upsertJournal(
   uid: string,
@@ -34,11 +38,20 @@ export async function upsertJournal(
   const serverDayKey = localDayKey(now, run.timezone);
   let dayKey = serverDayKey;
   if (submittedDayKey !== undefined && submittedDayKey !== serverDayKey) {
-    // Only the immediately previous local day is an acceptable mismatch — the
-    // "open across midnight then save" case. Reject everything else.
-    if (submittedDayKey !== addDays(serverDayKey, -1)) {
+    // Two conditions must both hold for an off-by-server-now dayKey:
+    //   1. it's the immediately previous local day — the "open across midnight
+    //      then save" case (not an arbitrary stale tab or future day), and
+    //   2. it's still inside the active run's window [startDate .. serverDayKey].
+    // The run bound catches a stale dashboard from a PRIOR run submitting a day
+    // before this run's startDate (e.g. fail + restart on the same day), which
+    // would otherwise be misfiled as a row that predates the run. dayKeys are
+    // YYYY-MM-DD so lexicographic comparison is chronological (mirrors validation.ts).
+    const isPreviousLocalDay = submittedDayKey === addDays(serverDayKey, -1);
+    const withinRun = submittedDayKey >= run.startDate && submittedDayKey <= serverDayKey;
+    if (!isPreviousLocalDay || !withinRun) {
       throw new Error(
-        `Journal day ${submittedDayKey} is outside the allowed window (current ${serverDayKey} or previous day)`,
+        `Journal day ${submittedDayKey} is outside the allowed window ` +
+          `(current ${serverDayKey} or previous day, within run starting ${run.startDate})`,
       );
     }
     dayKey = submittedDayKey;
