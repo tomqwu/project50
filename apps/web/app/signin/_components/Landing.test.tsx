@@ -4,6 +4,8 @@ import { render, screen, cleanup } from "@testing-library/react";
 // Mock next-auth/react used by SignInButtons (child of Landing)
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
+import { PROJECT50_RULES } from "@project50/core";
+
 import { Landing } from "./Landing";
 
 describe("Landing", () => {
@@ -78,6 +80,22 @@ describe("Landing", () => {
   it("renders the email form when emailEnabled is true", () => {
     render(<Landing emailEnabled />);
     expect(screen.getByTestId("signin-email-form")).toBeInTheDocument();
+  });
+
+  it("renders the full list of all 7 daily rules from core", () => {
+    render(<Landing />);
+    const rules = screen.getByTestId("landing-rules");
+    expect(rules).toHaveTextContent(/7 daily rules/i);
+    PROJECT50_RULES.forEach((rule) => {
+      expect(rules).toHaveTextContent(rule.title);
+    });
+    expect(screen.getAllByTestId("landing-rule")).toHaveLength(7);
+  });
+
+  it("renders the inline app preview with the Day 1 / 50 header", () => {
+    render(<Landing />);
+    const preview = screen.getByTestId("landing-app-preview");
+    expect(preview).toHaveTextContent(/Day 1 \/ 50/i);
   });
 
   it("renders a 'How Project 50 works' link to /welcome in the sign-in card", () => {

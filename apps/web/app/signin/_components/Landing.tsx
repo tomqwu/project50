@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card } from "@project50/ui";
 import { SignInButtons } from "../SignInButtons";
-import { HowItWorksStrip, BenefitsGrid } from "./LandingSections";
+import { HowItWorksStrip, BenefitsGrid, RulesShowcase, AppPreview } from "./LandingSections";
 
 interface LandingProps {
   e2eEnabled?: boolean;
@@ -82,9 +82,9 @@ export function Landing({ e2eEnabled = false, emailEnabled = false }: LandingPro
             maxWidth: "520px",
           }}
         >
-          Project 50 is an all-or-nothing hard reset: hit all 7 rules every day
-          for 50 days straight. Miss a single rule and the streak resets to Day
-          1. Finish, and the discipline is yours to keep.
+          Project 50 is an all-or-nothing hard reset: hit all 7 rules every day for 50 days
+          straight. Miss a single rule and the streak resets to Day 1. Finish, and the discipline is
+          yours to keep.
         </p>
         <div
           style={{
@@ -139,6 +139,20 @@ export function Landing({ e2eEnabled = false, emailEnabled = false }: LandingPro
           </a>
         </div>
       </header>
+      {/* Product visual — live, themeable app preview */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          width: "100%",
+          marginBottom: "72px",
+        }}
+      >
+        <AppPreview />
+      </div>
+
+      {/* The 7 daily rules — full list from core */}
+      <RulesShowcase />
 
       {/* How it works — 3-step strip */}
       <HowItWorksStrip />
