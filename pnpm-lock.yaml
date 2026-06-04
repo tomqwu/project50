@@ -92,6 +92,9 @@ importers:
       react-native:
         specifier: 0.76.9
         version: 0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1)
+      react-native-purchases:
+        specifier: 8.5.3
+        version: 8.5.3(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1)
       react-native-safe-area-context:
         specifier: 4.12.0
         version: 4.12.0(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1)
@@ -1536,7 +1539,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {node: '>=0.10.0'}
+    engines: {'0': node >=0.10.0}
 
   '@expo/cli@0.22.28':
     resolution: {integrity: sha512-lvt72KNitGuixYD2l3SZmRKVu2G4zJpmg5V7WfUBNpmUU5oODBw/6qmiJ6kSLAlfDozscUk+BBGknBBzxUrwrA==}
@@ -2290,6 +2293,9 @@ packages:
     resolution: {integrity: sha512-jCVmiXRHPyYAp8rlOdFuD6t/5DriiisJIRWZ51RC5wcvWt306aAYUO+7fpOYD7FqRp3vuIHkc5Iq5SpKuqf/0Q==}
     peerDependencies:
       zod: 4.3.6
+
+  '@revenuecat/purchases-typescript-internal@13.17.0':
+    resolution: {integrity: sha512-MedHunEQJftlXDK+Vrs2Omj9Z2Btu5SxVndY6tntp2dVWZmObn5UfUTzMS3XJIQ/aj7COUPe8nZoS7H/OGjO7A==}
 
   '@rollup/plugin-commonjs@28.0.1':
     resolution: {integrity: sha512-+tNWdlWKbpB3WgBN7ijjYkq9X5uhjmcvyjEght4NmH5fAU++zfQzAJ6wumLS+dNcvwEZhKx2Z+skY8m7v0wGSA==}
@@ -5851,6 +5857,12 @@ packages:
     resolution: {integrity: sha512-6E8o9D2sHwhFGiU0c4aCweMdJwIbQeBV+dq3IQ3HcqKhVGzg7ccEycap6i0zGCtIYfs3V29Xd4OycwcRj5qxBQ==}
     peerDependencies:
       react: '*'
+      react-native: '*'
+
+  react-native-purchases@8.5.3:
+    resolution: {integrity: sha512-cKQBcsVcbevoBob++DNLzg0BNldYOMnp8SuBLwASQH+ra9oP+w5b7142PKDoI3j6fhls1P26EQmy7p4YBSGbPA==}
+    peerDependencies:
+      react: '>= 16.6.3'
       react-native: '*'
 
   react-native-safe-area-context@4.12.0:
@@ -9600,6 +9612,8 @@ snapshots:
     transitivePeerDependencies:
       - react
       - react-dom
+
+  '@revenuecat/purchases-typescript-internal@13.17.0': {}
 
   '@rollup/plugin-commonjs@28.0.1(rollup@4.61.0)':
     dependencies:
@@ -13709,6 +13723,12 @@ snapshots:
     dependencies:
       '@types/react-test-renderer': 19.1.0
       invariant: 2.2.4
+      react: 18.3.1
+      react-native: 0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1)
+
+  react-native-purchases@8.5.3(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1):
+    dependencies:
+      '@revenuecat/purchases-typescript-internal': 13.17.0
       react: 18.3.1
       react-native: 0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1)
 
