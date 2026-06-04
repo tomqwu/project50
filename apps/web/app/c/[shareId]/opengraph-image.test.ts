@@ -11,10 +11,16 @@ vi.mock("@/lib/api/challenges", () => ({
   getChallengeByShareId: mockGetByShareId,
 }));
 
-const { mockDayNumber } = vi.hoisted(() => ({ mockDayNumber: vi.fn() }));
-vi.mock("@project50/core", () => ({ dayNumber: mockDayNumber }));
+const { mockDayNumber, mockLocalDayKey } = vi.hoisted(() => ({
+  mockDayNumber: vi.fn(),
+  mockLocalDayKey: vi.fn(),
+}));
+vi.mock("@project50/core", () => ({
+  dayNumber: mockDayNumber,
+  localDayKey: mockLocalDayKey,
+}));
 
-import ShareOpengraphImage, { alt, contentType, size } from "./opengraph-image";
+import ShareOpengraphImage, { alt, contentType, revalidate, size } from "./opengraph-image";
 import { ImageResponse } from "next/og";
 
 afterEach(() => {
@@ -29,6 +35,7 @@ const publicChallenge = {
   goalType: "TARGET",
   unit: "km",
   startDate: "2026-06-01",
+  timezone: "UTC",
   lengthDays: 50,
   visibility: "PUBLIC",
   dayStatuses: [
@@ -43,6 +50,10 @@ describe("per-recap opengraph-image route", () => {
     expect(size).toEqual({ width: 1200, height: 630 });
     expect(contentType).toBe("image/png");
     expect(alt).toContain("project50");
+  });
+
+  it("revalidates the route every 5 minutes so the card cannot go stale", () => {
+    expect(revalidate).toBe(300);
   });
 
   it("renders a personalized Day N / 50 card for a public share", async () => {
@@ -73,6 +84,33 @@ describe("per-recap opengraph-image route", () => {
     const cacheControl = opts.headers?.["Cache-Control"];
     expect(cacheControl).toBe("public, max-age=300, s-maxage=300");
     expect(cacheControl).not.toContain("immutable");
+  });
+
+  it("derives the current day key from the challenge timezone (not UTC)", async () => {
+    mockGetByShareId.mockResolvedValue({
+      ...publicChallenge,
+      timezone: "Asia/Shanghai",
+    });
+    mockLocalDayKey.mockReturnValue("2026-06-04");
+    mockDayNumber.mockReturnValue(4);
+
+    await ShareOpengraphImage({ params: params("abc") });
+
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "Asia/Shanghai");
+    // dayNumber is computed from the timezone-local key, not the UTC slice
+    expect(mockDayNumber).toHaveBeenCalledWith("2026-06-01", "2026-06-04");
+    const el = JSON.stringify(vi.mocked(ImageResponse).mock.calls[0]![0]);
+    expect(el).toContain("Day 4 of 50");
+  });
+
+  it("falls back to UTC when the challenge has no timezone", async () => {
+    mockGetByShareId.mockResolvedValue({ ...publicChallenge, timezone: null });
+    mockLocalDayKey.mockReturnValue("2026-06-03");
+    mockDayNumber.mockReturnValue(3);
+
+    await ShareOpengraphImage({ params: params("abc") });
+
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "UTC");
   });
 
   it("clamps the day number to at least 1", async () => {

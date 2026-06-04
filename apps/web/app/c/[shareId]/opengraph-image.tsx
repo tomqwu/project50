@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { dayNumber } from "@project50/core";
+import { dayNumber, localDayKey } from "@project50/core";
 import { getChallengeByShareId } from "@/lib/api/challenges";
 import { buildCardModel } from "@/lib/share/card-model";
 import {
@@ -14,6 +14,10 @@ import { defaultOgElement, recapOgElement } from "@/lib/og/elements";
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
 export const alt = OG_DEFAULT_ALT;
+
+// Revalidate the generated card every 5 minutes so Next's route cache does not
+// serve a stale "Day N" / totals image indefinitely after first generation.
+export const revalidate = 300;
 
 /**
  * Per-recap social-share card. Pulls the public shared challenge (same loader as
@@ -50,7 +54,7 @@ async function loadRecapModel(
       return null;
     }
 
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = localDayKey(new Date(), challenge.timezone ?? "UTC");
     const dayNum = Math.max(1, dayNumber(challenge.startDate, todayKey));
 
     const completedStatuses = challenge.dayStatuses.filter((ds) => ds.completed);
