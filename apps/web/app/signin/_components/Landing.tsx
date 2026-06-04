@@ -4,11 +4,18 @@ import { SignInButtons } from "../SignInButtons";
 import { HowItWorksStrip, BenefitsGrid, RulesShowcase, AppPreview } from "./LandingSections";
 
 interface LandingProps {
+  googleEnabled?: boolean;
+  facebookEnabled?: boolean;
   e2eEnabled?: boolean;
   emailEnabled?: boolean;
 }
 
-export function Landing({ e2eEnabled = false, emailEnabled = false }: LandingProps) {
+export function Landing({
+  googleEnabled = false,
+  facebookEnabled = false,
+  e2eEnabled = false,
+  emailEnabled = false,
+}: LandingProps) {
   return (
     <div
       style={{
@@ -187,7 +194,12 @@ export function Landing({ e2eEnabled = false, emailEnabled = false }: LandingPro
           >
             Create your free account and start Day 1 today.
           </p>
-          <SignInButtons e2eEnabled={e2eEnabled} emailEnabled={emailEnabled} />
+          <SignInButtons
+            googleEnabled={googleEnabled}
+            facebookEnabled={facebookEnabled}
+            e2eEnabled={e2eEnabled}
+            emailEnabled={emailEnabled}
+          />
           <p
             style={{
               fontFamily: "var(--font-body, system-ui, sans-serif)",

@@ -4,6 +4,10 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 
 interface SignInButtonsProps {
+  /** Show the Google OAuth button only when Google is configured. */
+  googleEnabled?: boolean;
+  /** Show the Facebook OAuth button only when Facebook is configured. */
+  facebookEnabled?: boolean;
   e2eEnabled?: boolean;
   /** Show the email magic-link option only when email is configured (#50). */
   emailEnabled?: boolean;
@@ -33,6 +37,8 @@ function FacebookIcon() {
 }
 
 export function SignInButtons({
+  googleEnabled = false,
+  facebookEnabled = false,
   e2eEnabled = false,
   emailEnabled = false,
 }: SignInButtonsProps) {
@@ -65,26 +71,30 @@ export function SignInButtons({
         maxWidth: "360px",
       }}
     >
-      <button
-        type="button"
-        onClick={() => signIn("google", { callbackUrl: "/" })}
-        className="signin-provider-btn"
-        style={googleButtonStyle}
-        data-testid="signin-google"
-      >
-        <GoogleIcon />
-        Continue with Google
-      </button>
-      <button
-        type="button"
-        onClick={() => signIn("facebook", { callbackUrl: "/" })}
-        className="signin-provider-btn"
-        style={facebookButtonStyle}
-        data-testid="signin-facebook"
-      >
-        <FacebookIcon />
-        Continue with Facebook
-      </button>
+      {googleEnabled && (
+        <button
+          type="button"
+          onClick={() => signIn("google", { callbackUrl: "/" })}
+          className="signin-provider-btn"
+          style={googleButtonStyle}
+          data-testid="signin-google"
+        >
+          <GoogleIcon />
+          Continue with Google
+        </button>
+      )}
+      {facebookEnabled && (
+        <button
+          type="button"
+          onClick={() => signIn("facebook", { callbackUrl: "/" })}
+          className="signin-provider-btn"
+          style={facebookButtonStyle}
+          data-testid="signin-facebook"
+        >
+          <FacebookIcon />
+          Continue with Facebook
+        </button>
+      )}
       {e2eEnabled && (
         <button
           type="button"

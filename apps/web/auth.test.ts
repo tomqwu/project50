@@ -84,6 +84,12 @@ beforeEach(() => {
   for (const k of Object.keys(capturedAuthorizeById)) delete capturedAuthorizeById[k];
   mockIsEmailConfigured.mockReset().mockReturnValue(false);
   mockVerifyMagicLink.mockReset().mockResolvedValue(null);
+  // Default each OAuth provider OFF so tests opt in explicitly; prevents host
+  // env (e.g. a developer's real GOOGLE_CLIENT_ID) from leaking into wiring.
+  delete process.env.GOOGLE_CLIENT_ID;
+  delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.FACEBOOK_CLIENT_ID;
+  delete process.env.FACEBOOK_CLIENT_SECRET;
   vi.resetModules();
 });
 
@@ -109,6 +115,10 @@ afterEach(() => {
   delete process.env.AUTH_E2E_ALLOW_PROD;
   delete process.env.AUTH_URL;
   delete process.env.NEXTAUTH_URL;
+  delete process.env.GOOGLE_CLIENT_ID;
+  delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.FACEBOOK_CLIENT_ID;
+  delete process.env.FACEBOOK_CLIENT_SECRET;
   // Reset NODE_ENV to the test default.
   overrideNodeEnv("test");
 });
@@ -324,5 +334,75 @@ describe("auth.ts magic-link provider (env-gated)", () => {
 
     await authorize({});
     expect(mockVerifyMagicLink).toHaveBeenCalledWith("");
+  });
+});
+
+describe("auth.ts OAuth providers (env-gated)", () => {
+  it("does NOT register the Google provider when GOOGLE_CLIENT_ID is unset", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    delete process.env.GOOGLE_CLIENT_ID;
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "google")).toBe(false);
+  });
+
+  it("registers the Google provider when GOOGLE_CLIENT_ID is set", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.GOOGLE_CLIENT_ID = "g-id";
+    process.env.GOOGLE_CLIENT_SECRET = "g-secret";
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "google")).toBe(true);
+  });
+
+  it("does NOT register the Facebook provider when FACEBOOK_CLIENT_ID is unset", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    delete process.env.FACEBOOK_CLIENT_ID;
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "facebook")).toBe(false);
+  });
+
+  it("registers the Facebook provider when FACEBOOK_CLIENT_ID is set", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.FACEBOOK_CLIENT_ID = "fb-id";
+    process.env.FACEBOOK_CLIENT_SECRET = "fb-secret";
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "facebook")).toBe(true);
+  });
+
+  it("registers Facebook but not Google when only FACEBOOK_CLIENT_ID is set (production shape)", async () => {
+    // Mirrors the intended production env: Google OAuth not yet configured,
+    // Facebook is. Google must be absent; Facebook must remain.
+    process.env.AUTH_SECRET = "test-secret";
+    delete process.env.GOOGLE_CLIENT_ID;
+    process.env.FACEBOOK_CLIENT_ID = "fb-id";
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "google")).toBe(false);
+    expect(providers.some((p) => p.id === "facebook")).toBe(true);
+  });
+
+  it("registers both OAuth providers when both client ids are set (e2e shape)", async () => {
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.GOOGLE_CLIENT_ID = "g-id";
+    process.env.FACEBOOK_CLIENT_ID = "fb-id";
+
+    await import("./auth");
+
+    const providers = capturedCalls.at(0)!.providers;
+    expect(providers.some((p) => p.id === "google")).toBe(true);
+    expect(providers.some((p) => p.id === "facebook")).toBe(true);
   });
 });

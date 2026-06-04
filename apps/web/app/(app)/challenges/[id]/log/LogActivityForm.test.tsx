@@ -25,6 +25,7 @@ Object.defineProperty(URL, "revokeObjectURL", {
 });
 
 import { LogActivityForm, readImageDimensions } from "./LogActivityForm";
+import { localDayKey } from "@project50/core";
 
 beforeEach(() => {
   mockReadDimensions.mockResolvedValue({ width: 800, height: 600 });
@@ -125,7 +126,10 @@ describe("LogActivityForm — TARGET", () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 422,
-      json: async () => ({ code: "INVALID_ACTIVITY", detail: ["dayKey out of range", "amount required"] }),
+      json: async () => ({
+        code: "INVALID_ACTIVITY",
+        detail: ["dayKey out of range", "amount required"],
+      }),
     });
 
     render(<LogActivityForm challengeId="c1" goalType="TARGET" unit="km" />);
@@ -259,14 +263,64 @@ describe("LogActivityForm — BINARY", () => {
   });
 });
 
+describe("LogActivityForm — timezone", () => {
+  it("derives the dayKey in the challenge timezone, not the browser zone", async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 201 });
+
+    const before = new Date();
+    render(<LogActivityForm challengeId="c1" goalType="BINARY" timezone="Asia/Shanghai" />);
+    fireEvent.click(screen.getByTestId("done-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+    const after = new Date();
+
+    const call = mockFetch.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(call[1].body);
+    // The submitted dayKey must be "today" in the CHALLENGE zone (Asia/Shanghai),
+    // not the runner's zone. Bound by the wall-clock window around the click so a
+    // midnight tick can't make this flaky.
+    const expected = new Set([
+      localDayKey(before, "Asia/Shanghai"),
+      localDayKey(after, "Asia/Shanghai"),
+    ]);
+    expect(expected.has(body.dayKey)).toBe(true);
+  });
+
+  // The server validates `asOf` with `challenge.timezone ?? "UTC"`, so for a
+  // null/blank challenge timezone the form MUST also use UTC (not the browser
+  // zone) or a valid submission is rejected as DAY_IN_FUTURE near midnight.
+  it.each([
+    ["null", null as string | null],
+    ["blank", "" as string | null],
+  ])("uses UTC (matching the server) when the challenge timezone is %s", async (_label, tz) => {
+    mockFetch.mockResolvedValue({ ok: true, status: 201 });
+
+    const before = new Date();
+    render(<LogActivityForm challengeId="c1" goalType="BINARY" timezone={tz} />);
+    fireEvent.click(screen.getByTestId("done-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+    const after = new Date();
+
+    const call = mockFetch.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(call[1].body);
+    // Identical to the server's localDayKey(now, "UTC"); window-bounded so a
+    // midnight tick can't make this flaky.
+    const expected = new Set([localDayKey(before, "UTC"), localDayKey(after, "UTC")]);
+    expect(expected.has(body.dayKey)).toBe(true);
+  });
+});
+
 describe("LogActivityForm — Photo upload", () => {
   it("renders the photo file input", () => {
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
     expect(screen.getByTestId("photo-input")).toBeInTheDocument();
   });
@@ -288,11 +342,7 @@ describe("LogActivityForm — Photo upload", () => {
       });
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -421,11 +471,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: true, status: 201 }); // POST activity
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -446,20 +492,14 @@ describe("LogActivityForm — Photo upload", () => {
     // The third fetch call is the activity POST
     const activityCall = mockFetch.mock.calls[2] as [string, { body: string }];
     const body = JSON.parse(activityCall[1].body);
-    expect(body.media).toEqual([
-      { objectKey: "media/u1/photo_jpg.jpg", width: 800, height: 600 },
-    ]);
+    expect(body.media).toEqual([{ objectKey: "media/u1/photo_jpg.jpg", width: 800, height: 600 }]);
   });
 
   it("shows upload error and no thumbnail when presign fails", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 422 });
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -480,11 +520,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: false, status: 500 }); // PUT fails
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -499,13 +535,7 @@ describe("LogActivityForm — Photo upload", () => {
   it("shows upload error when readDimensions throws", async () => {
     const failDimensions = vi.fn().mockRejectedValue(new Error("cannot load"));
 
-    render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={failDimensions}
-      />,
-    );
+    render(<LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={failDimensions} />);
 
     const fileInput = screen.getByTestId("photo-input");
     fireEvent.change(fileInput, { target: { files: [makeImageFile()] } });
@@ -524,11 +554,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: true, status: 201 });
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     // Trigger upload failure
@@ -562,11 +588,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: true, status: 201 }); // activity submit
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -596,11 +618,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: true }); // PUT
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -622,16 +640,15 @@ describe("LogActivityForm — Photo upload", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ uploadUrl: "https://minio/up", objectKey: "media/u1/my_run_photo_jpg.jpg" }),
+        json: async () => ({
+          uploadUrl: "https://minio/up",
+          objectKey: "media/u1/my_run_photo_jpg.jpg",
+        }),
       })
       .mockResolvedValueOnce({ ok: true });
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -649,11 +666,7 @@ describe("LogActivityForm — Photo upload", () => {
 
   it("shows upload error for unsupported file type", async () => {
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -671,11 +684,7 @@ describe("LogActivityForm — Photo upload", () => {
     mockFetch.mockResolvedValue({ ok: true, status: 201 });
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Log activity/i }));
@@ -691,11 +700,7 @@ describe("LogActivityForm — Photo upload", () => {
 
   it("does nothing when the change event has no file selected", async () => {
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");
@@ -718,11 +723,7 @@ describe("LogActivityForm — Photo upload", () => {
       .mockResolvedValueOnce({ ok: true }); // PUT
 
     render(
-      <LogActivityForm
-        challengeId="c1"
-        goalType="TARGET"
-        readDimensions={mockReadDimensions}
-      />,
+      <LogActivityForm challengeId="c1" goalType="TARGET" readDimensions={mockReadDimensions} />,
     );
 
     const fileInput = screen.getByTestId("photo-input");

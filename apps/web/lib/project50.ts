@@ -3,6 +3,7 @@ import {
   localDayKey,
   dayNumber,
   addDays,
+  safeTimeZone,
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
@@ -72,14 +73,17 @@ export async function startProject50(
   timezone: string,
   now: Date = new Date(),
 ): Promise<string> {
-  const startDate = localDayKey(now, timezone);
+  // Normalize a blank/invalid zone to UTC before persisting, so the stored
+  // value is always a zone every later consumer (localDayKey/localHour) can use.
+  const safeTz = safeTimeZone(timezone);
+  const startDate = localDayKey(now, safeTz);
   const run = await prisma.challenge.create({
     data: {
       ownerId: uid,
       title: "Project 50",
       goalType: "BINARY",
       startDate,
-      timezone,
+      timezone: safeTz,
       lengthDays: 50,
       kind: "PROJECT50",
       status: "ACTIVE",
@@ -89,7 +93,11 @@ export async function startProject50(
 }
 
 /** Build today's checklist for a run. */
-async function buildToday(runId: string, startDate: string, todayKey: string): Promise<Project50Today> {
+async function buildToday(
+  runId: string,
+  startDate: string,
+  todayKey: string,
+): Promise<Project50Today> {
   const checksRows = await prisma.ruleCheck.findMany({
     where: { challengeId: runId, dayKey: todayKey, done: true },
   });
@@ -123,9 +131,7 @@ export async function listProject50DayMedia(
     orderBy: { createdAt: "asc" },
     select: { objectKey: true, width: true, height: true },
   });
-  return Promise.all(
-    rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })),
-  );
+  return Promise.all(rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })));
 }
 
 /**
@@ -177,7 +183,10 @@ export async function getProject50History(
   return buildHistory(run.id, run.startDate, todayKey);
 }
 
-export async function getProject50State(uid: string, now: Date = new Date()): Promise<Project50State> {
+export async function getProject50State(
+  uid: string,
+  now: Date = new Date(),
+): Promise<Project50State> {
   const run = await activeRun(uid);
   if (!run) {
     // A previously-finished run stays visible as a terminal celebration.

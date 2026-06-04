@@ -1,5 +1,5 @@
 import { prisma } from "@project50/db";
-import { currentStreak, longestStreak } from "@project50/core";
+import { currentStreak, longestStreak, safeTimeZone } from "@project50/core";
 import { notFound, unprocessable } from "./http";
 import { withMediaUrls } from "./media";
 
@@ -33,10 +33,7 @@ function validateCreateInput(input: CreateChallengeInput): string[] {
   return errors;
 }
 
-export async function createChallenge(
-  ownerId: string,
-  input: CreateChallengeInput,
-) {
+export async function createChallenge(ownerId: string, input: CreateChallengeInput) {
   const errors = validateCreateInput(input);
   if (errors.length > 0) {
     unprocessable("INVALID_CHALLENGE", errors);
@@ -51,7 +48,9 @@ export async function createChallenge(
       unit: input.goalType === "TARGET" ? input.unit : undefined,
       startDate: input.startDate,
       lengthDays: input.lengthDays ?? 50,
-      timezone: input.timezone ?? "UTC",
+      // Normalize a blank/invalid zone to UTC so the stored value is always a
+      // zone every later day/hour computation can use.
+      timezone: safeTimeZone(input.timezone),
       visibility: (input.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE") ?? "PUBLIC",
     },
   });
@@ -104,14 +103,11 @@ export async function getChallenge(id: string, viewerId: string) {
     .filter((ds) => ds.completed)
     .map((ds) => ds.dayKey);
 
-  const latestCompletedDayKey = completedDayKeys.length > 0
-    ? completedDayKeys.slice().sort().at(-1)!
-    : null;
+  const latestCompletedDayKey =
+    completedDayKeys.length > 0 ? completedDayKeys.slice().sort().at(-1)! : null;
 
   const streakAsOf = latestCompletedDayKey ?? challenge.startDate;
-  const streak = latestCompletedDayKey
-    ? currentStreak(completedDayKeys, streakAsOf)
-    : 0;
+  const streak = latestCompletedDayKey ? currentStreak(completedDayKeys, streakAsOf) : 0;
   const longest = longestStreak(completedDayKeys);
 
   // Real badges count = number of earned milestones
@@ -155,11 +151,7 @@ export interface UpdateChallengeInput {
  * fields (title, unit, dailyTarget, visibility) are applied; everything
  * else in `patch` is ignored. Returns the updated challenge.
  */
-export async function updateChallenge(
-  id: string,
-  ownerId: string,
-  patch: UpdateChallengeInput,
-) {
+export async function updateChallenge(id: string, ownerId: string, patch: UpdateChallengeInput) {
   const challenge = await prisma.challenge.findUnique({ where: { id } });
   if (!challenge || challenge.ownerId !== ownerId) {
     notFound("CHALLENGE_NOT_FOUND");
@@ -190,9 +182,7 @@ export async function updateChallenge(
   }
   if (patch.visibility !== undefined) {
     if (!["PUBLIC", "FOLLOWERS", "PRIVATE"].includes(patch.visibility)) {
-      unprocessable("INVALID_CHALLENGE", [
-        "visibility must be PUBLIC, FOLLOWERS, or PRIVATE",
-      ]);
+      unprocessable("INVALID_CHALLENGE", ["visibility must be PUBLIC, FOLLOWERS, or PRIVATE"]);
     }
     data.visibility = patch.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE";
   }

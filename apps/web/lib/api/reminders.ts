@@ -27,7 +27,7 @@
  * gated and is exercised in tests with a mocked provider.
  */
 import { prisma } from "@project50/db";
-import { localDayKey, PROJECT50_RULE_IDS } from "@project50/core";
+import { localDayKey, safeTimeZone, PROJECT50_RULE_IDS } from "@project50/core";
 import { isEmailConfigured } from "@/lib/email";
 import { isWithinQuietHours } from "@/lib/api/notification-prefs";
 import { dispatch, type NotificationRecipient } from "@/lib/api/notifications";
@@ -78,7 +78,9 @@ function dayNumberInRun(startDate: string, dayKey: string): number {
 /** The local hour (0-23) that `instant` falls on in `timeZone`. */
 function localHour(instant: Date, timeZone: string): number {
   const hour = new Intl.DateTimeFormat("en-US", {
-    timeZone,
+    // safeTimeZone degrades a blank/invalid stored zone to UTC so a single bad
+    // run can't throw and abort streak-at-risk selection for ALL runs.
+    timeZone: safeTimeZone(timeZone),
     hour: "2-digit",
     hour12: false,
   }).format(instant);
@@ -88,7 +90,12 @@ function localHour(instant: Date, timeZone: string): number {
 
 /** Project a run + its owner into a {@link ReminderRecipient}. */
 function toRecipient(
-  run: { id: string; ownerId: string; startDate: string; owner: { handle: string; displayName: string } },
+  run: {
+    id: string;
+    ownerId: string;
+    startDate: string;
+    owner: { handle: string; displayName: string };
+  },
   dayKey: string,
   completedCount: number,
 ): ReminderRecipient {
@@ -266,14 +273,8 @@ async function deliverBatch(
  * Send a daily reminder to every user who needs one, via the channel dispatch.
  * Returns a summary { sent, skipped }.
  */
-export async function sendDailyReminders(
-  now: Date = new Date(),
-): Promise<ReminderSummary> {
-  return deliverBatch(
-    "reminders",
-    () => findUsersNeedingReminder(now),
-    buildReminderEmail,
-  );
+export async function sendDailyReminders(now: Date = new Date()): Promise<ReminderSummary> {
+  return deliverBatch("reminders", () => findUsersNeedingReminder(now), buildReminderEmail);
 }
 
 /**

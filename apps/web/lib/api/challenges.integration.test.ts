@@ -11,7 +11,15 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { prisma, resetDb, createUser, createChallenge as seedChallenge } from "../../test/db";
-import { createChallenge, listChallenges, getChallenge, getMilestones, getChallengeByShareId, updateChallenge, deleteChallenge } from "./challenges";
+import {
+  createChallenge,
+  listChallenges,
+  getChallenge,
+  getMilestones,
+  getChallengeByShareId,
+  updateChallenge,
+  deleteChallenge,
+} from "./challenges";
 import { HttpError } from "./http";
 
 beforeEach(resetDb);
@@ -54,6 +62,28 @@ describe("createChallenge", () => {
     expect(challenge.goalType).toBe("BINARY");
     expect(challenge.dailyTarget).toBeNull();
     expect(challenge.unit).toBeNull();
+  });
+
+  it("normalizes a malformed timezone to UTC before storing", async () => {
+    const user = await createUser({ handle: "tzbad" });
+    const challenge = await createChallenge(user.id, {
+      title: "Bad TZ",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      timezone: "Not/A_Zone",
+    });
+    expect(challenge.timezone).toBe("UTC");
+  });
+
+  it("defaults a blank timezone to UTC", async () => {
+    const user = await createUser({ handle: "tzblank" });
+    const challenge = await createChallenge(user.id, {
+      title: "Blank TZ",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      timezone: "   ",
+    });
+    expect(challenge.timezone).toBe("UTC");
   });
 
   it("throws 422 INVALID_CHALLENGE when title is empty", async () => {
@@ -207,9 +237,10 @@ describe("getChallenge", () => {
 
   it("throws 404 when challenge does not exist", async () => {
     const viewer = await createUser({ handle: "alice" });
-    await expect(
-      getChallenge("nonexistent-id", viewer.id),
-    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+    await expect(getChallenge("nonexistent-id", viewer.id)).rejects.toMatchObject({
+      status: 404,
+      code: "CHALLENGE_NOT_FOUND",
+    });
   });
 
   it("throws 404 for PRIVATE challenge if viewer is not owner", async () => {
@@ -217,9 +248,10 @@ describe("getChallenge", () => {
     const viewer = await createUser({ handle: "bob" });
     const challenge = await seedChallenge(owner.id, { visibility: "PRIVATE" });
 
-    await expect(
-      getChallenge(challenge.id, viewer.id),
-    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+    await expect(getChallenge(challenge.id, viewer.id)).rejects.toMatchObject({
+      status: 404,
+      code: "CHALLENGE_NOT_FOUND",
+    });
   });
 
   it("allows owner to view PRIVATE challenge", async () => {
@@ -249,9 +281,7 @@ describe("getChallenge", () => {
     const stranger = await createUser({ handle: "carol" });
     const challenge = await seedChallenge(owner.id, { visibility: "FOLLOWERS" });
 
-    await expect(
-      getChallenge(challenge.id, stranger.id),
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(getChallenge(challenge.id, stranger.id)).rejects.toMatchObject({ status: 404 });
   });
 
   it("allows owner to see FOLLOWERS challenge even without following themselves", async () => {
@@ -286,17 +316,28 @@ describe("getChallenge", () => {
     const owner = await createUser({ handle: "alice" });
     const fan1 = await createUser({ handle: "bob" });
     const fan2 = await createUser({ handle: "carol" });
-    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const challenge = await seedChallenge(owner.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
 
     const activity = await prisma.activity.create({
       data: { challengeId: challenge.id, userId: owner.id, dayKey: "2026-06-01", done: true },
     });
 
     // Two cheers
-    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan1.id, kind: "CHEER" } });
-    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan2.id, kind: "CHEER" } });
+    await prisma.reaction.create({
+      data: { activityId: activity.id, userId: fan1.id, kind: "CHEER" },
+    });
+    await prisma.reaction.create({
+      data: { activityId: activity.id, userId: fan2.id, kind: "CHEER" },
+    });
     // A comment (should not count)
-    await prisma.reaction.create({ data: { activityId: activity.id, userId: fan1.id, kind: "COMMENT", text: "Nice!" } });
+    await prisma.reaction.create({
+      data: { activityId: activity.id, userId: fan1.id, kind: "COMMENT", text: "Nice!" },
+    });
 
     const result = await getChallenge(challenge.id, owner.id);
     expect(result.cheering).toBe(2);
@@ -313,13 +354,25 @@ describe("getChallenge", () => {
   it("does not count CHEERs from another challenge's activities", async () => {
     const owner = await createUser({ handle: "alice" });
     const fan = await createUser({ handle: "bob" });
-    const challenge1 = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
-    const challenge2 = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const challenge1 = await seedChallenge(owner.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+    const challenge2 = await seedChallenge(owner.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
 
     const activity2 = await prisma.activity.create({
       data: { challengeId: challenge2.id, userId: owner.id, dayKey: "2026-06-01", done: true },
     });
-    await prisma.reaction.create({ data: { activityId: activity2.id, userId: fan.id, kind: "CHEER" } });
+    await prisma.reaction.create({
+      data: { activityId: activity2.id, userId: fan.id, kind: "CHEER" },
+    });
 
     const result = await getChallenge(challenge1.id, owner.id);
     expect(result.cheering).toBe(0);
@@ -330,13 +383,24 @@ describe("getChallenge", () => {
     vi.mocked(presignGet).mockResolvedValue("https://signed-get");
 
     const owner = await createUser({ handle: "alice" });
-    const challenge = await seedChallenge(owner.id, { visibility: "PUBLIC", goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const challenge = await seedChallenge(owner.id, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
 
     const activity = await prisma.activity.create({
       data: { challengeId: challenge.id, userId: owner.id, dayKey: "2026-06-01", done: true },
     });
     await prisma.activityMedia.create({
-      data: { activityId: activity.id, objectKey: `media/${owner.id}/img.jpg`, width: 800, height: 600, order: 0 },
+      data: {
+        activityId: activity.id,
+        objectKey: `media/${owner.id}/img.jpg`,
+        width: 800,
+        height: 600,
+        order: 0,
+      },
     });
 
     const result = await getChallenge(challenge.id, owner.id);
@@ -458,9 +522,9 @@ describe("updateChallenge", () => {
 
   it("throws 404 when the challenge does not exist", async () => {
     const owner = await createUser({ handle: "alice" });
-    await expect(
-      updateChallenge("nonexistent-id", owner.id, { title: "x" }),
-    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+    await expect(updateChallenge("nonexistent-id", owner.id, { title: "x" })).rejects.toMatchObject(
+      { status: 404, code: "CHALLENGE_NOT_FOUND" },
+    );
   });
 
   it("throws 404 when the requester is not the owner", async () => {
@@ -478,25 +542,27 @@ describe("updateChallenge", () => {
   it("throws 422 when title is blank", async () => {
     const owner = await createUser({ handle: "alice" });
     const challenge = await seedChallenge(owner.id, { title: "Old" });
-    await expect(
-      updateChallenge(challenge.id, owner.id, { title: "   " }),
-    ).rejects.toMatchObject({ status: 422, code: "INVALID_CHALLENGE" });
+    await expect(updateChallenge(challenge.id, owner.id, { title: "   " })).rejects.toMatchObject({
+      status: 422,
+      code: "INVALID_CHALLENGE",
+    });
   });
 
   it("throws 422 when unit is blank", async () => {
     const owner = await createUser({ handle: "alice" });
     const challenge = await seedChallenge(owner.id, { goalType: "TARGET", dailyTarget: 5 });
-    await expect(
-      updateChallenge(challenge.id, owner.id, { unit: "   " }),
-    ).rejects.toMatchObject({ status: 422, code: "INVALID_CHALLENGE" });
+    await expect(updateChallenge(challenge.id, owner.id, { unit: "   " })).rejects.toMatchObject({
+      status: 422,
+      code: "INVALID_CHALLENGE",
+    });
   });
 
   it("throws 422 when dailyTarget <= 0", async () => {
     const owner = await createUser({ handle: "alice" });
     const challenge = await seedChallenge(owner.id, { goalType: "TARGET", dailyTarget: 5 });
-    await expect(
-      updateChallenge(challenge.id, owner.id, { dailyTarget: 0 }),
-    ).rejects.toMatchObject({ status: 422, code: "INVALID_CHALLENGE" });
+    await expect(updateChallenge(challenge.id, owner.id, { dailyTarget: 0 })).rejects.toMatchObject(
+      { status: 422, code: "INVALID_CHALLENGE" },
+    );
   });
 
   it("throws 422 for an invalid visibility value", async () => {
@@ -511,7 +577,11 @@ describe("updateChallenge", () => {
 describe("deleteChallenge", () => {
   it("deletes the owner's challenge and cascades", async () => {
     const owner = await createUser({ handle: "alice" });
-    const challenge = await seedChallenge(owner.id, { goalType: "BINARY", startDate: "2026-06-01", lengthDays: 50 });
+    const challenge = await seedChallenge(owner.id, {
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
     await prisma.activity.create({
       data: { challengeId: challenge.id, userId: owner.id, dayKey: "2026-06-01", done: true },
     });
@@ -527,18 +597,20 @@ describe("deleteChallenge", () => {
 
   it("throws 404 when the challenge does not exist", async () => {
     const owner = await createUser({ handle: "alice" });
-    await expect(
-      deleteChallenge("nonexistent-id", owner.id),
-    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+    await expect(deleteChallenge("nonexistent-id", owner.id)).rejects.toMatchObject({
+      status: 404,
+      code: "CHALLENGE_NOT_FOUND",
+    });
   });
 
   it("throws 404 when the requester is not the owner and leaves the row", async () => {
     const owner = await createUser({ handle: "alice" });
     const stranger = await createUser({ handle: "bob" });
     const challenge = await seedChallenge(owner.id, { title: "Mine" });
-    await expect(
-      deleteChallenge(challenge.id, stranger.id),
-    ).rejects.toMatchObject({ status: 404, code: "CHALLENGE_NOT_FOUND" });
+    await expect(deleteChallenge(challenge.id, stranger.id)).rejects.toMatchObject({
+      status: 404,
+      code: "CHALLENGE_NOT_FOUND",
+    });
 
     const found = await prisma.challenge.findUnique({ where: { id: challenge.id } });
     expect(found).not.toBeNull();
