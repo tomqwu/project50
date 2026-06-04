@@ -15,3 +15,9 @@ variable "app_db_password" {
   type        = string
   sensitive   = true
 }
+
+variable "auth_url" {
+  description = "Public base URL of the deployed app — Auth.js uses it to build OAuth callback URLs. The custom domain project50.fit (apply this only after the hostname is bound + cert provisioned)."
+  type        = string
+  default     = "https://project50.fit"
+}

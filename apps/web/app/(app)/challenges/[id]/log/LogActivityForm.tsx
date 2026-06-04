@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Label } from "@project50/ui";
+import { localDayKey } from "@project50/core";
 
 const ACTIVITY_TYPES = ["Run", "Bike", "Gym", "Yoga"] as const;
 type ActivityType = (typeof ACTIVITY_TYPES)[number];
@@ -20,9 +21,7 @@ export interface SelectedMedia {
  * Read the natural dimensions of an image from a File.
  * Extracted as a named export so tests can mock it.
  */
-export function readImageDimensions(
-  file: File,
-): Promise<{ width: number; height: number }> {
+export function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -42,6 +41,12 @@ export interface LogActivityFormProps {
   challengeId: string;
   goalType: "TARGET" | "BINARY";
   unit?: string | null;
+  /**
+   * The challenge's timezone — the server validates `asOf` in this zone, so the
+   * dayKey must be derived here too (not the browser zone) or a traveling user
+   * can be rejected as DAY_IN_FUTURE near midnight.
+   */
+  timezone?: string | null;
   /** Injectable for testing — defaults to readImageDimensions */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
@@ -50,6 +55,7 @@ export function LogActivityForm({
   challengeId,
   goalType,
   unit,
+  timezone,
   readDimensions = readImageDimensions,
 }: LogActivityFormProps) {
   const router = useRouter();
@@ -85,7 +91,11 @@ export function LogActivityForm({
       const { width, height } = await readDimensions(file);
 
       // Derive a safe suffix from the filename (strip extension, sanitize)
-      const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "upload";
+      const baseName =
+        file.name
+          .replace(/\.[^.]+$/, "")
+          .replace(/[^a-zA-Z0-9_-]/g, "_")
+          .slice(0, 64) || "upload";
 
       // POST /api/uploads/presign
       const presignRes = await fetch("/api/uploads/presign", {
@@ -99,16 +109,19 @@ export function LogActivityForm({
         return;
       }
 
-      const { uploadUrl, objectKey } = (await presignRes.json()) as {
+      const { uploadUrl, objectKey, uploadHeaders } = (await presignRes.json()) as {
         uploadUrl: string;
         objectKey: string;
+        uploadHeaders?: Record<string, string>;
       };
 
-      // PUT the file bytes to the presigned URL
+      // PUT the file bytes to the presigned URL. Spread the presign-provided
+      // headers so backend-specific requirements (e.g. Azure's
+      // x-ms-blob-type: BlockBlob) are sent; fall back to content-type only.
       const putRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
-        headers: { "content-type": file.type },
+        headers: uploadHeaders ?? { "content-type": file.type },
       });
 
       if (!putRes.ok) {
@@ -143,7 +156,12 @@ export function LogActivityForm({
     setSubmitting(true);
 
     const body: Record<string, unknown> = {
-      dayKey: new Date().toISOString().slice(0, 10),
+      // Derive the dayKey in the CHALLENGE timezone — the exact same zone (and
+      // the exact same `?? / blank → "UTC"` fallback) the server uses to
+      // validate `asOf`, so the client and server always agree on "today".
+      // Using the browser zone here would let a null-tz challenge be rejected
+      // as DAY_IN_FUTURE near midnight. localDayKey itself guards blank zones.
+      dayKey: localDayKey(new Date(), timezone || "UTC"),
       activityType: activityType ?? undefined,
       note: note || undefined,
       mood: mood ?? undefined,
@@ -277,7 +295,11 @@ export function LogActivityForm({
           />
           <label
             htmlFor="done-toggle"
-            style={{ fontFamily: "var(--font-body, system-ui)", color: "var(--text)", cursor: "pointer" }}
+            style={{
+              fontFamily: "var(--font-body, system-ui)",
+              color: "var(--text)",
+              cursor: "pointer",
+            }}
           >
             Mark as done
           </label>

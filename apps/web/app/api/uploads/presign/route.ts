@@ -28,8 +28,14 @@ export async function POST(req: Request) {
     await ensureBucket();
 
     const objectKey = newMediaKey(uid, safeExt, safeSuffix);
-    const uploadUrl = await presignPut(objectKey, contentType as string);
+    const { uploadUrl, uploadHeaders } = await presignPut(
+      objectKey,
+      contentType as string,
+    );
 
-    return Response.json({ uploadUrl, objectKey }, { status: 200 });
+    return Response.json(
+      { uploadUrl, objectKey, uploadHeaders },
+      { status: 200 },
+    );
   });
 }

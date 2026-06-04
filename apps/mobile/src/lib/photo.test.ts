@@ -195,6 +195,60 @@ describe("uploadPhoto", () => {
     expect((calls[1]![1]!.headers as Record<string, string>)["Content-Type"]).toBe("image/webp");
   });
 
+  it("spreads Azure uploadHeaders (x-ms-blob-type) onto the PUT", async () => {
+    mockPresignUpload.mockResolvedValueOnce({
+      uploadUrl: "https://acct.blob.core.windows.net/cont/key?sas",
+      objectKey: "media/u1/photo.jpg",
+      uploadHeaders: {
+        "content-type": "image/jpeg",
+        "x-ms-blob-type": "BlockBlob",
+      },
+    });
+    gFetch()
+      .mockResolvedValueOnce({ blob: () => Promise.resolve(mockBlob) })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await uploadPhoto(
+      mockApiClient as never,
+      "file:///tmp/photo.jpg",
+      "image/jpeg",
+      "jpg",
+      "shot",
+      100,
+      200,
+    );
+
+    const calls = gFetch().mock.calls as Array<[string, RequestInit]>;
+    expect(calls[1]![1]!.headers).toEqual({
+      "content-type": "image/jpeg",
+      "x-ms-blob-type": "BlockBlob",
+    });
+  });
+
+  it("uses S3 uploadHeaders (content-type only) when the response provides them", async () => {
+    mockPresignUpload.mockResolvedValueOnce({
+      uploadUrl: "https://s3.example.com/presigned-put",
+      objectKey: "media/u1/photo.jpg",
+      uploadHeaders: { "content-type": "image/png" },
+    });
+    gFetch()
+      .mockResolvedValueOnce({ blob: () => Promise.resolve(mockBlob) })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await uploadPhoto(
+      mockApiClient as never,
+      "file:///tmp/photo.png",
+      "image/png",
+      "png",
+      "shot",
+      100,
+      200,
+    );
+
+    const calls = gFetch().mock.calls as Array<[string, RequestInit]>;
+    expect(calls[1]![1]!.headers).toEqual({ "content-type": "image/png" });
+  });
+
   it("fetches local file URI first, then PUTs the blob", async () => {
     mockPresignUpload.mockResolvedValueOnce({
       uploadUrl: "https://s3.example.com/presigned",

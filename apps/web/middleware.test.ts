@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { middleware } from "./middleware";
 
 /**
@@ -41,5 +41,76 @@ describe("security headers middleware CSP", () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("strict-transport-security")).toContain("max-age=");
+  });
+});
+
+/**
+ * The storage origin(s) must be allowed in connect/img/media-src so the browser
+ * can PUT directly to the presigned URL and load media back. This is one of the
+ * three ways Azure Blob upload was broken: the SAS PUT goes to
+ * <account>.blob.core.windows.net, which CSP must allow.
+ */
+describe("security headers middleware — storage origins (CSP)", () => {
+  const STORAGE_ENV = [
+    "S3_PUBLIC_URL",
+    "S3_ENDPOINT",
+    "AZURE_STORAGE_ACCOUNT",
+  ] as const;
+  let saved: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    saved = {};
+    for (const k of STORAGE_ENV) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of STORAGE_ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  function csp(): string {
+    return middleware().headers.get("content-security-policy") ?? "";
+  }
+
+  it("includes the S3 origin (from S3_PUBLIC_URL) in connect/img/media-src", () => {
+    process.env.S3_PUBLIC_URL = "https://cdn.example.com/bucket";
+    const c = csp();
+    expect(c).toMatch(/connect-src [^;]*https:\/\/cdn\.example\.com/);
+    expect(c).toMatch(/img-src [^;]*https:\/\/cdn\.example\.com/);
+    expect(c).toMatch(/media-src [^;]*https:\/\/cdn\.example\.com/);
+  });
+
+  it("includes the Azure Blob origin when AZURE_STORAGE_ACCOUNT is set", () => {
+    process.env.AZURE_STORAGE_ACCOUNT = "myacct";
+    const c = csp();
+    const azure = "https://myacct.blob.core.windows.net";
+    expect(c).toMatch(new RegExp(`connect-src [^;]*${azure.replace(/\./g, "\\.")}`));
+    expect(c).toMatch(new RegExp(`img-src [^;]*${azure.replace(/\./g, "\\.")}`));
+    expect(c).toMatch(new RegExp(`media-src [^;]*${azure.replace(/\./g, "\\.")}`));
+  });
+
+  it("includes BOTH the S3 and Azure origins when both are configured", () => {
+    process.env.S3_PUBLIC_URL = "https://cdn.example.com";
+    process.env.AZURE_STORAGE_ACCOUNT = "myacct";
+    const c = csp();
+    expect(c).toContain("https://cdn.example.com");
+    expect(c).toContain("https://myacct.blob.core.windows.net");
+  });
+
+  it("omits the Azure origin when AZURE_STORAGE_ACCOUNT is unset", () => {
+    process.env.S3_PUBLIC_URL = "https://cdn.example.com";
+    expect(csp()).not.toContain("blob.core.windows.net");
+  });
+
+  it("ignores an unparseable S3 endpoint (no bogus origin leaks in)", () => {
+    process.env.S3_ENDPOINT = "::::not a url::::";
+    const c = csp();
+    // connect-src falls back to just 'self' (no storage origin appended).
+    expect(c).toMatch(/connect-src 'self'(;| )/);
   });
 });

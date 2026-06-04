@@ -129,6 +129,20 @@ resource "azurerm_storage_account" "media" {
   https_traffic_only_enabled      = true
   allow_nested_items_to_be_public = false
   tags                            = module.onboard.tags
+
+  # The web app uploads media via direct browser PUT to SAS URLs, so the Blob
+  # service must allow cross-origin PUT/GET from the app's origins (Azure's
+  # default CORS posture rejects them). Headers cover the SAS PUT contract
+  # (content-type + x-ms-blob-type:BlockBlob).
+  blob_properties {
+    cors_rule {
+      allowed_origins    = ["https://www.project50.fit", "https://project50.fit"]
+      allowed_methods    = ["GET", "PUT", "HEAD", "OPTIONS"]
+      allowed_headers    = ["content-type", "x-ms-blob-type"]
+      exposed_headers    = ["etag"]
+      max_age_in_seconds = 3600
+    }
+  }
 }
 
 resource "azurerm_storage_container" "media" {
@@ -247,6 +261,19 @@ resource "azurerm_container_app" "web" {
     key_vault_secret_id = azurerm_key_vault_secret.auth_secret.id
     identity            = module.onboard.identity_id
   }
+  # OAuth provider credentials. The VALUES are set out-of-band in Key Vault
+  # (az keyvault secret set), NOT managed by Terraform — we reference the
+  # versionless secret URI so no credential ever lands in TF state.
+  secret {
+    name                = "facebook-client-id"
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/facebook-client-id"
+    identity            = module.onboard.identity_id
+  }
+  secret {
+    name                = "facebook-client-secret"
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/facebook-client-secret"
+    identity            = module.onboard.identity_id
+  }
 
   ingress {
     external_enabled = true
@@ -289,6 +316,20 @@ resource "azurerm_container_app" "web" {
       env {
         name  = "AZURE_STORAGE_CONTAINER"
         value = azurerm_storage_container.media.name
+      }
+      env {
+        name        = "FACEBOOK_CLIENT_ID"
+        secret_name = "facebook-client-id"
+      }
+      env {
+        name        = "FACEBOOK_CLIENT_SECRET"
+        secret_name = "facebook-client-secret"
+      }
+      # Public base URL so Auth.js builds correct OAuth callback URLs (otherwise
+      # it derives 0.0.0.0:3000). Switch to the custom domain once it's bound.
+      env {
+        name  = "AUTH_URL"
+        value = var.auth_url
       }
       env {
         name  = "AUTH_TRUST_HOST"

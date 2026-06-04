@@ -1,5 +1,12 @@
 export { coreVersion } from "./version";
-export { addDays, dayNumber, localDayKey, type DayKey } from "./dates";
+export {
+  addDays,
+  dayNumber,
+  isValidTimeZone,
+  localDayKey,
+  safeTimeZone,
+  type DayKey,
+} from "./dates";
 export {
   computeDayCompletion,
   type CompletionRule,

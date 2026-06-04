@@ -49,6 +49,20 @@ describe("POST /api/project50/start", () => {
     expect(res.status).toBe(422);
   });
 
+  it("returns 422 for a malformed IANA timezone (rejected before persisting)", async () => {
+    // Validation short-circuits before any DB write, so no user row needed.
+    vi.mocked(requireUser).mockResolvedValue("u-nonexistent");
+    const res = await POST(makeRequest({ timezone: "Not/A_Zone" }));
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({ error: "INVALID_TIMEZONE" });
+  });
+
+  it("returns 422 for a blank-string timezone", async () => {
+    vi.mocked(requireUser).mockResolvedValue("u-nonexistent");
+    const res = await POST(makeRequest({ timezone: "   " }));
+    expect(res.status).toBe(422);
+  });
+
   it("returns 422 when the body is not valid JSON", async () => {
     const user = await createUser({ handle: "alice" });
     vi.mocked(requireUser).mockResolvedValue(user.id);
