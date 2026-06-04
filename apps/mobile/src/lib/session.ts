@@ -8,6 +8,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as AuthSession from "expo-auth-session";
 import { apiClient } from "./apiClient";
+import { OAUTH_CALLBACK_PATH, parseOAuthRedirect } from "./deeplink";
 
 const TOKEN_KEY = "project50_session_token";
 
@@ -26,6 +27,28 @@ export async function getToken(): Promise<string | null> {
 /** Remove the stored auth token (sign-out). */
 export async function clearToken(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
+}
+
+/**
+ * Restore a persisted session on app launch.
+ * Reads the stored token and, if present, primes the apiClient with it so
+ * authenticated requests work without re-signing-in. Returns the token (or null).
+ */
+export async function restoreSession(): Promise<string | null> {
+  const token = await getToken();
+  if (token) {
+    apiClient.setToken(token);
+  }
+  return token;
+}
+
+/**
+ * Sign out: clear the persisted token and drop it from the apiClient so
+ * subsequent requests are unauthenticated.
+ */
+export async function signOut(): Promise<void> {
+  await clearToken();
+  apiClient.setToken(null);
 }
 
 // ─── Dev / e2e sign-in ───────────────────────────────────────────────────────
@@ -98,8 +121,80 @@ export async function signInDev(handle: string, baseUrl?: string): Promise<strin
  * native glue. The testable logic (handling the auth result) lives in handleOAuthResult.
  * See COVERAGE.md for the full justification.
  */
-/** The native redirect URI; must be whitelisted in the FB/Google Valid OAuth Redirect URIs. */
-export const REDIRECT_URI = AuthSession.makeRedirectUri({ scheme: "project50" });
+/**
+ * The native redirect URI; must be whitelisted in the FB/Google Valid OAuth
+ * Redirect URIs. Routes the provider back to the app's OAuth callback path so
+ * the inbound URL is recognised by the deep-link handler (parseOAuthRedirect),
+ * via either the custom scheme or a Universal/App Link on the associated domain.
+ */
+export const REDIRECT_URI = AuthSession.makeRedirectUri({
+  scheme: "project50",
+  path: OAUTH_CALLBACK_PATH,
+});
+
+/** Map a provider name to its mobile auth-exchange endpoint. */
+function exchangePathForProvider(provider: string): string {
+  return `/api/mobile/auth/${provider}`;
+}
+
+/**
+ * Exchange an OAuth authorization `code` (received via a deep-link redirect) for
+ * a session token and persist it. Used by the deep-link handler when the native
+ * redirect comes back through the app scheme / Universal Link rather than the
+ * in-flow promptAsync result.
+ *
+ * @param provider — the OAuth provider (`google` | `facebook`)
+ * @param code — the authorization code from the redirect
+ * @param redirectUri — the redirect URI used in the auth request
+ * @param baseUrl — backend base URL
+ * @returns the session token, or null if none was returned
+ */
+export async function exchangeOAuthCode(
+  provider: string,
+  code: string,
+  redirectUri: string = REDIRECT_URI,
+  baseUrl?: string,
+): Promise<string | null> {
+  const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
+
+  const resp = await fetch(`${base}${exchangePathForProvider(provider)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, redirectUri }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`OAuth token exchange failed: ${resp.status}`);
+  }
+
+  const body = (await resp.json()) as { token?: string; sessionToken?: string };
+  const token = body.token ?? body.sessionToken ?? null;
+
+  if (token) {
+    await saveToken(token);
+    apiClient.setToken(token);
+  }
+
+  return token;
+}
+
+/**
+ * Handle an inbound deep-link redirect URL for OAuth.
+ * Parses the URL, and if it carries an authorization code, exchanges it for a
+ * session token. Returns the token, or null when the URL is not a usable OAuth
+ * callback (no code, or an error/cancel from the provider).
+ */
+export async function handleDeepLinkRedirect(
+  url: string,
+  redirectUri: string = REDIRECT_URI,
+  baseUrl?: string,
+): Promise<string | null> {
+  const { provider, code, error } = parseOAuthRedirect(url);
+  if (error || !code) {
+    return null;
+  }
+  return exchangeOAuthCode(provider ?? "facebook", code, redirectUri, baseUrl);
+}
 
 /* istanbul ignore next */
 export function buildGoogleAuthRequest(): ReturnType<typeof AuthSession.useAuthRequest> {
