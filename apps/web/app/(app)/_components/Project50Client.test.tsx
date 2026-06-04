@@ -1,0 +1,67 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import type { Project50State } from "@/lib/project50";
+
+const trackMock = vi.fn();
+vi.mock("@/lib/analytics", () => ({ track: (...a: unknown[]) => trackMock(...a) }));
+
+const startAction = vi.fn();
+const toggleAction = vi.fn();
+vi.mock("../_actions/project50", () => ({
+  startProject50Action: (...a: unknown[]) => startAction(...a),
+  toggleRuleAction: (...a: unknown[]) => toggleAction(...a),
+}));
+
+// Replace Project50View with a thin harness exposing the three callbacks.
+vi.mock("./Project50View", () => ({
+  Project50View: ({
+    onStart,
+    onRestart,
+    onToggle,
+  }: {
+    onStart: () => void;
+    onRestart: () => void;
+    onToggle: (id: number, done: boolean) => void;
+  }) => (
+    <div>
+      <button data-testid="start" onClick={onStart}>start</button>
+      <button data-testid="restart" onClick={onRestart}>restart</button>
+      <button data-testid="toggle" onClick={() => onToggle(3, true)}>toggle</button>
+    </div>
+  ),
+}));
+
+import { Project50Client } from "./Project50Client";
+
+const state = { status: "NONE" } as unknown as Project50State;
+
+beforeEach(() => {
+  trackMock.mockReset();
+  startAction.mockReset();
+  toggleAction.mockReset();
+});
+
+afterEach(() => cleanup());
+
+describe("Project50Client instrumentation", () => {
+  it("tracks project50_started (restarted:false) and starts on Start", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("start"));
+    expect(trackMock).toHaveBeenCalledWith("project50_started", { restarted: false });
+    expect(startAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks project50_started (restarted:true) on Restart", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("restart"));
+    expect(trackMock).toHaveBeenCalledWith("project50_started", { restarted: true });
+    expect(startAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks rule_toggled and toggles on Toggle", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("toggle"));
+    expect(trackMock).toHaveBeenCalledWith("rule_toggled", { ruleId: 3, done: true });
+    expect(toggleAction).toHaveBeenCalledWith(3, true);
+  });
+});

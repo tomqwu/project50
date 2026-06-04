@@ -4,16 +4,27 @@ import { useTransition } from "react";
 import { Project50View } from "./Project50View";
 import type { Project50State } from "@/lib/project50";
 import { startProject50Action, toggleRuleAction } from "../_actions/project50";
+import { track } from "@/lib/analytics";
 
 export function Project50Client({ state }: { state: Project50State }) {
   const [, startTransition] = useTransition();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  function start(restarted: boolean) {
+    // No-op unless analytics is configured + consented (see lib/analytics).
+    track("project50_started", { restarted });
+    startTransition(() => void startProject50Action(tz));
+  }
+
   return (
     <Project50View
       state={state}
-      onStart={() => startTransition(() => void startProject50Action(tz))}
-      onRestart={() => startTransition(() => void startProject50Action(tz))}
-      onToggle={(ruleId, done) => startTransition(() => void toggleRuleAction(ruleId, done))}
+      onStart={() => start(false)}
+      onRestart={() => start(true)}
+      onToggle={(ruleId, done) => {
+        track("rule_toggled", { ruleId, done });
+        startTransition(() => void toggleRuleAction(ruleId, done));
+      }}
     />
   );
 }
