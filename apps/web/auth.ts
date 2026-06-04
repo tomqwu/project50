@@ -16,16 +16,31 @@ import { verifyMagicLink } from "@/lib/api/magic-link";
 // Read the documented env names (GOOGLE_CLIENT_ID / FACEBOOK_CLIENT_ID, etc.).
 // Without explicit values, Auth.js v5 would look for AUTH_GOOGLE_ID / AUTH_FACEBOOK_ID
 // instead, so the keys in .env(.example) would be ignored.
-const providers: NextAuthConfig["providers"] = [
-  Google({
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  }),
-  Facebook({
-    clientId: process.env.FACEBOOK_CLIENT_ID,
-    clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
-  }),
-];
+//
+// Both OAuth providers are ENV-GATED — exactly like the e2e and magic-link
+// providers below — so a provider only registers when its client id is set.
+// Production currently leaves GOOGLE_CLIENT_ID unset (Google OAuth not yet
+// configured) → no Google provider is offered; FACEBOOK_CLIENT_ID is set →
+// Facebook stays. In e2e the Playwright webServer sets both, so both register.
+const providers: NextAuthConfig["providers"] = [];
+
+if (process.env.GOOGLE_CLIENT_ID) {
+  providers.push(
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+  );
+}
+
+if (process.env.FACEBOOK_CLIENT_ID) {
+  providers.push(
+    Facebook({
+      clientId: process.env.FACEBOOK_CLIENT_ID,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+    }),
+  );
+}
 
 // Test-only deterministic sign-in. NEVER enabled in production.
 // Double-gated:

@@ -56,10 +56,28 @@ describe("Landing", () => {
     expect(grid).toHaveTextContent(/recap/i);
   });
 
-  it("renders Google and Facebook sign-in buttons", () => {
-    render(<Landing />);
+  it("threads googleEnabled/facebookEnabled through to SignInButtons", () => {
+    render(<Landing googleEnabled facebookEnabled />);
     expect(screen.getByTestId("signin-google")).toBeInTheDocument();
     expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Google button when googleEnabled is false (default)", () => {
+    render(<Landing facebookEnabled />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    expect(screen.getByTestId("signin-facebook")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Facebook button when facebookEnabled is false (default)", () => {
+    render(<Landing googleEnabled />);
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
+    expect(screen.getByTestId("signin-google")).toBeInTheDocument();
+  });
+
+  it("renders neither OAuth button by default", () => {
+    render(<Landing />);
+    expect(screen.queryByTestId("signin-google")).toBeNull();
+    expect(screen.queryByTestId("signin-facebook")).toBeNull();
   });
 
   it("does NOT render e2e button when e2eEnabled is false (default)", () => {
