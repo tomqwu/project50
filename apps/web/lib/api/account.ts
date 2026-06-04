@@ -1,5 +1,6 @@
 import { prisma } from "@project50/db";
 import { notFound, unprocessable } from "./http";
+import { deleteObject, deleteUserMedia, userMediaPrefix } from "@/lib/storage";
 
 /** Account fields a user can view/edit. */
 export interface Account {
@@ -272,12 +273,92 @@ export async function exportAccountData(uid: string): Promise<AccountExport> {
 }
 
 /**
+ * Collect every object-storage key for media the user has uploaded: per-day
+ * Project 50 photos, activity photos, and rendered recap videos. All live under
+ * the user's `media/<userId>/` prefix, but we resolve the exact keys from the DB
+ * so we can delete them explicitly before the cascade removes the rows.
+ */
+async function collectUserMediaKeys(uid: string): Promise<string[]> {
+  const [dayMedia, activityMedia, recaps] = await Promise.all([
+    prisma.project50DayMedia.findMany({
+      where: { challenge: { ownerId: uid } },
+      select: { objectKey: true },
+    }),
+    prisma.activityMedia.findMany({
+      where: { activity: { userId: uid } },
+      select: { objectKey: true },
+    }),
+    prisma.recap.findMany({
+      where: { challenge: { ownerId: uid } },
+      select: { objectKey: true },
+    }),
+  ]);
+
+  const keys = new Set<string>();
+  for (const m of dayMedia) keys.add(m.objectKey);
+  for (const m of activityMedia) keys.add(m.objectKey);
+  for (const r of recaps) keys.add(r.objectKey);
+  return [...keys];
+}
+
+/**
  * Permanently delete the user and all of their data. Prisma relations declare
  * `onDelete: Cascade`, so deleting the User row cascades to their identities,
  * challenges (and each challenge's activities, media, day statuses, milestones,
  * recaps, rule checks, reactions), first-party activities/reactions, and follow
  * edges in both directions. Throws if no such user exists.
+ *
+ * The DB cascade leaves no orphaned rows, but it does NOT touch object storage,
+ * so we ALSO delete the user's uploaded media blobs (GDPR erasure): the exact
+ * objectKeys recorded in the DB, plus a belt-and-suspenders sweep of the whole
+ * `media/<userId>/` prefix to catch anything the DB no longer references.
+ *
+ * Ordering: we read the keys first, then delete the DB row, and only if that
+ * SUCCEEDS do we touch storage. This way a failed/aborted DB delete (transient
+ * error, or a stale/nonexistent uid) never destroys blobs while the account row
+ * is still present. Once the row is gone the storage cleanup is best-effort: a
+ * single blob delete or the prefix sweep that throws is logged and swallowed,
+ * so a storage hiccup doesn't surface an error after the account is already
+ * deleted. If storage is unconfigured/unreachable the cleanup is a safe no-op.
  */
 export async function deleteAccount(uid: string): Promise<void> {
+  // Resolve the exact keys from the DB while the rows still exist. A failure
+  // here means the DB is unreadable, so we let it propagate (the user.delete
+  // below would fail anyway) rather than touch storage against a broken DB.
+  const keys = await collectUserMediaKeys(uid);
+
+  // Remove the DB row (cascades all child rows). Throws if no such user — and
+  // in that case we deliberately do NOT proceed to delete any blobs.
   await prisma.user.delete({ where: { id: uid } });
+
+  // The account row is now gone; clean up its media best-effort.
+  //
+  // SECURITY: only ever delete blobs under THIS user's own media prefix. Some
+  // objectKeys are persisted as-supplied (e.g. attachProject50DayMedia), so a
+  // crafted/buggy row could carry a key pointing at another user's media or an
+  // arbitrary bucket path. Skip anything outside media/<uid>/; the prefix sweep
+  // below still removes all of the user's legitimate media regardless.
+  const prefix = userMediaPrefix(uid);
+
+  // Delete each known blob; log + continue so one failure can't block the rest.
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) {
+      console.warn(
+        `deleteAccount: skipping out-of-prefix media key ${key} for ${uid}`,
+      );
+      continue;
+    }
+    try {
+      await deleteObject(key);
+    } catch (err) {
+      console.error(`deleteAccount: failed to delete media blob ${key}`, err);
+    }
+  }
+
+  // Belt-and-suspenders: sweep the user's whole media prefix for orphans.
+  try {
+    await deleteUserMedia(uid);
+  } catch (err) {
+    console.error(`deleteAccount: media prefix sweep failed for ${uid}`, err);
+  }
 }
