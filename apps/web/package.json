@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1058.0",
     "@aws-sdk/s3-request-presigner": "^3.1058.0",
+    "@azure/identity": "^4.13.1",
     "@azure/storage-blob": "^12.31.0",
     "@project50/core": "workspace:*",
     "@project50/db": "workspace:*",
