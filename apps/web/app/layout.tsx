@@ -4,7 +4,6 @@ import "./globals.css";
 import { ServiceWorkerRegister } from "./_components/ServiceWorkerRegister";
 import { CookieConsent } from "./_components/CookieConsent";
 import { AnalyticsProvider } from "./_components/AnalyticsProvider";
-import { ReleaseBadge } from "./_components/ReleaseBadge";
 import { DEFAULT_LOCALE, localeDirection } from "@/lib/i18n";
 
 const anton = Anton({
@@ -33,7 +32,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ServiceWorkerRegister />
         <AnalyticsProvider />
         {children}
-        <ReleaseBadge />
         <CookieConsent />
       </body>
     </html>
