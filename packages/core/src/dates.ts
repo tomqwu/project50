@@ -3,15 +3,31 @@ export type DayKey = string;
 
 const dayKeyFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  let fmt = dayKeyFormatters.get(timeZone);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
+function buildFormatter(timeZone: string): Intl.DateTimeFormat {
+  // A blank or malformed timeZone makes `Intl.DateTimeFormat` throw a
+  // RangeError. Fall back to UTC so every caller is safe even when the stored
+  // challenge timezone is empty or invalid (defensive root guard).
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone.trim() || "UTC",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  }
+}
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let fmt = dayKeyFormatters.get(timeZone);
+  if (!fmt) {
+    fmt = buildFormatter(timeZone);
     dayKeyFormatters.set(timeZone, fmt);
   }
   return fmt;

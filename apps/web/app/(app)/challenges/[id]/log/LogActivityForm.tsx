@@ -41,6 +41,12 @@ export interface LogActivityFormProps {
   challengeId: string;
   goalType: "TARGET" | "BINARY";
   unit?: string | null;
+  /**
+   * The challenge's timezone — the server validates `asOf` in this zone, so the
+   * dayKey must be derived here too (not the browser zone) or a traveling user
+   * can be rejected as DAY_IN_FUTURE near midnight.
+   */
+  timezone?: string | null;
   /** Injectable for testing — defaults to readImageDimensions */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
@@ -49,6 +55,7 @@ export function LogActivityForm({
   challengeId,
   goalType,
   unit,
+  timezone,
   readDimensions = readImageDimensions,
 }: LogActivityFormProps) {
   const router = useRouter();
@@ -146,9 +153,10 @@ export function LogActivityForm({
     setSubmitting(true);
 
     const body: Record<string, unknown> = {
-      // Use the user's local day, not a UTC slice, so logging just after local
-      // midnight records "today" instead of yesterday.
-      dayKey: localDayKey(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+      // Derive the dayKey in the CHALLENGE timezone (the zone the server
+      // validates `asOf` against), falling back to the browser zone only when
+      // the challenge has none. localDayKey itself guards blank/invalid zones.
+      dayKey: localDayKey(new Date(), timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone),
       activityType: activityType ?? undefined,
       note: note || undefined,
       mood: mood ?? undefined,

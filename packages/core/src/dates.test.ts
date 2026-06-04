@@ -17,6 +17,19 @@ describe("localDayKey", () => {
     // 2026-06-01T20:00:00Z is 2026-06-02 04:00 in Asia/Shanghai (+08)
     expect(localDayKey(new Date("2026-06-01T20:00:00Z"), "Asia/Shanghai")).toBe("2026-06-02");
   });
+
+  it("falls back to UTC for a blank or whitespace-only timezone (no throw)", () => {
+    const instant = new Date("2026-06-01T20:00:00Z");
+    const utc = localDayKey(instant, "UTC");
+    expect(localDayKey(instant, "")).toBe(utc);
+    expect(localDayKey(instant, "   ")).toBe(utc);
+  });
+
+  it("falls back to UTC for a malformed timezone instead of throwing", () => {
+    const instant = new Date("2026-06-01T20:00:00Z");
+    expect(() => localDayKey(instant, "Not/A_Zone")).not.toThrow();
+    expect(localDayKey(instant, "Not/A_Zone")).toBe(localDayKey(instant, "UTC"));
+  });
 });
 
 describe("addDays", () => {
