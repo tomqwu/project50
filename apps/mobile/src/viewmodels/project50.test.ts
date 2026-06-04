@@ -14,9 +14,35 @@ jest.mock("../lib/apiClient", () => ({
   },
 }));
 
-import { deriveProject50Display, useProject50 } from "./project50";
+// Mock the offline layer (independently unit-tested in offline.test.ts) so the
+// viewmodel tests stay focused on the hook and don't touch native modules.
+// By default the mocks delegate to the injected client and report "online", so
+// the pre-existing online assertions (client.* called) continue to hold.
+jest.mock("../lib/offline", () => ({
+  loadProject50StateOffline: jest.fn(async (client) => ({
+    state: await client.getProject50State(),
+    fromCache: false,
+  })),
+  toggleRuleOffline: jest.fn(async (client, ruleId, done) => ({
+    state: await client.toggleRule(ruleId, done),
+    queued: false,
+  })),
+  syncOnReconnect: jest.fn(async () => ({ flushed: 0, remaining: 0 })),
+}));
+
+import { deriveProject50Display, useProject50, applyOptimisticToggle } from "./project50";
 import { apiClient } from "../lib/apiClient";
+import {
+  loadProject50StateOffline,
+  toggleRuleOffline,
+  syncOnReconnect,
+} from "../lib/offline";
 import type { Project50State } from "../lib/apiClient";
+import type { Project50Display } from "./project50";
+
+const mockLoad = loadProject50StateOffline as jest.Mock;
+const mockToggle = toggleRuleOffline as jest.Mock;
+const mockSync = syncOnReconnect as jest.Mock;
 
 // ─── deriveProject50Display ────────────────────────────────────────────────────
 
@@ -113,6 +139,19 @@ const ACTIVE: Project50State = {
 };
 
 describe("useProject50", () => {
+  beforeEach(() => {
+    // Reset offline mocks to their default online/delegating behaviour.
+    mockSync.mockImplementation(async () => ({ flushed: 0, remaining: 0 }));
+    mockLoad.mockImplementation(async (client) => ({
+      state: await client.getProject50State(),
+      fromCache: false,
+    }));
+    mockToggle.mockImplementation(async (client, ruleId, done) => ({
+      state: await client.toggleRule(ruleId, done),
+      queued: false,
+    }));
+  });
+
   it("loads state on mount", async () => {
     const client = fakeClient();
     client.getProject50State.mockResolvedValue(NONE);
@@ -247,5 +286,133 @@ describe("useProject50", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(apiClient.getProject50State).toHaveBeenCalled();
     expect(result.current.display).toEqual({ status: "NONE" });
+  });
+
+  // ─── Offline behaviour ──────────────────────────────────────────────────────
+
+  it("flushes the queue on load before reading state", async () => {
+    const client = fakeClient();
+    client.getProject50State.mockResolvedValue(NONE);
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(mockSync).toHaveBeenCalledWith(client);
+    expect(result.current.offline).toBe(false);
+  });
+
+  it("marks offline and shows cached state when load is from cache", async () => {
+    const client = fakeClient();
+    mockLoad.mockResolvedValue({ state: ACTIVE, fromCache: true });
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.offline).toBe(true);
+    expect(result.current.display!.status).toBe("ACTIVE");
+  });
+
+  it("shows a NONE placeholder when offline with no cached state", async () => {
+    const client = fakeClient();
+    mockLoad.mockResolvedValue({ state: null, fromCache: true });
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.offline).toBe(true);
+    expect(result.current.display).toEqual({ status: "NONE" });
+    expect(result.current.error).toBeNull();
+  });
+
+  it("toggle() optimistically updates and marks offline when queued", async () => {
+    const client = fakeClient();
+    client.getProject50State.mockResolvedValue(ACTIVE);
+    mockToggle.mockResolvedValue({ state: null, queued: true });
+
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.toggle(1, true);
+    });
+    expect(result.current.offline).toBe(true);
+    // optimistic: rule 1 now done, progress recomputed
+    expect(result.current.display!.rules![0]!.done).toBe(true);
+    expect(result.current.display!.progressLabel).toBe(`1/${PROJECT50_RULES.length}`);
+  });
+
+  it("leaves the display untouched when load returns null state while online", async () => {
+    // Defensive: online (fromCache:false) but no state — neither apply nor placeholder.
+    const client = fakeClient();
+    mockLoad.mockResolvedValue({ state: null, fromCache: false });
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.offline).toBe(false);
+    expect(result.current.display).toBeNull();
+  });
+
+  it("leaves the display untouched when an online toggle returns null state", async () => {
+    // Defensive: not queued and no state — neither optimistic nor apply runs.
+    const client = fakeClient();
+    client.getProject50State.mockResolvedValue(ACTIVE);
+    mockToggle.mockResolvedValue({ state: null, queued: false });
+
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const before = result.current.display;
+
+    await act(async () => {
+      await result.current.toggle(1, true);
+    });
+    expect(result.current.offline).toBe(false);
+    expect(result.current.display).toBe(before);
+  });
+
+  it("start() clears the offline flag", async () => {
+    const client = fakeClient();
+    client.getProject50State.mockResolvedValue(NONE);
+    mockLoad.mockResolvedValueOnce({ state: NONE, fromCache: true });
+    client.startProject50.mockResolvedValue(ACTIVE);
+
+    const { result } = renderHook(() => useProject50(client as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.offline).toBe(true);
+
+    await act(async () => {
+      await result.current.start("UTC");
+    });
+    expect(result.current.offline).toBe(false);
+    expect(result.current.display!.status).toBe("ACTIVE");
+  });
+});
+
+// ─── applyOptimisticToggle ──────────────────────────────────────────────────
+
+describe("applyOptimisticToggle", () => {
+  const activeDisplay: Project50Display = {
+    status: "ACTIVE",
+    dayLabel: "Day 1/50",
+    progressLabel: "0/7",
+    rules: PROJECT50_RULES.map((r) => ({
+      id: r.id,
+      title: r.title,
+      detail: r.detail,
+      done: false,
+    })),
+  };
+
+  it("toggles the targeted rule and recomputes progress", () => {
+    const out = applyOptimisticToggle(activeDisplay, 2, true);
+    expect(out!.rules!.find((r) => r.id === 2)!.done).toBe(true);
+    expect(out!.rules!.find((r) => r.id === 1)!.done).toBe(false);
+    expect(out!.progressLabel).toBe(`1/${PROJECT50_RULES.length}`);
+  });
+
+  it("returns the input unchanged for a null display", () => {
+    expect(applyOptimisticToggle(null, 1, true)).toBeNull();
+  });
+
+  it("returns the input unchanged for a non-ACTIVE display", () => {
+    const none: Project50Display = { status: "NONE" };
+    expect(applyOptimisticToggle(none, 1, true)).toBe(none);
+  });
+
+  it("returns the input unchanged for an ACTIVE display without rules", () => {
+    const noRules: Project50Display = { status: "ACTIVE", dayLabel: "Day 1/50" };
+    expect(applyOptimisticToggle(noRules, 1, true)).toBe(noRules);
   });
 });

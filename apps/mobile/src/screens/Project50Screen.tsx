@@ -29,7 +29,7 @@ function deviceTimezone(): string {
 }
 
 export function Project50Screen(): React.JSX.Element {
-  const { loading, error, display, start, toggle } = useProject50();
+  const { loading, error, display, offline, start, toggle } = useProject50();
 
   if (loading) {
     return (
@@ -56,6 +56,7 @@ export function Project50Screen(): React.JSX.Element {
   if (display.status === "ACTIVE") {
     return (
       <ScrollView style={styles.container} testID="p50-active">
+        {offline && <OfflineBanner />}
         <Text style={styles.title}>Project 50</Text>
         <Text style={styles.dayLabel} testID="p50-day">{display.dayLabel}</Text>
         <Text style={styles.progress} testID="p50-progress">
@@ -123,6 +124,17 @@ export function Project50Screen(): React.JSX.Element {
       >
         <Text style={styles.ctaText}>Start Project 50</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/** A subtle banner shown when the screen is rendering cached / queued data. */
+function OfflineBanner(): React.JSX.Element {
+  return (
+    <View style={styles.offlineBanner} testID="p50-offline">
+      <Text style={styles.offlineText}>
+        Offline — changes will sync when you reconnect.
+      </Text>
     </View>
   );
 }
@@ -276,6 +288,19 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#ff6b6b",
     fontSize: 16,
+    textAlign: "center",
+  },
+  offlineBanner: {
+    backgroundColor: "#3a2f00",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  offlineText: {
+    color: colors.volt,
+    fontSize: 13,
+    fontWeight: "600",
     textAlign: "center",
   },
 });
