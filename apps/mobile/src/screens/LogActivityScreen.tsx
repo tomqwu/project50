@@ -1,7 +1,7 @@
 /**
  * LogActivityScreen — log a challenge activity with optional photo.
  * Supports TARGET (amount) and BINARY (done checkbox) goal types.
- * Includes note, mood (1-5), "Add photo" (pickImage → uploadPhoto), and submit.
+ * Includes note, mood (1-5), photo capture/library (pickImage → uploadPhoto), and submit.
  */
 
 import React, { useState } from "react";
@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { apiClient } from "../lib/apiClient";
 import type { GoalType } from "@project50/core";
-import { pickImageFromLibrary, uploadPhoto } from "../lib/photo";
+import { pickImageFromCamera, pickImageFromLibrary, uploadPhoto } from "../lib/photo";
 import type { PickedImage } from "../lib/photo";
 import { colors } from "../theme";
 
@@ -60,11 +60,13 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
   const [errors, setErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState(false);
 
-  // ─── Photo handler ─────────────────────────────────────────────────────────
+  // ─── Photo handlers ────────────────────────────────────────────────────────
 
-  const handleAddPhoto = async (): Promise<void> => {
+  const pickPhotoWith = async (
+    pick: () => Promise<PickedImage | null>,
+  ): Promise<void> => {
     try {
-      const picked = await pickImageFromLibrary();
+      const picked = await pick();
       if (picked) {
         setPhoto(picked);
       }
@@ -72,6 +74,9 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
       Alert.alert("Photo error", e instanceof Error ? e.message : "Could not pick photo");
     }
   };
+
+  const handleAddPhoto = (): Promise<void> => pickPhotoWith(pickImageFromLibrary);
+  const handleTakePhoto = (): Promise<void> => pickPhotoWith(pickImageFromCamera);
 
   // ─── Submit handler ────────────────────────────────────────────────────────
 
@@ -209,15 +214,26 @@ export function LogActivityScreen(props: LogActivityScreenProps): React.JSX.Elem
 
       {/* Photo */}
       <View style={styles.fieldGroup}>
-        <TouchableOpacity
-          style={styles.photoButton}
-          onPress={() => { void handleAddPhoto(); }}
-          testID="add-photo-button"
-        >
-          <Text style={styles.photoButtonText}>
-            {photo ? "Change photo" : "Add photo"}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.photoButtonsRow}>
+          <TouchableOpacity
+            style={[styles.photoButton, styles.photoButtonFlex]}
+            onPress={() => { void handleTakePhoto(); }}
+            testID="take-photo-button"
+          >
+            <Text style={styles.photoButtonText}>
+              {photo ? "Retake photo" : "Take photo"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.photoButton, styles.photoButtonFlex]}
+            onPress={() => { void handleAddPhoto(); }}
+            testID="add-photo-button"
+          >
+            <Text style={styles.photoButtonText}>
+              {photo ? "Change photo" : "Add photo"}
+            </Text>
+          </TouchableOpacity>
+        </View>
         {photo && (
           <Image
             source={{ uri: photo.uri }}
@@ -337,6 +353,10 @@ const styles = StyleSheet.create({
   moodEmoji: {
     fontSize: 24,
   },
+  photoButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
   photoButton: {
     backgroundColor: "#1e1e1e",
     borderRadius: 8,
@@ -344,6 +364,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#555",
+  },
+  photoButtonFlex: {
+    flex: 1,
   },
   photoButtonText: {
     color: colors.volt,
