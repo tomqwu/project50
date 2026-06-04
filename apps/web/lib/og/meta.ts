@@ -21,6 +21,14 @@ export const OG_SIZE = { width: 1200, height: 630 } as const;
 /** PNG, the format next/og ImageResponse produces. */
 export const OG_CONTENT_TYPE = "image/png";
 
+/**
+ * Cache-Control for the dynamic per-recap OG/Twitter image. The card renders
+ * live progress (Day N / totals) and can be a transient-error fallback, so we
+ * must NOT inherit next/og's default `immutable, max-age=31536000`. Allow a
+ * short shared-cache window with revalidation instead.
+ */
+export const OG_RECAP_CACHE_CONTROL = "public, max-age=300, s-maxage=300";
+
 /** Default alt text / tagline used for the branded fallback card. */
 export const OG_DEFAULT_ALT = "project50 — 7 rules · 50 days · no days off";
 

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { OG_BRAND, OG_CONTENT_TYPE, OG_DEFAULT_ALT, OG_SIZE, resolveSiteUrl } from "./meta";
+import {
+  OG_BRAND,
+  OG_CONTENT_TYPE,
+  OG_DEFAULT_ALT,
+  OG_RECAP_CACHE_CONTROL,
+  OG_SIZE,
+  resolveSiteUrl,
+} from "./meta";
 
 describe("OG shared meta", () => {
   it("exposes 1200x630 size", () => {
@@ -19,6 +26,11 @@ describe("OG shared meta", () => {
   it("default alt is the product tagline", () => {
     expect(OG_DEFAULT_ALT).toContain("project50");
     expect(OG_DEFAULT_ALT).toContain("50 days");
+  });
+
+  it("recap cache-control is short and revalidating, not immutable", () => {
+    expect(OG_RECAP_CACHE_CONTROL).toBe("public, max-age=300, s-maxage=300");
+    expect(OG_RECAP_CACHE_CONTROL).not.toContain("immutable");
   });
 });
 

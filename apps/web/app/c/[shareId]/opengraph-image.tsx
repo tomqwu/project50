@@ -2,7 +2,13 @@ import { ImageResponse } from "next/og";
 import { dayNumber } from "@project50/core";
 import { getChallengeByShareId } from "@/lib/api/challenges";
 import { buildCardModel } from "@/lib/share/card-model";
-import { OG_BRAND, OG_CONTENT_TYPE, OG_DEFAULT_ALT, OG_SIZE } from "@/lib/og/meta";
+import {
+  OG_BRAND,
+  OG_CONTENT_TYPE,
+  OG_DEFAULT_ALT,
+  OG_RECAP_CACHE_CONTROL,
+  OG_SIZE,
+} from "@/lib/og/meta";
 import { defaultOgElement, recapOgElement } from "@/lib/og/elements";
 
 export const size = OG_SIZE;
@@ -24,7 +30,10 @@ export default async function ShareOpengraphImage({
 
   const element = model ? recapOgElement(OG_BRAND, model) : defaultOgElement(OG_BRAND);
 
-  return new ImageResponse(element, { ...OG_SIZE });
+  return new ImageResponse(element, {
+    ...OG_SIZE,
+    headers: { "Cache-Control": OG_RECAP_CACHE_CONTROL },
+  });
 }
 
 /**

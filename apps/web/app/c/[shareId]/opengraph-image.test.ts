@@ -62,6 +62,19 @@ describe("per-recap opengraph-image route", () => {
     expect(el).toContain("2 days · 12 km");
   });
 
+  it("sets a short revalidating Cache-Control (not next/og's year-long immutable)", async () => {
+    mockGetByShareId.mockResolvedValue(publicChallenge);
+    mockDayNumber.mockReturnValue(25);
+
+    await ShareOpengraphImage({ params: params("abc") });
+    const opts = vi.mocked(ImageResponse).mock.calls[0]![1] as {
+      headers?: Record<string, string>;
+    };
+    const cacheControl = opts.headers?.["Cache-Control"];
+    expect(cacheControl).toBe("public, max-age=300, s-maxage=300");
+    expect(cacheControl).not.toContain("immutable");
+  });
+
   it("clamps the day number to at least 1", async () => {
     mockGetByShareId.mockResolvedValue(publicChallenge);
     mockDayNumber.mockReturnValue(-3);
