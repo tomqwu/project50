@@ -796,16 +796,73 @@ describe("Azure Blob backend", () => {
     });
   });
 
-  describe("deleteObject → blob delete", () => {
-    it("deletes the blob by key (no S3 send) and includes snapshots", async () => {
+  describe("deleteObject → blob delete (all versions, exact key)", () => {
+    it("deletes EVERY version of the exact blob (no S3 send) and includes snapshots", async () => {
+      // Versioned account: two versions of the exact blob.
+      azureBlobList = [
+        { name: "media/u1/img.jpg", versionId: "2026-06-01T00:00:00Z" },
+        { name: "media/u1/img.jpg", versionId: "2026-05-01T00:00:00Z" },
+      ];
       await deleteObject("media/u1/img.jpg");
+      // Lists under the exact key WITH versions included.
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/img.jpg",
+        includeVersions: true,
+      });
+      // Each listed version is deleted (snapshots included).
+      expect(azureDeleteBlob).toHaveBeenCalledTimes(2);
       expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/img.jpg", {
         deleteSnapshots: "include",
+        versionId: "2026-06-01T00:00:00Z",
+      });
+      expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/img.jpg", {
+        deleteSnapshots: "include",
+        versionId: "2026-05-01T00:00:00Z",
       });
       expect(mockSend).not.toHaveBeenCalled();
     });
 
-    it("swallows a 404 (blob already gone)", async () => {
+    it("does NOT delete same-prefix siblings like <key>.thumb", async () => {
+      // Prefix listing returns the exact key AND a sibling; only the exact key
+      // must be deleted — the sibling is a different object.
+      azureBlobList = [
+        { name: "media/u1/img.jpg", versionId: "2026-06-01T00:00:00Z" },
+        { name: "media/u1/img.jpg.thumb", versionId: "2026-06-01T00:00:00Z" },
+      ];
+      await deleteObject("media/u1/img.jpg");
+      expect(azureDeleteBlob).toHaveBeenCalledTimes(1);
+      expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/img.jpg", {
+        deleteSnapshots: "include",
+        versionId: "2026-06-01T00:00:00Z",
+      });
+      expect(azureDeleteBlob).not.toHaveBeenCalledWith(
+        "media/u1/img.jpg.thumb",
+        expect.anything(),
+      );
+    });
+
+    it("falls back to the current blob (versionId undefined) on a non-versioned account", async () => {
+      azureBlobList = [{ name: "media/u1/img.jpg" }];
+      await deleteObject("media/u1/img.jpg");
+      expect(azureDeleteBlob).toHaveBeenCalledOnce();
+      expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/img.jpg", {
+        deleteSnapshots: "include",
+        versionId: undefined,
+      });
+    });
+
+    it("is a no-op when the exact key has no blobs", async () => {
+      azureBlobList = [];
+      await deleteObject("media/u1/gone.jpg");
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/gone.jpg",
+        includeVersions: true,
+      });
+      expect(azureDeleteBlob).not.toHaveBeenCalled();
+    });
+
+    it("swallows a 404 (version already gone)", async () => {
+      azureBlobList = [{ name: "media/u1/gone.jpg", versionId: "v1" }];
       azureDeleteBlob.mockRejectedValueOnce(
         Object.assign(new Error("Not Found"), { statusCode: 404 }),
       );
@@ -813,6 +870,7 @@ describe("Azure Blob backend", () => {
     });
 
     it("rethrows non-404 errors", async () => {
+      azureBlobList = [{ name: "media/u1/x.jpg", versionId: "v1" }];
       azureDeleteBlob.mockRejectedValueOnce(
         Object.assign(new Error("Forbidden"), { statusCode: 403 }),
       );
@@ -1039,10 +1097,16 @@ describe("Azure managed-identity backend (user-delegation SAS)", () => {
   });
 
   describe("deleteObject / deleteUserMedia (identity client)", () => {
-    it("deletes a blob via the credential-based client (no account key, no S3)", async () => {
+    it("deletes a blob's versions via the credential-based client (no account key, no S3)", async () => {
+      azureBlobList = [{ name: "media/u1/img.jpg", versionId: "ver-1" }];
       await deleteObject("media/u1/img.jpg");
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/img.jpg",
+        includeVersions: true,
+      });
       expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/img.jpg", {
         deleteSnapshots: "include",
+        versionId: "ver-1",
       });
       const { StorageSharedKeyCredential } = await import("@azure/storage-blob");
       expect(vi.mocked(StorageSharedKeyCredential)).not.toHaveBeenCalled();

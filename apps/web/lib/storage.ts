@@ -443,21 +443,41 @@ async function s3DeleteAllVersionsUnder(
  *
  * Idempotent: deleting a key that does not exist is a no-op on both backends.
  * On S3 we sweep all versions under the exact key (so prior versions / delete
- * markers don't leave the object recoverable on a versioned bucket); on Azure
- * we delete the blob with its versions/snapshots included. Routes by env. Throws
- * only on real errors (e.g. auth/network) so callers can log-and-continue.
+ * markers don't leave the object recoverable on a versioned bucket). On Azure we
+ * likewise enumerate every version of the exact blob (snapshots included) and
+ * delete each one, so a version-enabled account doesn't leave older versions
+ * recoverable. `deleteSnapshots: "include"` alone removes snapshots but NOT prior
+ * versions, so listing with `includeVersions` is required. On a non-versioned
+ * account the listing returns just the current blob, so behavior is unchanged.
+ * Routes by env. Throws only on real errors (e.g. auth/network) so callers can
+ * log-and-continue.
  */
 export async function deleteObject(objectKey: string): Promise<void> {
   if (useAzure()) {
-    await getAzureService()
-      .getContainerClient(getContainerName())
-      .deleteBlob(objectKey, { deleteSnapshots: "include" })
-      .catch((err: unknown) => {
-        // 404 (blob already gone) is fine; rethrow anything else.
-        const status = (err as { statusCode?: number })?.statusCode;
-        if (status === 404) return;
-        throw err;
-      });
+    const container = getAzureService().getContainerClient(getContainerName());
+    // List under the exact key WITH versions; Azure prefix listing is not exact
+    // (it also returns siblings like "<objectKey>.thumb"), so we filter to the
+    // exact name before deleting — never touching prefix neighbors.
+    for await (const blob of container.listBlobsFlat({
+      prefix: objectKey,
+      includeVersions: true,
+    })) {
+      if (blob.name !== objectKey) continue;
+      // Each entry is a specific version when versioning is on; delete that exact
+      // version (snapshots included). Falls back to the current blob when
+      // versionId is absent (non-versioned account).
+      await container
+        .deleteBlob(blob.name, {
+          deleteSnapshots: "include",
+          versionId: blob.versionId,
+        })
+        .catch((err: unknown) => {
+          // 404 (this version already gone) is fine; rethrow anything else.
+          const status = (err as { statusCode?: number })?.statusCode;
+          if (status === 404) return;
+          throw err;
+        });
+    }
     return;
   }
   // List under the key (S3 Prefix is not exact) but delete ONLY that exact
