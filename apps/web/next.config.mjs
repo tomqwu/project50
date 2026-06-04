@@ -1,3 +1,38 @@
+import { execSync } from "node:child_process";
+
+/**
+ * Resolve release metadata for the in-app ReleaseBadge (see lib/build-info.ts).
+ *
+ * Precedence: explicit NEXT_PUBLIC_RELEASE_* env (set by the deploy pipeline
+ * from the GitHub release — see .github/workflows/release.yml) wins; otherwise
+ * we derive the commit SHA and a build timestamp from git so a plain
+ * `next build` still embeds honest values. Tag/title default to "dev" locally.
+ *
+ * @returns {Record<string, string>}
+ */
+function resolveReleaseEnv() {
+  /** Best-effort git read; returns "" on any failure (shallow checkout, no git). */
+  const git = (cmd) => {
+    try {
+      return execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    } catch {
+      return "";
+    }
+  };
+
+  const sha = process.env.NEXT_PUBLIC_RELEASE_SHA || git("git rev-parse --short=7 HEAD") || "local";
+  // Only adopt a git tag when HEAD is *exactly* that tag, so untagged commits
+  // honestly read "dev" rather than the nearest older release.
+  const tag = process.env.NEXT_PUBLIC_RELEASE_TAG || git("git describe --tags --exact-match") || "dev";
+  return {
+    NEXT_PUBLIC_RELEASE_TAG: tag,
+    NEXT_PUBLIC_RELEASE_SHA: sha,
+    NEXT_PUBLIC_RELEASE_TIME: process.env.NEXT_PUBLIC_RELEASE_TIME || new Date().toISOString(),
+    NEXT_PUBLIC_RELEASE_TITLE: process.env.NEXT_PUBLIC_RELEASE_TITLE || "Local development build",
+    NEXT_PUBLIC_RELEASE_URL: process.env.NEXT_PUBLIC_RELEASE_URL || "",
+  };
+}
+
 /**
  * Build the allow-list of remote image hosts for next/image optimization.
  *
@@ -55,6 +90,10 @@ function buildRemotePatterns() {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Inline release metadata (CalVer tag, commit SHA, build time, feature intro)
+  // for the in-app ReleaseBadge. Derived from git locally; overridden by the
+  // deploy pipeline from the GitHub release.
+  env: resolveReleaseEnv(),
   transpilePackages: ["@project50/core", "@project50/db", "@project50/recap", "@project50/ui"],
   images: {
     // Prefer modern formats; Next negotiates per Accept header and falls back.

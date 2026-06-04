@@ -1,0 +1,83 @@
+# Cut a GitHub release + CalVer tag for every feature deployed to main.
+#
+# Implements the "release note + tag per feature" requirement: each push to
+# main that passes CI gets its own tagged release with auto-generated notes
+# (from the merged PR), and the tag is what the in-app ReleaseBadge displays.
+#
+# Tag scheme — CalVer: vYYYY.MM.DD.N
+#   YYYY.MM.DD = UTC date of the release
+#   N          = 1-based counter of releases already cut on that date
+# so a day with three deploys yields v2026.06.04.1, .2, .3.
+#
+# Runs only after the CI workflow succeeds on main, so we never tag a red build.
+# The release name + intro come from the merge commit subject (the squash-merged
+# PR title), which is also what the badge shows as the "feature intro".
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  # Serialize tag creation so the per-day counter never races.
+  group: release-tag
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create tags + releases
+
+jobs:
+  release:
+    name: Tag + GitHub release (CalVer)
+    runs-on: ubuntu-latest
+    # Only on a green CI run (workflow_dispatch has no triggering run → allow).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need full history + tags to compute the counter
+          ref: main
+
+      - name: Compute next CalVer tag
+        id: calver
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y.%m.%d)"
+          # Highest existing counter for today's date prefix, default 0.
+          LAST="$(git tag --list "v${DATE}.*" \
+            | sed -E "s/^v${DATE}\.//" \
+            | grep -E '^[0-9]+$' \
+            | sort -n | tail -1 || true)"
+          N=$(( ${LAST:-0} + 1 ))
+          TAG="v${DATE}.${N}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Next release tag: ${TAG}"
+
+      - name: Resolve feature intro (merge commit subject)
+        id: intro
+        run: |
+          set -euo pipefail
+          SUBJECT="$(git log -1 --pretty=%s)"
+          echo "subject=${SUBJECT}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag + release with auto-generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.calver.outputs.tag }}
+          SUBJECT: ${{ steps.intro.outputs.subject }}
+        run: |
+          set -euo pipefail
+          git tag -a "$TAG" -m "$SUBJECT"
+          git push origin "$TAG"
+          # --generate-notes builds the "what changed" list from merged PRs
+          # since the previous tag; the title carries the feature intro.
+          gh release create "$TAG" \
+            --title "$TAG — $SUBJECT" \
+            --generate-notes \
+            --target main
