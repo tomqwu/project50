@@ -65,6 +65,9 @@ importers:
       expo-image-picker:
         specifier: ~15.0.7
         version: 15.0.7(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))
+      expo-linking:
+        specifier: ~7.0.5
+        version: 7.0.5(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1)
       expo-notifications:
         specifier: ~0.29.14
         version: 0.29.14(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1)
@@ -4120,6 +4123,12 @@ packages:
 
   expo-linking@6.3.1:
     resolution: {integrity: sha512-xuZCntSBGWCD/95iZ+mTUGTwHdy8Sx+immCqbUBxdvZ2TN61P02kKg7SaLS8A4a/hLrSCwrg5tMMwu5wfKr35g==}
+
+  expo-linking@7.0.5:
+    resolution: {integrity: sha512-3KptlJtcYDPWohk0MfJU75MJFh2ybavbtcSd84zEPfw9s1q3hjimw3sXnH03ZxP54kiEWldvKmmnGcVffBDB1g==}
+    peerDependencies:
+      react: '*'
+      react-native: '*'
 
   expo-modules-autolinking@2.0.8:
     resolution: {integrity: sha512-DezgnEYFQYic8hKGhkbztBA3QUmSftjaNDIKNAtS2iGJmzCcNIkatjN2slFDSWjSTNo8gOvPQyMKfyHWFvLpOQ==}
@@ -11584,6 +11593,16 @@ snapshots:
     dependencies:
       expo-constants: 16.0.2(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))
       invariant: 2.2.4
+    transitivePeerDependencies:
+      - expo
+      - supports-color
+
+  expo-linking@7.0.5(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1):
+    dependencies:
+      expo-constants: 17.0.8(expo@52.0.49(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1))
+      invariant: 2.2.4
+      react: 18.3.1
+      react-native: 0.76.9(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.3.30)(react@18.3.1)
     transitivePeerDependencies:
       - expo
       - supports-color
