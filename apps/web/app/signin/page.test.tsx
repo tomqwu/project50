@@ -4,7 +4,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 // Mock next-auth/react used by SignInButtons (via Landing)
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
-import SignInPage from "./page";
+import SignInPage, { dynamic } from "./page";
 
 describe("SignInPage", () => {
   const originalEnv = process.env;
@@ -16,6 +16,13 @@ describe("SignInPage", () => {
   afterEach(() => {
     process.env = originalEnv;
     cleanup();
+  });
+
+  it("is force-dynamic so OAuth env is read per-request at runtime (not baked at build)", () => {
+    // The provider buttons gate on runtime-injected env (GOOGLE_CLIENT_ID /
+    // FACEBOOK_CLIENT_ID). Static rendering would bake build-time env and hide
+    // buttons for providers configured only at runtime — breaking sign-in.
+    expect(dynamic).toBe("force-dynamic");
   });
 
   it("renders the project50 heading with data-testid='home'", () => {
