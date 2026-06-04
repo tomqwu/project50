@@ -190,6 +190,7 @@ model Challenge {
   milestones  Milestone[]
   recaps      Recap[]
   ruleChecks  RuleCheck[]
+  dayMedia    Project50DayMedia[]
 
   // Owner's challenge list (listChallenges) and cascade deletes on the owner.
   @@index([ownerId])
@@ -284,6 +285,25 @@ model RuleCheck {
   createdAt   DateTime  @default(now())
 
   @@unique([challengeId, dayKey, ruleId])
+  @@index([challengeId, dayKey])
+}
+
+/// Per-day photo attachments for a Project 50 run (#check-in-photo). Each row is
+/// one image attached to a specific local day (`dayKey`, YYYY-MM-DD) of a run.
+/// Multiple photos per day are allowed, so there is intentionally NO unique
+/// constraint on (challengeId, dayKey). Mirrors ActivityMedia: an objectKey into
+/// blob storage plus the image's natural dimensions. Cascades on run deletion.
+model Project50DayMedia {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  dayKey      String
+  objectKey   String
+  width       Int
+  height      Int
+  createdAt   DateTime  @default(now())
+
+  // Listing a day's photos (listProject50DayMedia) and cascade deletes on the run.
   @@index([challengeId, dayKey])
 }
 

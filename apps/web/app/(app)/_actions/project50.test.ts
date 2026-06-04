@@ -4,11 +4,13 @@ const {
   mockRequireUser,
   mockStartProject50,
   mockToggleRule,
+  mockAttachMedia,
   mockRevalidatePath,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockStartProject50: vi.fn(),
   mockToggleRule: vi.fn(),
+  mockAttachMedia: vi.fn(),
   mockRevalidatePath: vi.fn(),
 }));
 
@@ -17,9 +19,14 @@ vi.mock("next/cache", () => ({ revalidatePath: mockRevalidatePath }));
 vi.mock("@/lib/project50", () => ({
   startProject50: mockStartProject50,
   toggleRule: mockToggleRule,
+  attachProject50DayMedia: mockAttachMedia,
 }));
 
-import { startProject50Action, toggleRuleAction } from "./project50";
+import {
+  startProject50Action,
+  toggleRuleAction,
+  attachProject50MediaAction,
+} from "./project50";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -77,6 +84,38 @@ describe("toggleRuleAction", () => {
       scope: "action",
       action: "toggleRuleAction",
       error: { name: "Error", message: "write failed" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+  });
+});
+
+describe("attachProject50MediaAction", () => {
+  it("attaches the photo for the user and revalidates", async () => {
+    await attachProject50MediaAction("media/u1/pic.jpg", 800, 600);
+
+    expect(mockAttachMedia).toHaveBeenCalledWith("u1", {
+      objectKey: "media/u1/pic.jpg",
+      width: 800,
+      height: 600,
+    });
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("logs and rethrows when attaching the photo fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
+    mockAttachMedia.mockRejectedValueOnce(new Error("no run"));
+
+    await expect(attachProject50MediaAction("k", 1, 1)).rejects.toThrow("no run");
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      scope: "action",
+      action: "attachProject50MediaAction",
+      error: { name: "Error", message: "no run" },
     });
 
     errorSpy.mockRestore();

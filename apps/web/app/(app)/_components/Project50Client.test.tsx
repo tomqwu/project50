@@ -7,26 +7,33 @@ vi.mock("@/lib/analytics", () => ({ track: (...a: unknown[]) => trackMock(...a) 
 
 const startAction = vi.fn();
 const toggleAction = vi.fn();
+const attachAction = vi.fn();
 vi.mock("../_actions/project50", () => ({
   startProject50Action: (...a: unknown[]) => startAction(...a),
   toggleRuleAction: (...a: unknown[]) => toggleAction(...a),
+  attachProject50MediaAction: (...a: unknown[]) => attachAction(...a),
 }));
 
-// Replace Project50View with a thin harness exposing the three callbacks.
+// Replace Project50View with a thin harness exposing the callbacks.
 vi.mock("./Project50View", () => ({
   Project50View: ({
     onStart,
     onRestart,
     onToggle,
+    onAttachMedia,
   }: {
     onStart: () => void;
     onRestart: () => void;
     onToggle: (id: number, done: boolean) => void;
+    onAttachMedia?: (objectKey: string, width: number, height: number) => void;
   }) => (
     <div>
       <button data-testid="start" onClick={onStart}>start</button>
       <button data-testid="restart" onClick={onRestart}>restart</button>
       <button data-testid="toggle" onClick={() => onToggle(3, true)}>toggle</button>
+      <button data-testid="attach" onClick={() => onAttachMedia?.("media/u/x.jpg", 800, 600)}>
+        attach
+      </button>
     </div>
   ),
 }));
@@ -39,6 +46,7 @@ beforeEach(() => {
   trackMock.mockReset();
   startAction.mockReset();
   toggleAction.mockReset();
+  attachAction.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -63,5 +71,12 @@ describe("Project50Client instrumentation", () => {
     fireEvent.click(screen.getByTestId("toggle"));
     expect(trackMock).toHaveBeenCalledWith("rule_toggled", { ruleId: 3, done: true });
     expect(toggleAction).toHaveBeenCalledWith(3, true);
+  });
+
+  it("tracks project50_photo_added and attaches the photo on Attach", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("attach"));
+    expect(trackMock).toHaveBeenCalledWith("project50_photo_added", {});
+    expect(attachAction).toHaveBeenCalledWith("media/u/x.jpg", 800, 600);
   });
 });
