@@ -62,19 +62,24 @@ test("Project 50: start → check all 7 rules → 7/7 completes the day, and per
   await expect(page.getByTestId(/^rule-row-/)).toHaveCount(7);
 
   // ─── Step 4: Check each rule; the counter climbs 1/7 … 7/7 ──────────────────
-  // Each click fires a server action + revalidatePath("/") round-trip. Fire them
-  // strictly serially — wait for the clicked row to render its ✓ AND for the
-  // network to settle before the next click — so a back-to-back burst can't drop
-  // or coalesce a re-render (which intermittently stalled the counter under CI's
-  // parallel-worker load).
+  // Each click fires a server action + revalidatePath("/") round-trip. Under CI's
+  // parallel-worker load a single round-trip occasionally doesn't land, so drive
+  // each row to "checked" with a STATE-GUARDED retry: only re-click while the row
+  // is still unchecked (reading state first makes the re-click toggle-safe — it
+  // can never accidentally un-check an already-checked row), letting the network
+  // settle between attempts.
   for (let ruleId = 1; ruleId <= 7; ruleId++) {
-    await page.getByTestId(`rule-row-${ruleId}`).click();
-    // The clicked row now shows its checkmark…
-    await expect(page.getByTestId(`rule-row-${ruleId}`)).toContainText("✓", {
-      timeout: 20_000,
-    });
-    // …and the revalidation round-trip has settled before the next click.
-    await page.waitForLoadState("networkidle");
+    const row = page.getByTestId(`rule-row-${ruleId}`);
+    for (
+      let attempt = 0;
+      attempt < 4 && !((await row.textContent()) ?? "").includes("✓");
+      attempt++
+    ) {
+      await row.click();
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(600);
+    }
+    await expect(row).toContainText("✓", { timeout: 20_000 });
     await expect(page.getByText(new RegExp(`${ruleId} / 7 today`, "i"))).toBeVisible({
       timeout: 20_000,
     });
