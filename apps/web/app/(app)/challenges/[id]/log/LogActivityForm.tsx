@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Label } from "@project50/ui";
+import { localDayKey } from "@project50/core";
 
 const ACTIVITY_TYPES = ["Run", "Bike", "Gym", "Yoga"] as const;
 type ActivityType = (typeof ACTIVITY_TYPES)[number];
@@ -20,9 +21,7 @@ export interface SelectedMedia {
  * Read the natural dimensions of an image from a File.
  * Extracted as a named export so tests can mock it.
  */
-export function readImageDimensions(
-  file: File,
-): Promise<{ width: number; height: number }> {
+export function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -85,7 +84,11 @@ export function LogActivityForm({
       const { width, height } = await readDimensions(file);
 
       // Derive a safe suffix from the filename (strip extension, sanitize)
-      const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "upload";
+      const baseName =
+        file.name
+          .replace(/\.[^.]+$/, "")
+          .replace(/[^a-zA-Z0-9_-]/g, "_")
+          .slice(0, 64) || "upload";
 
       // POST /api/uploads/presign
       const presignRes = await fetch("/api/uploads/presign", {
@@ -143,7 +146,9 @@ export function LogActivityForm({
     setSubmitting(true);
 
     const body: Record<string, unknown> = {
-      dayKey: new Date().toISOString().slice(0, 10),
+      // Use the user's local day, not a UTC slice, so logging just after local
+      // midnight records "today" instead of yesterday.
+      dayKey: localDayKey(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
       activityType: activityType ?? undefined,
       note: note || undefined,
       mood: mood ?? undefined,
@@ -277,7 +282,11 @@ export function LogActivityForm({
           />
           <label
             htmlFor="done-toggle"
-            style={{ fontFamily: "var(--font-body, system-ui)", color: "var(--text)", cursor: "pointer" }}
+            style={{
+              fontFamily: "var(--font-body, system-ui)",
+              color: "var(--text)",
+              cursor: "pointer",
+            }}
           >
             Mark as done
           </label>
