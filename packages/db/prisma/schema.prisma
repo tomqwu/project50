@@ -1,5 +1,11 @@
 generator client {
   provider = "prisma-client-js"
+  // native  -> local dev (macOS / whatever the host is).
+  // debian-openssl-3.0.x      -> linux/amd64 Debian (node:20-bookworm-slim on Azure Container Apps).
+  // linux-arm64-openssl-3.0.x -> linux/arm64 Debian (Apple Silicon / arm64 build host).
+  // Both Debian targets are bundled so the query engine loads in the container
+  // regardless of the build/runtime CPU architecture.
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
 }
 
 datasource db {
