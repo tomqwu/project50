@@ -13,9 +13,8 @@ vi.mock("@aws-sdk/client-s3", () => ({
   GetObjectCommand: vi.fn().mockImplementation((input) => ({ _type: "GetObject", ...input })),
   HeadBucketCommand: vi.fn().mockImplementation((input) => ({ _type: "HeadBucket", ...input })),
   CreateBucketCommand: vi.fn().mockImplementation((input) => ({ _type: "CreateBucket", ...input })),
-  DeleteObjectCommand: vi.fn().mockImplementation((input) => ({ _type: "DeleteObject", ...input })),
   DeleteObjectsCommand: vi.fn().mockImplementation((input) => ({ _type: "DeleteObjects", ...input })),
-  ListObjectsV2Command: vi.fn().mockImplementation((input) => ({ _type: "ListObjectsV2", ...input })),
+  ListObjectVersionsCommand: vi.fn().mockImplementation((input) => ({ _type: "ListObjectVersions", ...input })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -38,8 +37,8 @@ const getBlobClient = vi.fn((blobName: string) => ({
   url: `https://acct.blob.core.windows.net/cont/${blobName}`,
 }));
 const azureDeleteBlob = vi.fn().mockResolvedValue({});
-// listBlobsFlat returns an async iterable of { name }. Default: empty.
-let azureBlobList: Array<{ name: string }> = [];
+// listBlobsFlat returns an async iterable of { name, versionId? }. Default: empty.
+let azureBlobList: Array<{ name: string; versionId?: string }> = [];
 const azureListBlobsFlat = vi.fn(() => ({
   async *[Symbol.asyncIterator]() {
     for (const b of azureBlobList) yield b;
@@ -426,34 +425,81 @@ describe("checkStorage (readiness probe)", () => {
 });
 
 describe("deleteObject (S3 backend)", () => {
-  it("sends a DeleteObjectCommand with the right Bucket and Key", async () => {
-    mockSend.mockResolvedValueOnce({});
+  it("lists ALL versions of the exact key and deletes each { Key, VersionId }", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        // Two live versions of the same key on a versioned bucket.
+        Versions: [
+          { Key: "media/u1/img.jpg", VersionId: "v2" },
+          { Key: "media/u1/img.jpg", VersionId: "v1" },
+        ],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({});
     await deleteObject("media/u1/img.jpg");
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    const [cmd] = mockSend.mock.calls[0] as [
-      { _type?: string; Bucket?: string; Key?: string },
+
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    const [listCmd] = mockSend.mock.calls[0] as [
+      { _type?: string; Bucket?: string; Prefix?: string },
     ];
-    expect(cmd._type).toBe("DeleteObject");
-    expect(cmd.Bucket).toBe("project50-media");
-    expect(cmd.Key).toBe("media/u1/img.jpg");
+    expect(listCmd._type).toBe("ListObjectVersions");
+    expect(listCmd.Bucket).toBe("project50-media");
+    // The exact key is its own prefix.
+    expect(listCmd.Prefix).toBe("media/u1/img.jpg");
+
+    const [delCmd] = mockSend.mock.calls[1] as [
+      {
+        _type?: string;
+        Delete?: { Objects?: Array<{ Key: string; VersionId?: string }> };
+      },
+    ];
+    expect(delCmd._type).toBe("DeleteObjects");
+    expect(delCmd.Delete?.Objects).toEqual([
+      { Key: "media/u1/img.jpg", VersionId: "v2" },
+      { Key: "media/u1/img.jpg", VersionId: "v1" },
+    ]);
   });
 
-  it("resolves to undefined on success", async () => {
-    mockSend.mockResolvedValueOnce({});
+  it("on a non-versioned bucket deletes the single current object (VersionId 'null')", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Versions: [{ Key: "media/u1/img.jpg", VersionId: "null" }],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({});
+    await deleteObject("media/u1/img.jpg");
+    const [delCmd] = mockSend.mock.calls[1] as [
+      { Delete?: { Objects?: Array<{ Key: string; VersionId?: string }> } },
+    ];
+    expect(delCmd.Delete?.Objects).toEqual([
+      { Key: "media/u1/img.jpg", VersionId: "null" },
+    ]);
+  });
+
+  it("is a no-op when the key has no versions", async () => {
+    mockSend.mockResolvedValueOnce({ Versions: [], IsTruncated: false });
     await expect(deleteObject("k")).resolves.toBeUndefined();
+    // Only the list call; no DeleteObjects issued.
+    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
-  it("propagates S3 delete errors", async () => {
+  it("propagates S3 list/delete errors", async () => {
     mockSend.mockRejectedValueOnce(new Error("Access Denied"));
     await expect(deleteObject("k")).rejects.toThrow("Access Denied");
   });
 });
 
 describe("deleteUserMedia (S3 backend)", () => {
-  it("lists by the user's prefix then batch-deletes the listed keys", async () => {
+  it("lists ALL versions + delete markers under the prefix and batch-deletes each", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }, { Key: "media/u1/b.mp4" }],
+        Versions: [
+          { Key: "media/u1/a.jpg", VersionId: "v2" },
+          { Key: "media/u1/a.jpg", VersionId: "v1" },
+          { Key: "media/u1/b.mp4", VersionId: "v1" },
+        ],
+        // A delete marker must also be removed to fully erase the object.
+        DeleteMarkers: [{ Key: "media/u1/a.jpg", VersionId: "dm1" }],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({});
@@ -461,34 +507,45 @@ describe("deleteUserMedia (S3 backend)", () => {
 
     expect(mockSend).toHaveBeenCalledTimes(2);
     const [listCmd] = mockSend.mock.calls[0] as [
-      { _type?: string; Bucket?: string; Prefix?: string; ContinuationToken?: string },
+      {
+        _type?: string;
+        Bucket?: string;
+        Prefix?: string;
+        KeyMarker?: string;
+        VersionIdMarker?: string;
+      },
     ];
-    expect(listCmd._type).toBe("ListObjectsV2");
+    expect(listCmd._type).toBe("ListObjectVersions");
     expect(listCmd.Bucket).toBe("project50-media");
     expect(listCmd.Prefix).toBe("media/u1/");
-    expect(listCmd.ContinuationToken).toBeUndefined();
+    expect(listCmd.KeyMarker).toBeUndefined();
+    expect(listCmd.VersionIdMarker).toBeUndefined();
 
     const [delCmd] = mockSend.mock.calls[1] as [
-      { _type?: string; Bucket?: string; Delete?: { Objects?: Array<{ Key: string }> } },
+      {
+        _type?: string;
+        Delete?: { Objects?: Array<{ Key: string; VersionId?: string }> };
+      },
     ];
     expect(delCmd._type).toBe("DeleteObjects");
-    expect(delCmd.Bucket).toBe("project50-media");
     expect(delCmd.Delete?.Objects).toEqual([
-      { Key: "media/u1/a.jpg" },
-      { Key: "media/u1/b.mp4" },
+      { Key: "media/u1/a.jpg", VersionId: "v2" },
+      { Key: "media/u1/a.jpg", VersionId: "v1" },
+      { Key: "media/u1/b.mp4", VersionId: "v1" },
+      { Key: "media/u1/a.jpg", VersionId: "dm1" },
     ]);
   });
 
   it("is a no-op (no delete) when the prefix is empty", async () => {
-    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({ Versions: [], IsTruncated: false });
     await deleteUserMedia("u1");
     // Only the list call; no DeleteObjects issued.
     expect(mockSend).toHaveBeenCalledTimes(1);
     const [cmd] = mockSend.mock.calls[0] as [{ _type?: string }];
-    expect(cmd._type).toBe("ListObjectsV2");
+    expect(cmd._type).toBe("ListObjectVersions");
   });
 
-  it("treats a missing Contents field as an empty page (no delete)", async () => {
+  it("treats missing Versions/DeleteMarkers fields as an empty page (no delete)", async () => {
     mockSend.mockResolvedValueOnce({ IsTruncated: false });
     await deleteUserMedia("u1");
     expect(mockSend).toHaveBeenCalledTimes(1);
@@ -497,42 +554,54 @@ describe("deleteUserMedia (S3 backend)", () => {
   it("skips entries with no Key when batching the delete", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }, { Key: undefined }],
+        Versions: [
+          { Key: "media/u1/a.jpg", VersionId: "v1" },
+          { Key: undefined, VersionId: "vX" },
+        ],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({});
     await deleteUserMedia("u1");
     const [delCmd] = mockSend.mock.calls[1] as [
-      { Delete?: { Objects?: Array<{ Key: string }> } },
+      { Delete?: { Objects?: Array<{ Key: string; VersionId?: string }> } },
     ];
-    expect(delCmd.Delete?.Objects).toEqual([{ Key: "media/u1/a.jpg" }]);
+    expect(delCmd.Delete?.Objects).toEqual([
+      { Key: "media/u1/a.jpg", VersionId: "v1" },
+    ]);
   });
 
-  it("paginates with the continuation token until the listing is exhausted", async () => {
+  it("paginates with the key/version markers until the listing is exhausted", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }],
+        Versions: [{ Key: "media/u1/a.jpg", VersionId: "v1" }],
         IsTruncated: true,
-        NextContinuationToken: "tok-2",
+        NextKeyMarker: "media/u1/a.jpg",
+        NextVersionIdMarker: "v1",
       })
       .mockResolvedValueOnce({}) // DeleteObjects page 1
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/b.jpg" }],
+        Versions: [{ Key: "media/u1/b.jpg", VersionId: "v1" }],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({}); // DeleteObjects page 2
     await deleteUserMedia("u1");
 
     expect(mockSend).toHaveBeenCalledTimes(4);
-    // Second list request carries the continuation token from page 1.
-    const [list2] = mockSend.mock.calls[2] as [{ ContinuationToken?: string }];
-    expect(list2.ContinuationToken).toBe("tok-2");
+    // Second list request carries the markers from page 1.
+    const [list2] = mockSend.mock.calls[2] as [
+      { KeyMarker?: string; VersionIdMarker?: string },
+    ];
+    expect(list2.KeyMarker).toBe("media/u1/a.jpg");
+    expect(list2.VersionIdMarker).toBe("v1");
   });
 
   it("throws when DeleteObjects reports per-key Errors (partial failure not silently ignored)", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }, { Key: "media/u1/locked.jpg" }],
+        Versions: [
+          { Key: "media/u1/a.jpg", VersionId: "v1" },
+          { Key: "media/u1/locked.jpg", VersionId: "v1" },
+        ],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({
@@ -553,7 +622,7 @@ describe("deleteUserMedia (S3 backend)", () => {
   it("tolerates a missing/undefined Errors field as success", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }],
+        Versions: [{ Key: "media/u1/a.jpg", VersionId: "v1" }],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({ Errors: undefined });
@@ -563,11 +632,13 @@ describe("deleteUserMedia (S3 backend)", () => {
   it("includes placeholder fields when an Error entry omits Key/Code/Message", async () => {
     mockSend
       .mockResolvedValueOnce({
-        Contents: [{ Key: "media/u1/a.jpg" }],
+        Versions: [{ Key: "media/u1/a.jpg", VersionId: "v1" }],
         IsTruncated: false,
       })
       .mockResolvedValueOnce({ Errors: [{}] });
-    await expect(deleteUserMedia("u1")).rejects.toThrow(/1 object\(s\).*\?: \?/s);
+    await expect(deleteUserMedia("u1")).rejects.toThrow(
+      /1 object version\(s\).*\?: \?/s,
+    );
   });
 });
 
@@ -713,25 +784,51 @@ describe("Azure Blob backend", () => {
     });
   });
 
-  describe("deleteUserMedia → list-by-prefix + delete", () => {
-    it("lists blobs under the user prefix and deletes each", async () => {
-      azureBlobList = [{ name: "media/u1/a.jpg" }, { name: "media/u1/b.mp4" }];
+  describe("deleteUserMedia → list-by-prefix (incl. versions) + delete", () => {
+    it("lists blobs WITH versions under the user prefix and deletes each version", async () => {
+      // Two versions of the same blob plus a second blob (versioned bucket).
+      azureBlobList = [
+        { name: "media/u1/a.jpg", versionId: "2026-06-01T00:00:00Z" },
+        { name: "media/u1/a.jpg", versionId: "2026-05-01T00:00:00Z" },
+        { name: "media/u1/b.mp4", versionId: "2026-06-01T00:00:00Z" },
+      ];
       await deleteUserMedia("u1");
-      expect(azureListBlobsFlat).toHaveBeenCalledWith({ prefix: "media/u1/" });
-      expect(azureDeleteBlob).toHaveBeenCalledTimes(2);
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/",
+        includeVersions: true,
+      });
+      expect(azureDeleteBlob).toHaveBeenCalledTimes(3);
       expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/a.jpg", {
         deleteSnapshots: "include",
+        versionId: "2026-06-01T00:00:00Z",
+      });
+      expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/a.jpg", {
+        deleteSnapshots: "include",
+        versionId: "2026-05-01T00:00:00Z",
       });
       expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/b.mp4", {
         deleteSnapshots: "include",
+        versionId: "2026-06-01T00:00:00Z",
       });
       expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the current blob (versionId undefined) on a non-versioned account", async () => {
+      azureBlobList = [{ name: "media/u1/a.jpg" }];
+      await deleteUserMedia("u1");
+      expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/a.jpg", {
+        deleteSnapshots: "include",
+        versionId: undefined,
+      });
     });
 
     it("is a no-op when the prefix has no blobs", async () => {
       azureBlobList = [];
       await deleteUserMedia("u1");
-      expect(azureListBlobsFlat).toHaveBeenCalledWith({ prefix: "media/u1/" });
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/",
+        includeVersions: true,
+      });
       expect(azureDeleteBlob).not.toHaveBeenCalled();
     });
   });
@@ -916,12 +1013,16 @@ describe("Azure managed-identity backend (user-delegation SAS)", () => {
       expect(mockSend).not.toHaveBeenCalled();
     });
 
-    it("sweeps the user prefix via the credential-based client", async () => {
-      azureBlobList = [{ name: "media/u1/a.jpg" }];
+    it("sweeps the user prefix (incl. versions) via the credential-based client", async () => {
+      azureBlobList = [{ name: "media/u1/a.jpg", versionId: "ver-1" }];
       await deleteUserMedia("u1");
-      expect(azureListBlobsFlat).toHaveBeenCalledWith({ prefix: "media/u1/" });
+      expect(azureListBlobsFlat).toHaveBeenCalledWith({
+        prefix: "media/u1/",
+        includeVersions: true,
+      });
       expect(azureDeleteBlob).toHaveBeenCalledWith("media/u1/a.jpg", {
         deleteSnapshots: "include",
+        versionId: "ver-1",
       });
       const { DefaultAzureCredential } = await import("@azure/identity");
       expect(vi.mocked(DefaultAzureCredential)).toHaveBeenCalledTimes(1);

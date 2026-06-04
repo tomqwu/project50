@@ -4,9 +4,8 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
-  DeleteObjectCommand,
   DeleteObjectsCommand,
-  ListObjectsV2Command,
+  ListObjectVersionsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
@@ -373,12 +372,70 @@ export async function checkStorage(): Promise<boolean> {
 }
 
 /**
- * Delete a single object from storage by its objectKey.
+ * Delete EVERY object version (and delete marker) under an S3 key prefix.
  *
- * Idempotent: deleting a key that does not exist is a no-op on both backends
- * (S3 DeleteObject is idempotent; Azure deleteIfExists swallows 404). Routes to
- * the configured backend by env. Throws only on real errors (e.g. auth/network)
- * so callers can decide whether to log-and-continue.
+ * GDPR erasure must be permanent: if the bucket has versioning enabled (the
+ * object-storage guide recommends it for S3/R2 prod), deleting only the current
+ * key leaves prior versions recoverable. We enumerate ListObjectVersions under
+ * the prefix — which returns Versions AND DeleteMarkers — and batch-delete each
+ * `{ Key, VersionId }`, paginating via KeyMarker/VersionIdMarker. On a
+ * non-versioned bucket the listing returns just the current objects (each with
+ * VersionId "null"), so behavior is unchanged. Per-key failures surface via the
+ * DeleteObjects `Errors` array. Safe no-op when nothing is listed.
+ */
+async function s3DeleteAllVersionsUnder(prefix: string): Promise<void> {
+  const client = getClient();
+  const bucket = getBucket();
+  let keyMarker: string | undefined;
+  let versionIdMarker: string | undefined;
+  do {
+    const listed = await client.send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        Prefix: prefix,
+        KeyMarker: keyMarker,
+        VersionIdMarker: versionIdMarker,
+      }),
+    );
+    // Both live versions and delete markers must be removed to erase the object.
+    const objects = [...(listed.Versions ?? []), ...(listed.DeleteMarkers ?? [])]
+      .filter((v): v is { Key: string; VersionId?: string } => Boolean(v.Key))
+      .map((v) => ({ Key: v.Key, VersionId: v.VersionId }));
+    if (objects.length > 0) {
+      const result = await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objects },
+        }),
+      );
+      // DeleteObjects resolves "successfully" even when individual keys fail
+      // (object lock, access denied, …): the failures come back in `Errors`.
+      // Surface them so a partial failure isn't silently treated as success.
+      const errors = result.Errors ?? [];
+      if (errors.length > 0) {
+        const summary = errors
+          .map((e) => `${e.Key ?? "?"}: ${e.Code ?? "?"} ${e.Message ?? ""}`.trim())
+          .join("; ");
+        throw new Error(
+          `s3DeleteAllVersionsUnder: ${errors.length} object version(s) under "${prefix}" failed to delete — ${summary}`,
+        );
+      }
+    }
+    keyMarker = listed.IsTruncated ? listed.NextKeyMarker : undefined;
+    versionIdMarker = listed.IsTruncated
+      ? listed.NextVersionIdMarker
+      : undefined;
+  } while (keyMarker || versionIdMarker);
+}
+
+/**
+ * Delete a single object from storage by its objectKey, including every version.
+ *
+ * Idempotent: deleting a key that does not exist is a no-op on both backends.
+ * On S3 we sweep all versions under the exact key (so prior versions / delete
+ * markers don't leave the object recoverable on a versioned bucket); on Azure
+ * we delete the blob with its versions/snapshots included. Routes by env. Throws
+ * only on real errors (e.g. auth/network) so callers can log-and-continue.
  */
 export async function deleteObject(objectKey: string): Promise<void> {
   if (useAzure()) {
@@ -393,72 +450,45 @@ export async function deleteObject(objectKey: string): Promise<void> {
       });
     return;
   }
-  await getClient().send(
-    new DeleteObjectCommand({ Bucket: getBucket(), Key: objectKey }),
-  );
+  // ListObjectVersions Prefix is a literal prefix; the exact key is its own
+  // prefix, and on a non-versioned bucket this returns the single current key.
+  await s3DeleteAllVersionsUnder(objectKey);
 }
 
 /**
- * Belt-and-suspenders sweep: delete EVERY object under a user's media prefix
- * (`media/<userId>/`). Used by account deletion alongside the explicit
- * per-row objectKey deletes, so any blob that the DB no longer references is
- * still removed (a real GDPR requirement).
+ * Belt-and-suspenders sweep: delete EVERY object (all versions) under a user's
+ * media prefix (`media/<userId>/`). Used by account deletion alongside the
+ * explicit per-row objectKey deletes, so any blob that the DB no longer
+ * references — and any prior version of one — is still removed (GDPR erasure).
  *
- * - S3/MinIO: paginate ListObjectsV2 by prefix and batch-delete (DeleteObjects,
- *   up to 1000 keys/request).
- * - Azure Blob: list blobs by prefix and delete each.
+ * - S3/MinIO: paginate ListObjectVersions by prefix and batch-delete every
+ *   `{ Key, VersionId }` (versions + delete markers), inspecting `Errors`.
+ * - Azure Blob: list blobs by prefix WITH versions and delete each version
+ *   (snapshots included).
  *
- * Safe no-op when the prefix is empty (no objects listed). Routes by env.
+ * Safe no-op when the prefix is empty (nothing listed). Routes by env.
  */
 export async function deleteUserMedia(userId: string): Promise<void> {
   const prefix = userMediaPrefix(userId);
 
   if (useAzure()) {
     const container = getAzureService().getContainerClient(getContainerName());
-    for await (const blob of container.listBlobsFlat({ prefix })) {
-      await container.deleteBlob(blob.name, { deleteSnapshots: "include" });
+    for await (const blob of container.listBlobsFlat({
+      prefix,
+      includeVersions: true,
+    })) {
+      // Each listing entry is a specific version when versioning is on; delete
+      // that exact version, snapshots included. Falls back to the current blob
+      // when versionId is absent (non-versioned account).
+      await container.deleteBlob(blob.name, {
+        deleteSnapshots: "include",
+        versionId: blob.versionId,
+      });
     }
     return;
   }
 
-  const client = getClient();
-  const bucket = getBucket();
-  let continuationToken: string | undefined;
-  do {
-    const listed = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: continuationToken,
-      }),
-    );
-    const keys = (listed.Contents ?? [])
-      .map((o) => o.Key)
-      .filter((k): k is string => Boolean(k));
-    if (keys.length > 0) {
-      const result = await client.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: keys.map((Key) => ({ Key })) },
-        }),
-      );
-      // DeleteObjects resolves "successfully" even when individual keys fail
-      // (object lock, access denied, …): the failures come back in `Errors`.
-      // Surface them so a partial failure isn't silently treated as success.
-      const errors = result.Errors ?? [];
-      if (errors.length > 0) {
-        const summary = errors
-          .map((e) => `${e.Key ?? "?"}: ${e.Code ?? "?"} ${e.Message ?? ""}`.trim())
-          .join("; ");
-        throw new Error(
-          `deleteUserMedia: ${errors.length} object(s) under "${prefix}" failed to delete — ${summary}`,
-        );
-      }
-    }
-    continuationToken = listed.IsTruncated
-      ? listed.NextContinuationToken
-      : undefined;
-  } while (continuationToken);
+  await s3DeleteAllVersionsUnder(prefix);
 }
 
 // Export for testing (reset singletons)
