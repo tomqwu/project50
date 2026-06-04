@@ -86,4 +86,40 @@ describe("upsertJournal / getTodayJournal", () => {
     const state = await getProject50State(u.id, NOW);
     expect(state.today?.journal).toBeUndefined();
   });
+
+  it("persists under the submitted dayKey, not server-now (across-midnight save)", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // The dashboard was opened on 2026-06-02 but the user saves after the run's
+    // local midnight, when the server clock already reads 2026-06-03.
+    const serverNow = new Date("2026-06-03T00:30:00Z");
+
+    await upsertJournal(u.id, { wins: "yesterday", lessons: "y" }, serverNow, "2026-06-02");
+
+    const rows = await prisma.dayJournal.findMany({ where: { challengeId: runId } });
+    expect(rows).toHaveLength(1);
+    // Written under the day the editor was showing, not server-now's day.
+    expect(rows[0]).toMatchObject({ dayKey: "2026-06-02", wins: "yesterday" });
+  });
+
+  it("rejects a submitted dayKey outside the current/previous local day window", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // server-now local day = 2026-06-02
+    // Two days stale — not the current or previous local day.
+    await expect(
+      upsertJournal(u.id, { wins: "stale", lessons: "z" }, NOW, "2026-05-31"),
+    ).rejects.toThrow(/day/i);
+    // A future day is also rejected.
+    await expect(
+      upsertJournal(u.id, { wins: "future", lessons: "z" }, NOW, "2026-06-03"),
+    ).rejects.toThrow(/day/i);
+  });
+
+  it("accepts the previous local day as a valid submitted dayKey", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW); // server-now local day = 2026-06-02
+    await upsertJournal(u.id, { wins: "prev", lessons: "z" }, NOW, "2026-06-01");
+    const row = await prisma.dayJournal.findFirst({ where: { challengeId: runId } });
+    expect(row).toMatchObject({ dayKey: "2026-06-01", wins: "prev" });
+  });
 });

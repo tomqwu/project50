@@ -45,7 +45,7 @@ describe("DayJournalSection", () => {
     fireEvent.change(screen.getByLabelText(/what i learned/i), { target: { value: "lesson" } });
     fireEvent.click(screen.getByTestId("journal-save"));
 
-    expect(onSave).toHaveBeenCalledWith("won today", "lesson");
+    expect(onSave).toHaveBeenCalledWith("won today", "lesson", undefined);
     expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
     expect(screen.queryByTestId("journal-error")).not.toBeInTheDocument();
   });
@@ -102,7 +102,7 @@ describe("DayJournalSection", () => {
 
     fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "first" } });
     fireEvent.click(screen.getByTestId("journal-save"));
-    expect(onSave).toHaveBeenCalledWith("first", "");
+    expect(onSave).toHaveBeenCalledWith("first", "", undefined);
 
     // The user keeps typing before the slow save resolves.
     fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "first + more" } });
@@ -168,7 +168,41 @@ describe("DayJournalSection", () => {
 
     fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "new day" } });
     fireEvent.click(screen.getByTestId("journal-save"));
-    expect(onSaveDay2).toHaveBeenCalledWith("new day", "");
+    expect(onSaveDay2).toHaveBeenCalledWith("new day", "", "2026-06-04");
     expect(onSaveDay1).not.toHaveBeenCalled();
+  });
+
+  it("a stale in-flight save that REJECTS after a day change does not show an error on the new day", async () => {
+    const d = deferred();
+    const onSave = vi.fn().mockReturnValue(d.promise);
+    const { rerender } = render(<DayJournalSection dayKey="2026-06-03" onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText(/today's wins/i), { target: { value: "day3" } });
+    fireEvent.click(screen.getByTestId("journal-save"));
+
+    // The day rolls over while the save is still in flight.
+    rerender(<DayJournalSection dayKey="2026-06-04" onSave={onSave} />);
+
+    d.reject(new Error("nope"));
+    // The rejection belongs to the previous day; it must not surface on the new day.
+    await waitFor(() => expect(screen.getByTestId("journal-save")).not.toBeDisabled());
+    expect(screen.queryByTestId("journal-error")).not.toBeInTheDocument();
+  });
+
+  it("a stale in-flight save that RESOLVES after a day change does not confirm 'Saved' on the new day", async () => {
+    const d = deferred();
+    const onSave = vi.fn().mockReturnValue(d.promise);
+    // Submit empty wins/lessons on day 3 so the NEW day's (reset, empty) fields
+    // happen to match the submitted snapshot — the day-change guard must still win.
+    const { rerender } = render(<DayJournalSection dayKey="2026-06-03" onSave={onSave} />);
+
+    fireEvent.click(screen.getByTestId("journal-save"));
+
+    // The day rolls over while the save is still in flight; new day's fields are empty too.
+    rerender(<DayJournalSection dayKey="2026-06-04" onSave={onSave} />);
+
+    d.resolve();
+    await waitFor(() => expect(screen.getByTestId("journal-save")).not.toBeDisabled());
+    expect(screen.queryByTestId("journal-saved")).not.toBeInTheDocument();
   });
 });

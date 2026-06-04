@@ -12,10 +12,12 @@ interface Props {
   /** Today's saved journal, if any — used to prefill the editor. */
   journal?: { wins: string; lessons: string };
   /**
-   * Persist the current wins + lessons. Must resolve only once the save has
-   * succeeded and reject if it fails — the "Saved" confirmation is gated on it.
+   * Persist the current wins + lessons for `dayKey` (the day the editor is
+   * showing). Must resolve only once the save has succeeded and reject if it
+   * fails — the "Saved" confirmation is gated on it. The dayKey lets the server
+   * file the entry under the visible day even if its clock has crossed midnight.
    */
-  onSave: (wins: string, lessons: string) => Promise<void>;
+  onSave: (wins: string, lessons: string, dayKey?: string) => Promise<void>;
 }
 
 const textareaStyle: React.CSSProperties = {
@@ -63,6 +65,12 @@ export function DayJournalSection({ dayKey, journal, onSave }: Props) {
   winsRef.current = wins;
   lessonsRef.current = lessons;
 
+  // Track the active day so an in-flight save's continuation can tell whether
+  // the day rolled over while it was pending — if so it must not touch the new
+  // day's editor (no "Saved"/error for content that belongs to the old day).
+  const dayKeyRef = useRef(dayKey);
+  dayKeyRef.current = dayKey;
+
   // When the active day changes (e.g. the dashboard revalidates past local
   // midnight), resync the editor to the new day so the previous day's text
   // can't leak across — or be saved under — the wrong day. Unsaved edits for
@@ -91,19 +99,30 @@ export function DayJournalSection({ dayKey, journal, onSave }: Props) {
     // flight — otherwise we'd claim content was persisted that never was.
     const submittedWins = wins;
     const submittedLessons = lessons;
+    const submittedDayKey = dayKey;
     setSaving(true);
     setSaved(false);
     setError(false);
     try {
-      await onSave(submittedWins, submittedLessons);
+      await onSave(submittedWins, submittedLessons, submittedDayKey);
+      // If the day rolled over while this save was in flight, its result belongs
+      // to the old day — don't touch the new day's editor at all.
+      if (dayKeyRef.current !== submittedDayKey) return;
       // Only confirm "Saved" if neither field was edited while the save was in
       // flight — otherwise the persisted content no longer matches what's shown.
       if (winsRef.current === submittedWins && lessonsRef.current === submittedLessons) {
         setSaved(true);
       }
     } catch {
+      // Same guard for failures: a rejection for the previous day must not
+      // surface as an error on the new day.
+      if (dayKeyRef.current !== submittedDayKey) return;
       setError(true);
     } finally {
+      // Always clear the in-flight flag: it's a single component instance, so the
+      // pending save (even a stale one from the previous day) must re-enable the
+      // button. The day-change effect does not reset `saving`, so this is the only
+      // place that does — skipping it would leave the new day's button disabled.
       setSaving(false);
     }
   }

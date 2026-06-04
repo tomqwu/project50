@@ -31,7 +31,7 @@ vi.mock("./Project50View", () => ({
     onRestart: () => void;
     onToggle: (id: number, done: boolean) => void;
     onAttachMedia?: (objectKey: string, width: number, height: number) => void;
-    onSaveJournal?: (wins: string, lessons: string) => Promise<void> | void;
+    onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void> | void;
   }) => (
     <div>
       <button data-testid="start" onClick={onStart}>start</button>
@@ -40,7 +40,10 @@ vi.mock("./Project50View", () => ({
       <button data-testid="attach" onClick={() => onAttachMedia?.("media/u/x.jpg", 800, 600)}>
         attach
       </button>
-      <button data-testid="save-journal" onClick={() => onSaveJournal?.("won", "learned")}>
+      <button
+        data-testid="save-journal"
+        onClick={() => onSaveJournal?.("won", "learned", "2026-06-02")}
+      >
         save-journal
       </button>
     </div>
@@ -95,6 +98,6 @@ describe("Project50Client instrumentation", () => {
     render(<Project50Client state={state} />);
     fireEvent.click(screen.getByTestId("save-journal"));
     expect(trackMock).toHaveBeenCalledWith("project50_journal_saved", {});
-    expect(saveJournalAction).toHaveBeenCalledWith("won", "learned");
+    expect(saveJournalAction).toHaveBeenCalledWith("won", "learned", "2026-06-02");
   });
 });

@@ -34,9 +34,9 @@ export function Project50Client({ state }: { state: Project50State }) {
         track("project50_photo_added", {});
         startTransition(() => void attachProject50MediaAction(objectKey, width, height));
       }}
-      onSaveJournal={(wins, lessons) => {
+      onSaveJournal={(wins, lessons, dayKey) => {
         track("project50_journal_saved", {});
-        return saveJournalAction(wins, lessons);
+        return saveJournalAction(wins, lessons, dayKey);
       }}
     />
   );

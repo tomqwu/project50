@@ -18,14 +18,27 @@ beforeEach(() => {
 });
 
 describe("saveJournalAction", () => {
-  it("upserts the user's journal entry and revalidates", async () => {
-    await saveJournalAction("ran 5k", "start earlier");
+  it("upserts the user's journal entry under the submitted dayKey and revalidates", async () => {
+    await saveJournalAction("ran 5k", "start earlier", "2026-06-02");
 
-    expect(mockUpsertJournal).toHaveBeenCalledWith("u1", {
-      wins: "ran 5k",
-      lessons: "start earlier",
-    });
+    expect(mockUpsertJournal).toHaveBeenCalledWith(
+      "u1",
+      { wins: "ran 5k", lessons: "start earlier" },
+      expect.any(Date),
+      "2026-06-02",
+    );
     expect(mockRevalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("forwards an undefined dayKey when the client omits it", async () => {
+    await saveJournalAction("w", "l");
+
+    expect(mockUpsertJournal).toHaveBeenCalledWith(
+      "u1",
+      { wins: "w", lessons: "l" },
+      expect.any(Date),
+      undefined,
+    );
   });
 
   it("logs and rethrows when saving the journal fails", async () => {

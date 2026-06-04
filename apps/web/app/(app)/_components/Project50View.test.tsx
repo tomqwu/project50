@@ -441,7 +441,8 @@ describe("Project50View — today's photo section", () => {
     // prefilled from today.journal
     expect((screen.getByLabelText(/today's wins/i) as HTMLTextAreaElement).value).toBe("ran 5k");
     fireEvent.click(screen.getByTestId("journal-save"));
-    expect(onSaveJournal).toHaveBeenCalledWith("ran 5k", "earlier");
+    // today.dayKey is threaded through so the server files under the visible day.
+    expect(onSaveJournal).toHaveBeenCalledWith("ran 5k", "earlier", "2026-06-02");
     // confirmation only after the (resolved) save
     expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
   });

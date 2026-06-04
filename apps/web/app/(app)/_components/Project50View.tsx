@@ -24,7 +24,7 @@ interface Props {
    * a successful save (and rejects on failure) so the editor can gate its
    * "Saved" confirmation on the real outcome.
    */
-  onSaveJournal?: (wins: string, lessons: string) => Promise<void>;
+  onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void>;
   /** Injectable for testing — defaults to readImageDimensions. */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
@@ -393,7 +393,9 @@ export function Project50View({
       <DayJournalSection
         dayKey={today.dayKey}
         journal={today.journal}
-        onSave={(wins, lessons) => onSaveJournal?.(wins, lessons) ?? Promise.resolve()}
+        onSave={(wins, lessons, dayKey) =>
+          onSaveJournal?.(wins, lessons, dayKey) ?? Promise.resolve()
+        }
       />
       <Project50Calendar days={state.history?.days ?? []} />
     </div>
