@@ -73,6 +73,9 @@ jobs:
           SUBJECT: ${{ steps.intro.outputs.subject }}
         run: |
           set -euo pipefail
+          # Annotated tags need a committer identity; use the Actions bot.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "$SUBJECT"
           git push origin "$TAG"
           # --generate-notes builds the "what changed" list from merged PRs
