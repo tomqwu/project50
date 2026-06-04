@@ -12,24 +12,39 @@ vi.mock("@/lib/session", () => ({
 // Mock the stripe SDK so we never hit the network. The default export is the
 // Stripe constructor; each instance exposes the surface billing.ts uses. The
 // mocks live in vi.hoisted() so they exist when the (hoisted) vi.mock factory runs.
-const { createSession, constructEvent, createPortal, stripeCtor } = vi.hoisted(() => {
-  const createSession = vi.fn();
-  const constructEvent = vi.fn();
-  const createPortal = vi.fn();
-  const stripeCtor = vi.fn(() => ({
-    checkout: { sessions: { create: createSession } },
-    billingPortal: { sessions: { create: createPortal } },
-    webhooks: { constructEvent },
-  }));
-  return { createSession, constructEvent, createPortal, stripeCtor };
-});
+const { createSession, constructEvent, createPortal, createRefund, stripeCtor } = vi.hoisted(
+  () => {
+    const createSession = vi.fn();
+    const constructEvent = vi.fn();
+    const createPortal = vi.fn();
+    const createRefund = vi.fn();
+    const stripeCtor = vi.fn(() => ({
+      checkout: { sessions: { create: createSession } },
+      billingPortal: { sessions: { create: createPortal } },
+      refunds: { create: createRefund },
+      webhooks: { constructEvent },
+    }));
+    return { createSession, constructEvent, createPortal, createRefund, stripeCtor };
+  },
+);
 vi.mock("stripe", () => ({ default: stripeCtor }));
+
+// Mock the email service so we can assert on / toggle email sends without env.
+const { sendEmailMock, isEmailConfiguredMock } = vi.hoisted(() => ({
+  sendEmailMock: vi.fn(),
+  isEmailConfiguredMock: vi.fn(),
+}));
+vi.mock("@/lib/email", () => ({
+  sendEmail: sendEmailMock,
+  isEmailConfigured: isEmailConfiguredMock,
+}));
 
 import {
   isBillingConfigured,
   createCheckoutSession,
   createPortalSession,
   handleWebhookEvent,
+  refundCharge,
 } from "./billing";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -41,6 +56,9 @@ beforeEach(async () => {
   process.env.STRIPE_SECRET_KEY = "sk_test_123";
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
   process.env.APP_BASE_URL = "https://app.test";
+  // Default: email configured + sends succeed. Individual tests override.
+  isEmailConfiguredMock.mockReturnValue(true);
+  sendEmailMock.mockResolvedValue({ sent: true, id: "em_1" });
 });
 
 afterEach(() => {
@@ -61,6 +79,20 @@ function fakeSubscription(overrides: Record<string, unknown> = {}) {
     items: {
       data: [{ price: { id: "price_abc" }, current_period_end: 1_900_000_000 }],
     },
+    ...overrides,
+  };
+}
+
+/** Build a minimal Stripe.Invoice-shaped object for dunning/receipt tests. */
+function fakeInvoice(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "in_123",
+    customer: "cus_123",
+    customer_email: "buyer@example.com",
+    amount_paid: 1200,
+    currency: "usd",
+    created: 1_700_000_000,
+    hosted_invoice_url: "https://invoice.stripe/in_123",
     ...overrides,
   };
 }
@@ -106,6 +138,14 @@ describe("createCheckoutSession", () => {
       success_url: expect.stringContaining("https://app.test/billing/success"),
       cancel_url: "https://app.test/billing/cancel",
     });
+  });
+
+  it("enables Stripe Tax (automatic_tax + required billing address) on checkout", async () => {
+    createSession.mockResolvedValue({ url: "https://checkout.stripe/tax" });
+    await createCheckoutSession("user-tax", "price_premium");
+    const arg = createSession.mock.calls[0]![0];
+    expect(arg.automatic_tax).toEqual({ enabled: true });
+    expect(arg.billing_address_collection).toBe("required");
   });
 
   it("falls back to localhost when APP_BASE_URL is unset", async () => {
@@ -260,10 +300,11 @@ describe("handleWebhookEvent", () => {
   });
 
   it("ignores unrelated event types but acknowledges them", async () => {
-    constructEvent.mockReturnValue({ type: "invoice.paid", data: {} });
+    constructEvent.mockReturnValue({ type: "customer.created", data: {} });
     await expect(handleWebhookEvent("{}", "sig")).resolves.toEqual({
       received: true,
     });
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it("upserts the user's subscription on subscription.created", async () => {
@@ -465,5 +506,234 @@ describe("handleWebhookEvent", () => {
     expect((await prisma.subscription.findUnique({ where: { userId: u2.id } }))!.status).toBe(
       "CANCELED",
     );
+  });
+
+  // ── Dunning (#75) ────────────────────────────────────────────────────────
+  it("marks the subscription PAST_DUE and emails on invoice.payment_failed", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_dun" },
+    });
+    createPortal.mockResolvedValue({ url: "https://billing.stripe/portal" });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: {
+        object: fakeInvoice({ customer: "cus_dun", customer_email: "dun@example.com" }),
+      },
+    });
+
+    const res = await handleWebhookEvent("raw", "sig");
+    expect(res).toEqual({ received: true });
+
+    const sub = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    expect(sub!.status).toBe("PAST_DUE");
+
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    const mail = sendEmailMock.mock.calls[0]![0];
+    expect(mail.to).toBe("dun@example.com");
+    expect(mail.subject).toMatch(/payment failed/i);
+    expect(mail.text).toContain("https://billing.stripe/portal");
+    expect(mail.html).toContain("https://billing.stripe/portal");
+  });
+
+  it("uses a fallback link line when the portal session has no url", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_dun2" },
+    });
+    createPortal.mockResolvedValue({ url: null });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: fakeInvoice({ customer: "cus_dun2" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    const mail = sendEmailMock.mock.calls[0]![0];
+    expect(mail.text).toContain("account settings");
+    expect(mail.html).toContain("account settings");
+  });
+
+  it("still marks PAST_DUE and sends fallback when the portal call throws", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_dun3" },
+    });
+    createPortal.mockRejectedValue(new Error("stripe down"));
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: fakeInvoice({ customer: "cus_dun3" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    const sub = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    expect(sub!.status).toBe("PAST_DUE");
+    expect(sendEmailMock.mock.calls[0]![0].text).toContain("account settings");
+  });
+
+  it("marks PAST_DUE but skips email when email is not configured", async () => {
+    isEmailConfiguredMock.mockReturnValue(false);
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_dun4" },
+    });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: fakeInvoice({ customer: "cus_dun4" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    expect((await prisma.subscription.findUnique({ where: { userId: user.id } }))!.status).toBe(
+      "PAST_DUE",
+    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(createPortal).not.toHaveBeenCalled();
+  });
+
+  it("skips the dunning email when the invoice has no customer_email", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_dun5" },
+    });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: fakeInvoice({ customer: "cus_dun5", customer_email: null }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    expect((await prisma.subscription.findUnique({ where: { userId: user.id } }))!.status).toBe(
+      "PAST_DUE",
+    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the customer id from an expanded Customer object and falls back to localhost portal return_url", async () => {
+    delete process.env.APP_BASE_URL;
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "ACTIVE", stripeCustomerId: "cus_obj_dun" },
+    });
+    createPortal.mockResolvedValue({ url: "https://billing.stripe/obj" });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: {
+        object: fakeInvoice({ customer: { id: "cus_obj_dun" }, customer_email: "obj@example.com" }),
+      },
+    });
+    await handleWebhookEvent("raw", "sig");
+    expect((await prisma.subscription.findUnique({ where: { userId: user.id } }))!.status).toBe(
+      "PAST_DUE",
+    );
+    expect(createPortal.mock.calls[0]![0].return_url).toBe("http://localhost:3000/settings");
+    expect(sendEmailMock.mock.calls[0]![0].text).toContain("https://billing.stripe/obj");
+  });
+
+  it("no-ops the status update when the invoice has no customer", async () => {
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: fakeInvoice({ customer: null, customer_email: "x@example.com" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    // No matching subscription rows to update; email is skipped (no customer).
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  // ── Receipts (#76) ───────────────────────────────────────────────────────
+  it("clears PAST_DUE → ACTIVE and emails a receipt on invoice.paid", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "PAST_DUE", stripeCustomerId: "cus_rcpt" },
+    });
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: {
+        object: fakeInvoice({
+          customer: "cus_rcpt",
+          customer_email: "rcpt@example.com",
+          amount_paid: 1999,
+          currency: "usd",
+        }),
+      },
+    });
+
+    await handleWebhookEvent("raw", "sig");
+    const sub = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    expect(sub!.status).toBe("ACTIVE");
+
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    const mail = sendEmailMock.mock.calls[0]![0];
+    expect(mail.to).toBe("rcpt@example.com");
+    expect(mail.subject).toMatch(/receipt/i);
+    expect(mail.text).toContain("19.99 USD");
+    expect(mail.text).toContain("2023-11-14");
+    expect(mail.text).toContain("https://invoice.stripe/in_123");
+    expect(mail.html).toContain("https://invoice.stripe/in_123");
+  });
+
+  it("treats invoice.payment_succeeded the same as invoice.paid (recovery)", async () => {
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "PAST_DUE", stripeCustomerId: "cus_succ" },
+    });
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_succeeded",
+      data: { object: fakeInvoice({ customer: "cus_succ" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    expect((await prisma.subscription.findUnique({ where: { userId: user.id } }))!.status).toBe(
+      "ACTIVE",
+    );
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears PAST_DUE → ACTIVE but skips the receipt email when email is not configured", async () => {
+    isEmailConfiguredMock.mockReturnValue(false);
+    const user = await createUser();
+    await prisma.subscription.create({
+      data: { userId: user.id, status: "PAST_DUE", stripeCustomerId: "cus_rcpt2" },
+    });
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: fakeInvoice({ customer: "cus_rcpt2" }) },
+    });
+    await handleWebhookEvent("raw", "sig");
+    expect((await prisma.subscription.findUnique({ where: { userId: user.id } }))!.status).toBe(
+      "ACTIVE",
+    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("emits a receipt without an invoice link when hosted_invoice_url is absent, defaulting amount/currency", async () => {
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: {
+        object: fakeInvoice({
+          customer: "cus_nolink",
+          hosted_invoice_url: null,
+          amount_paid: null,
+          currency: null,
+          created: null,
+        }),
+      },
+    });
+    await handleWebhookEvent("raw", "sig");
+    const mail = sendEmailMock.mock.calls[0]![0];
+    // amount/currency default to 0.00 USD; no invoice link line/anchor present.
+    expect(mail.text).toContain("0.00 USD");
+    expect(mail.text).not.toContain("View or download your invoice");
+    expect(mail.html).not.toContain("href");
+  });
+});
+
+describe("refundCharge", () => {
+  it("throws 503 billing_not_configured when no key", async () => {
+    delete process.env.STRIPE_SECRET_KEY;
+    await expect(refundCharge("ch_1")).rejects.toMatchObject({
+      status: 503,
+      code: "billing_not_configured",
+    });
+    expect(createRefund).not.toHaveBeenCalled();
+  });
+
+  it("creates a Stripe refund for the charge and returns it", async () => {
+    createRefund.mockResolvedValue({ id: "re_1", charge: "ch_1", status: "succeeded" });
+    const refund = await refundCharge("ch_1");
+    expect(createRefund).toHaveBeenCalledWith({ charge: "ch_1" });
+    expect(refund).toMatchObject({ id: "re_1", status: "succeeded" });
   });
 });
