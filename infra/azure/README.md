@@ -33,16 +33,30 @@ az acr login -n acralztyhlgn6o
 docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
 docker push "$ACR/project50-web:$TAG"
 
-# 2. Apply the infra (first apply creates Postgres/Storage/Container App)
+# 2. Open the Postgres firewall to your IP for the migrate + role bootstrap
+MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g rg-project50-dev-canadacentral \
+  --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
+
+# 3. Migrate as ADMIN, then create/refresh the least-privilege p50app role.
+#    The app connects as p50app (NOT admin); migrations + role bootstrap use admin.
+APP_DB_PW="p50app_$(openssl rand -hex 12)"
+ADMIN_URL="$(az keyvault secret show --vault-name kv-project50-dev-6z7n --name database-url-admin --query value -o tsv)"
+DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
+docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
+  -f infra/azure/sql/app-role.sql
+
+# 4. Apply the infra (passes the p50app password into the database-url secret)
 cd infra/azure
 terraform init
-terraform plan  -var "image_tag=$TAG"   # review the cost delta (~$13/mo Postgres)
-terraform apply -var "image_tag=$TAG"
+terraform plan  -var "image_tag=$TAG" -var "app_db_password=$APP_DB_PW"   # ~$13/mo Postgres
+terraform apply -var "image_tag=$TAG" -var "app_db_password=$APP_DB_PW"
 
-# 3. Run DB migrations against the new Postgres (one-time / per-migration)
-DATABASE_URL="$(az keyvault secret show --vault-name kv-project50-dev-6z7n \
-  --name database-url --query value -o tsv)" \
-  pnpm --filter @project50/db exec prisma migrate deploy
+# 5. Restart the revision so it picks up the p50app credentials, then remove the temp rule
+az containerapp revision restart -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+  --revision "$(az containerapp show -g rg-project50-dev-canadacentral -n ca-project50-web-dev --query 'properties.latestRevisionName' -o tsv)"
+az postgres flexible-server firewall-rule delete -g rg-project50-dev-canadacentral \
+  --server-name <psql-name> --name temp-deploy --yes
 
 # 4. App URL
 terraform output -raw app_url

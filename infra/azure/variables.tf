@@ -9,3 +9,9 @@ variable "db_admin_login" {
   type        = string
   default     = "p50admin"
 }
+
+variable "app_db_password" {
+  description = "Password for the least-privilege 'p50app' role the app connects as. Created by infra/azure/sql/app-role.sql; pass at apply via -var (kept out of TF state). Required."
+  type        = string
+  sensitive   = true
+}
