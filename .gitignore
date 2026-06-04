@@ -1,6 +1,7 @@
 .superpowers/
 node_modules/
 .env
+.env.staging
 dist/
 build/
 coverage/
