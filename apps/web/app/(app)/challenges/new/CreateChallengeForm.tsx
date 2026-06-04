@@ -158,7 +158,7 @@ export function CreateChallengeForm() {
       <div>
         <Label>Goal type</Label>
         <div
-          style={{ display: "flex", gap: "12px", marginTop: "10px" }}
+          style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginTop: "10px" }}
           data-testid="goaltype-group"
         >
           {(["TARGET", "BINARY"] as GoalType[]).map((gt) => (

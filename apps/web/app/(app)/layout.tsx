@@ -23,7 +23,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "24px",
+            // Wrap the nav items onto multiple rows on narrow viewports so the
+            // full link set never overflows horizontally at ~375px wide.
+            flexWrap: "wrap",
+            gap: "16px 24px",
             padding: "20px 0",
             maxWidth: shellMaxWidth,
             margin: "0 auto",
@@ -101,7 +104,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <SignOutButton />
         </div>
       </nav>
-      <main id="main" style={{ maxWidth: shellMaxWidth, margin: "0 auto" }}>
+      <main
+        id="main"
+        style={{
+          maxWidth: shellMaxWidth,
+          margin: "0 auto",
+          // Keep content off the screen edges on small/mobile viewports so it
+          // never touches the edge at ~375px wide.
+          padding: "0 16px",
+        }}
+      >
         {children}
       </main>
     </div>

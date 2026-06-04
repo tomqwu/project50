@@ -30,6 +30,11 @@ describe("CreateChallengeForm — TARGET mode", () => {
     expect(screen.getByTestId("visibility-select")).toBeInTheDocument();
   });
 
+  it("lets the goal-type options wrap so they don't overflow narrow screens", () => {
+    render(<CreateChallengeForm />);
+    expect(screen.getByTestId("goaltype-group")).toHaveStyle({ flexWrap: "wrap" });
+  });
+
   it("hides TARGET-only fields when BINARY is selected", () => {
     render(<CreateChallengeForm />);
     fireEvent.click(screen.getByTestId("goaltype-binary"));

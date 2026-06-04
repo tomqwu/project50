@@ -19,6 +19,10 @@ const sora = Sora({
 
 export const metadata = { title: "project50", description: "50-day challenges" };
 
+// Render at device width on mobile (not a zoomed-out desktop width) so the
+// responsive app-shell padding and fluid widths actually apply on phones.
+export const viewport = { width: "device-width", initialScale: 1 };
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang={DEFAULT_LOCALE} dir={localeDirection(DEFAULT_LOCALE)}>

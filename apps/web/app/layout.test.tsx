@@ -14,11 +14,16 @@ vi.mock("./_components/ServiceWorkerRegister", () => ({
   ServiceWorkerRegister: () => null,
 }));
 
-import RootLayout, { metadata } from "./layout";
+import RootLayout, { metadata, viewport } from "./layout";
 
 describe("RootLayout", () => {
   it("exposes page metadata", () => {
     expect(metadata.title).toBe("project50");
+  });
+
+  it("sets a mobile-friendly viewport (device-width, initial-scale 1)", () => {
+    expect(viewport.width).toBe("device-width");
+    expect(viewport.initialScale).toBe(1);
   });
 
   it("sets the document language and text direction from the active locale", () => {
