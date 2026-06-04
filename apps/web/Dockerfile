@@ -45,8 +45,7 @@ COPY packages/core/package.json       packages/core/package.json
 COPY packages/db/package.json         packages/db/package.json
 COPY packages/recap/package.json      packages/recap/package.json
 COPY packages/ui/package.json         packages/ui/package.json
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # ---- build ------------------------------------------------------------------
 FROM base AS build
