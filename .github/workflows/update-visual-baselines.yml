@@ -1,0 +1,77 @@
+# Regenerate the Playwright visual-regression baselines in the SAME Linux
+# environment CI uses, then commit them back to the branch.
+#
+# Why: the baselines under apps/web/e2e/__screenshots__/ are Linux/Chromium-
+# rendered (the CI container). They can't be regenerated correctly on macOS
+# (font hinting differs). Any intentional UI change to a snapshotted screen
+# (dashboard start, Day 1 checklist, empty feed) makes `verify` fail until the
+# baseline is refreshed — run this workflow_dispatch on the feature branch to
+# do that, then CI goes green.
+#
+# Usage: Actions → "Update visual baselines" → Run workflow → pick the branch.
+
+name: Update visual baselines
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # commit the refreshed PNGs back to the branch
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: project50
+          POSTGRES_PASSWORD: project50
+          POSTGRES_DB: project50
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://project50:project50@localhost:5432/project50?schema=public
+      AUTH_SECRET: ci-secret
+      S3_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: project50-media
+      RECAP_FAKE: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Check out the dispatched branch with write-back token so we can push.
+          ref: ${{ github.ref }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
+            sleep 2
+          done
+      - run: pnpm --filter @project50/db exec prisma generate
+      - run: pnpm --filter @project50/db exec prisma migrate deploy
+      - run: pnpm --filter @project50/web exec playwright install --with-deps chromium
+      - name: Regenerate visual baselines
+        run: pnpm --filter @project50/web exec playwright test e2e/visual.spec.ts --update-snapshots
+      - name: Commit refreshed baselines (if any changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain apps/web/e2e/__screenshots__)" ]; then
+            git add apps/web/e2e/__screenshots__
+            git commit -m "test(visual): regenerate baselines [skip ci]"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+            echo "::notice::Visual baselines updated and pushed."
+          else
+            echo "::notice::No baseline changes — nothing to commit."
+          fi
