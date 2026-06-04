@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
+    "@next/bundle-analyzer": "^15.5.0",
     "@playwright/test": "^1.47.0",
     "@project50/config": "workspace:*",
     "@testing-library/jest-dom": "^6.5.0",

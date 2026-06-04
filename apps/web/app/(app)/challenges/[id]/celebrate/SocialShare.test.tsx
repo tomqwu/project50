@@ -36,7 +36,10 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-import { SocialShare } from "./SocialShare";
+// Behavioral tests exercise the implementation directly. The public ./SocialShare
+// entry is a thin next/dynamic(ssr:false) wrapper around this same component
+// (covered by SocialShare.wrapper.test.tsx).
+import { SocialShareClient as SocialShare } from "./SocialShareClient";
 
 // Canonical capabilities for the default (unconfigured) test environment:
 // Facebook → DEEPLINK, Instagram → WEBSHARE, WeChat → WEBSHARE
