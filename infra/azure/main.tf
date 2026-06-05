@@ -436,116 +436,13 @@ resource "azurerm_container_app" "web" {
   }
 }
 
-# ── Custom domain binding + managed cert (#268) ──────────────────────────────
-# The app is live on https://www.project50.fit via an Azure-MANAGED TLS cert on
-# the Container Apps ENVIRONMENT + a custom-domain binding of that cert to the
-# app. Both were created IMPERATIVELY with `az`; #268 set out to bring them into
-# Terraform.
-#
-# ⚠️ HONEST OUTCOME — these stay az-MANAGED, NOT in Terraform, by default.
-# azurerm 4.75 CANNOT represent the LIVE managed certificate: Azure auto-named it
-# `mc-cae-project50--www-project50-fi-5521`, which contains a DOUBLE HYPHEN
-# (`--`). The provider's `name` ValidateFunc (validate.CertificateName) does
-# `strings.Contains(v, "--")` → REJECT, and that validation runs at plan/validate
-# time for EVERY config value — including an imported resource. So there is NO
-# way to declare the live cert (or, transitively, a TF binding that references
-# it) without `terraform validate` erroring. Forcing it would BREAK routine
-# deploys (`terraform apply -var image_tag=…` would fail validation every time).
-#
-# Therefore `var.manage_custom_domain` DEFAULTS TO false: the managed cert and
-# its binding remain owned by `az` (they keep working — Azure auto-renews the
-# managed cert), Terraform manages neither, and routine deploys + a clean
-# `terraform plan` are unaffected (no drift, nothing to import). This is the
-# task's "azurerm cannot represent a managed-cert binding" branch — chosen
-# because the `--` cert name makes the ignore_changes-adopt approach impossible
-# (the cert resource can't be declared at all). See README (#268) for the full
-# rationale and the (currently inert) az-managed recreate commands.
-#
-# If/when the cert is reissued with a `--`-free name (or azurerm relaxes the
-# validator), set `-var manage_custom_domain=true` and use the import runbook;
-# the resources below are written ready for that, gated off by default.
-#
-# NOTE — no policy exemptions. An earlier draft modeled 3
-# `exempt-managedcert-tag-*` policy exemptions, but `az policy exemption list`
-# now returns [] — they were temporary and are gone. They are intentionally NOT
-# in Terraform (creating them would drift the live state and their empty ForceNew
-# id would break routine deploys).
-#
-# azurerm 4.x SHAPE NOTES (researched against the v4.75 provider source — the
-# binding is NOT a `custom_domain {}` block inside `ingress`; that ingress
-# attribute is computed/read-only in 4.x). The binding is its own resource
-# `azurerm_container_app_custom_domain`, and a managed cert is its own resource
-# `azurerm_container_app_environment_managed_certificate` (NOT the BYO
-# `azurerm_container_app_environment_certificate`).
-
-variable "manage_custom_domain" {
-  description = "Whether Terraform manages the www.project50.fit Container Apps Environment managed certificate and its custom-domain binding to the app (#268). DEFAULTS TO false because azurerm 4.75 cannot represent the LIVE managed cert: its Azure-auto-generated name (mc-cae-project50--www-project50-fi-5521) contains a double hyphen, which the provider's validate.CertificateName ValidateFunc hard-rejects at plan/validate time — so declaring it (or a binding that references it) would error every `terraform validate`/plan, breaking routine deploys. With false, the cert + binding stay az-managed (Azure auto-renews the cert) and Terraform manages neither, leaving routine deploys and `terraform plan` unaffected. Set true ONLY if/when the cert is reissued with a `--`-free name (then follow the README import runbook)."
-  type        = bool
-  default     = false
-}
-
-variable "custom_domain_name" {
-  description = "Hostname bound to the Container App and covered by the managed certificate (#268). Must be the CN / a SAN on the live managed cert. The apex (project50.fit) is intentionally NOT bound here — apex managed certs fail because the HTTP->HTTPS redirect breaks the ACME challenge; the apex is handled by a registrar/DNS URL redirect instead (see README, #291)."
-  type        = string
-  default     = "www.project50.fit"
-}
-
-# The Azure-managed cert for www.project50.fit, provisioned on the Container
-# Apps ENVIRONMENT (managed certs live on the environment, not the app). Azure
-# issues + auto-renews it; there is no key material in TF state.
-#
-# GATED OFF by default (count=0) — see the ⚠️ block above: the LIVE cert name
-# `mc-cae-project50--www-project50-fi-5521` has a `--` that validate.CertificateName
-# rejects, so this resource can't be applied/imported against the current cert.
-# `name` and `domain_control_validation` are BOTH ForceNew; they're set to the
-# live reals (CNAME validation) so that IF the cert is ever reissued with a
-# `--`-free name and this is enabled, an import converges to No changes.
-resource "azurerm_container_app_environment_managed_certificate" "web" {
-  count = var.manage_custom_domain ? 1 : 0
-
-  name                         = "mc-cae-project50-www-project50-fit" # VERIFY: set to the live cert name at enable time (the current `mc-cae-project50--www-project50-fi-5521` is unrepresentable due to `--`); this `--`-free placeholder only validates so the gated-off config parses.
-  container_app_environment_id = azurerm_container_app_environment.env.id
-  subject_name                 = var.custom_domain_name
-  domain_control_validation    = "CNAME"
-
-  lifecycle {
-    # `validation_token` is computed at issue time; never reissue the live cert.
-    # If `plan` after import shows a tags diff, add `tags = module.onboard.tags`
-    # above to match the live cert (don't recreate to fix a tags-only diff).
-    ignore_changes = [tags]
-  }
-}
-
-# The custom-domain binding on the Container App, using the MANAGED cert above.
-# GATED OFF with the cert (count=0) — it transitively depends on the cert
-# resource, which is unrepresentable today (see the ⚠️ block above).
-#
-# azurerm 4.75 quirk (verified in the provider source): on a MANAGED cert the
-# binding's `container_app_environment_certificate_id` is ForceNew and validated
-# format-only, so we CAN pass the managed-cert id to it (Create sends it as-is),
-# but on READ the provider parses the live `/managedCertificates/...` id and
-# populates the COMPUTED `container_app_environment_managed_certificate_id`
-# instead, leaving `container_app_environment_certificate_id` EMPTY in state.
-# Without ignore_changes, an imported binding would then see config(managed id)
-# vs state(empty) on a ForceNew field and plan a REPLACEMENT.
-#
-# APPROACH (for when re-enabled) = ignore_changes-ADOPT: set the cert id (so a
-# from-scratch apply binds the managed cert correctly) but ignore it + the
-# binding type, so an imported, already-bound managed cert converges to No
-# changes instead of flapping/replacing.
-resource "azurerm_container_app_custom_domain" "web" {
-  count = var.manage_custom_domain ? 1 : 0
-
-  name                                     = var.custom_domain_name
-  container_app_id                         = azurerm_container_app.web.id
-  certificate_binding_type                 = "SniEnabled"
-  container_app_environment_certificate_id = azurerm_container_app_environment_managed_certificate.web[0].id
-
-  lifecycle {
-    # Adopt the live managed-cert binding without replacement (see block comment).
-    ignore_changes = [
-      certificate_binding_type,
-      container_app_environment_certificate_id,
-    ]
-  }
-}
+# ── Custom domain & TLS (www.project50.fit) — managed OUTSIDE Terraform (#268) ─
+# The www.project50.fit custom-domain binding + its Azure-managed TLS cert are
+# created and managed with `az`, NOT in Terraform (Azure auto-renews the managed
+# cert). This is a deliberate, documented outcome: azurerm 4.75 genuinely cannot
+# represent these resources (the live cert name contains `--`, which the
+# provider's CertificateName validator rejects; and the custom-domain binding's
+# certificate_id only accepts `/certificates/...` env-cert ids, not the
+# `/managedCertificates/...` id a managed cert uses). See the "Custom domain &
+# TLS — managed outside Terraform (why)" section in README.md for the full
+# rationale, the live ids, and the `az` inspect commands.
