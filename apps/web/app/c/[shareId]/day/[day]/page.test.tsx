@@ -132,7 +132,7 @@ describe("DaySharePage", () => {
   });
 
   it("omits the journal section when there is no journal", async () => {
-    const { journal: _omit, ...noJournal } = baseDay;
+    const noJournal = { ...baseDay, journal: undefined };
     mockGetPublicDay.mockResolvedValue(noJournal);
     render(await DaySharePage({ params: params("share-abc", "7") }));
     expect(screen.queryByTestId("day-journal")).not.toBeInTheDocument();

@@ -145,7 +145,6 @@ export default async function DaySharePage({
             style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}
           >
             {media.map((m, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 key={m.url}
                 src={m.url}
