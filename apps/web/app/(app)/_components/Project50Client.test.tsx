@@ -8,11 +8,13 @@ vi.mock("@/lib/analytics", () => ({ track: (...a: unknown[]) => trackMock(...a) 
 const startAction = vi.fn();
 const toggleAction = vi.fn();
 const attachAction = vi.fn();
+const removeAction = vi.fn();
 const saveJournalAction = vi.fn();
 vi.mock("../_actions/project50", () => ({
   startProject50Action: (...a: unknown[]) => startAction(...a),
   toggleRuleAction: (...a: unknown[]) => toggleAction(...a),
   attachProject50MediaAction: (...a: unknown[]) => attachAction(...a),
+  removeProject50MediaAction: (...a: unknown[]) => removeAction(...a),
 }));
 vi.mock("../_actions/journal", () => ({
   saveJournalAction: (...a: unknown[]) => saveJournalAction(...a),
@@ -25,12 +27,14 @@ vi.mock("./Project50View", () => ({
     onRestart,
     onToggle,
     onAttachMedia,
+    onRemoveMedia,
     onSaveJournal,
   }: {
     onStart: () => void;
     onRestart: () => void;
     onToggle: (id: number, done: boolean) => void;
     onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+    onRemoveMedia?: (mediaId: string) => void;
     onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void> | void;
   }) => (
     <div>
@@ -39,6 +43,9 @@ vi.mock("./Project50View", () => ({
       <button data-testid="toggle" onClick={() => onToggle(3, true)}>toggle</button>
       <button data-testid="attach" onClick={() => onAttachMedia?.("media/u/x.jpg", 800, 600)}>
         attach
+      </button>
+      <button data-testid="remove" onClick={() => onRemoveMedia?.("media-9")}>
+        remove
       </button>
       <button
         data-testid="save-journal"
@@ -59,6 +66,7 @@ beforeEach(() => {
   startAction.mockReset();
   toggleAction.mockReset();
   attachAction.mockReset();
+  removeAction.mockReset();
   saveJournalAction.mockReset();
   saveJournalAction.mockResolvedValue(undefined);
 });
@@ -92,6 +100,13 @@ describe("Project50Client instrumentation", () => {
     fireEvent.click(screen.getByTestId("attach"));
     expect(trackMock).toHaveBeenCalledWith("project50_photo_added", {});
     expect(attachAction).toHaveBeenCalledWith("media/u/x.jpg", 800, 600);
+  });
+
+  it("tracks project50_photo_removed and removes the photo on Remove", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("remove"));
+    expect(trackMock).toHaveBeenCalledWith("project50_photo_removed", {});
+    expect(removeAction).toHaveBeenCalledWith("media-9");
   });
 
   it("tracks project50_journal_saved and saves the journal on Save", () => {

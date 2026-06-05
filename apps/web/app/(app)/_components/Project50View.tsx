@@ -19,6 +19,8 @@ interface Props {
   onRestart: () => void;
   /** Persist an uploaded photo against today (objectKey already PUT to storage). */
   onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+  /** Remove one of today's photos by its media id (after a confirm). */
+  onRemoveMedia?: (mediaId: string) => void;
   /**
    * Persist today's journal (wins + lessons) for the active run. Resolves only on
    * a successful save (and rejects on failure) so the editor can gate its
@@ -39,15 +41,28 @@ interface Props {
 function Project50PhotoSection({
   media,
   onAttachMedia,
+  onRemoveMedia,
   readDimensions = readImageDimensions,
 }: {
   media: Project50DayMediaItem[];
   onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+  onRemoveMedia?: (mediaId: string) => void;
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ids whose removal has been requested — keeps the button disabled while the
+  // server action + revalidation are in flight (the row vanishes on re-render).
+  const [removingIds, setRemovingIds] = useState<Set<string>>(() => new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleRemove(mediaId: string) {
+    // The button is `disabled` once removal is in flight, so re-entry can't
+    // happen via the UI; the confirm gate is the only branch here.
+    if (!window.confirm("Remove this photo?")) return;
+    setRemovingIds((cur) => new Set(cur).add(mediaId));
+    onRemoveMedia?.(mediaId);
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -126,21 +141,52 @@ function Project50PhotoSection({
           style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}
         >
           {media.map((m, i) => (
-            <img
-              key={m.objectKey}
-              src={m.url}
-              alt={`Today's photo ${i + 1}`}
-              data-testid="today-photo-thumb"
-              width={m.width}
-              height={m.height}
-              style={{
-                width: 72,
-                height: 72,
-                objectFit: "cover",
-                borderRadius: 10,
-                border: "1px solid var(--hairline)",
-              }}
-            />
+            <div key={m.id} style={{ position: "relative", width: 72, height: 72 }}>
+              <img
+                src={m.url}
+                alt={`Today's photo ${i + 1}`}
+                data-testid="today-photo-thumb"
+                width={m.width}
+                height={m.height}
+                style={{
+                  width: 72,
+                  height: 72,
+                  objectFit: "cover",
+                  borderRadius: 10,
+                  border: "1px solid var(--hairline)",
+                }}
+              />
+              {onRemoveMedia && (
+                <button
+                  type="button"
+                  data-testid="today-photo-remove"
+                  aria-label={`Remove photo ${i + 1}`}
+                  disabled={removingIds.has(m.id)}
+                  onClick={() => handleRemove(m.id)}
+                  style={{
+                    position: "absolute",
+                    top: -6,
+                    right: -6,
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    border: "1px solid var(--hairline)",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    cursor: removingIds.has(m.id) ? "wait" : "pointer",
+                    opacity: removingIds.has(m.id) ? 0.5 : 1,
+                    fontSize: 13,
+                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 0,
+                  }}
+                >
+                  {removingIds.has(m.id) ? "…" : "×"}
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -205,6 +251,7 @@ export function Project50View({
   onToggle,
   onRestart,
   onAttachMedia,
+  onRemoveMedia,
   onSaveJournal,
   readDimensions,
 }: Props) {
@@ -388,6 +435,7 @@ export function Project50View({
       <Project50PhotoSection
         media={today.media}
         onAttachMedia={onAttachMedia}
+        onRemoveMedia={onRemoveMedia}
         readDimensions={readDimensions}
       />
       <DayJournalSection
