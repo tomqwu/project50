@@ -365,12 +365,13 @@ describe("Project 50 day media", () => {
   it("removeProject50DayMedia deletes the owner's blob and DB row", async () => {
     const u = await makeUser();
     const runId = await startProject50(u.id, "UTC", NOW);
-    await attachProject50DayMedia(u.id, { objectKey: "media/u/gone.jpg", width: 5, height: 5 }, NOW);
+    const key = `media/${u.id}/gone.jpg`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 5, height: 5 }, NOW);
     const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
 
     await removeProject50DayMedia(u.id, row.id);
 
-    expect(deleteObjectMock).toHaveBeenCalledWith("media/u/gone.jpg");
+    expect(deleteObjectMock).toHaveBeenCalledWith(key);
     expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
   });
 
@@ -396,10 +397,50 @@ describe("Project 50 day media", () => {
     expect(deleteObjectMock).not.toHaveBeenCalled();
   });
 
+  it("removeProject50DayMedia never deletes a blob outside the owner's media prefix (SSRF/cross-user guard)", async () => {
+    // A user could attach a row on their OWN run whose objectKey points at
+    // another user's blob (objectKey is stored as-supplied). Removing that
+    // owned row must NOT delete the out-of-prefix victim blob.
+    const u = await prisma.user.create({ data: { handle: "u", displayName: "U" } });
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(
+      u.id,
+      { objectKey: "media/victim/secret.jpg", width: 1, height: 1 },
+      NOW,
+    );
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    // The cross-user blob is never touched, but the bogus DB row is still removed.
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it("removeProject50DayMedia is idempotent under a concurrent double-delete of the same id", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: `media/${u.id}/race.jpg`, width: 1, height: 1 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+
+    // Both calls observe the row, then both attempt to delete it — the loser
+    // must not throw a Prisma P2025 (record-not-found).
+    await expect(
+      Promise.all([
+        removeProject50DayMedia(u.id, row.id),
+        removeProject50DayMedia(u.id, row.id),
+      ]),
+    ).resolves.toEqual([undefined, undefined]);
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+  });
+
   it("removeProject50DayMedia still deletes the DB row when blob deletion errors", async () => {
     const u = await makeUser();
     const runId = await startProject50(u.id, "UTC", NOW);
-    await attachProject50DayMedia(u.id, { objectKey: "media/u/orphan.jpg", width: 1, height: 1 }, NOW);
+    await attachProject50DayMedia(u.id, { objectKey: `media/${u.id}/orphan.jpg`, width: 1, height: 1 }, NOW);
     const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
     deleteObjectMock.mockRejectedValueOnce(new Error("storage 500"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

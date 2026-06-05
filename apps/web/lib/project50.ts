@@ -7,7 +7,7 @@ import {
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
-import { presignGet, deleteObject } from "@/lib/storage";
+import { presignGet, deleteObject, userMediaPrefix } from "@/lib/storage";
 
 /** One photo attached to a Project 50 day, with a signed view URL for display. */
 export interface Project50DayMediaItem {
@@ -324,7 +324,13 @@ export async function attachProject50DayMedia(
  * On a valid owner match we delete the blob first (best-effort: storage errors
  * are logged-and-continued, mirroring account deletion — an orphaned blob is
  * preferable to an orphaned DB row), then delete the DB row. Idempotent:
- * deleting an already-gone id does nothing.
+ * deleting an already-gone (or concurrently-removed) id does nothing.
+ *
+ * SECURITY (defense-in-depth): the stored objectKey is whatever the client
+ * supplied at attach time, so a user could attach a row on THEIR OWN run whose
+ * objectKey points at someone else's blob. Mirroring account deletion, we only
+ * ever call deleteObject for keys under THIS user's own `media/<uid>/` prefix —
+ * a row whose key is out-of-prefix has its DB row removed but no blob deleted.
  */
 export async function removeProject50DayMedia(
   uid: string,
@@ -337,13 +343,23 @@ export async function removeProject50DayMedia(
   // Unknown id, or a row whose challenge is owned by someone else → no-op.
   if (!row || row.challenge.ownerId !== uid) return;
 
-  try {
-    await deleteObject(row.objectKey);
-  } catch (err) {
-    // Log and continue: the blob may be orphaned, but we still remove the DB
-    // row so the user's "Today's photo" strip reflects the deletion.
-    console.error(`removeProject50DayMedia: failed to delete blob ${row.objectKey}`, err);
+  // Only delete blobs under the user's own media prefix; never touch another
+  // user's (or an arbitrary) key, even if a crafted/legacy row references one.
+  if (row.objectKey.startsWith(userMediaPrefix(uid))) {
+    try {
+      await deleteObject(row.objectKey);
+    } catch (err) {
+      // Log and continue: the blob may be orphaned, but we still remove the DB
+      // row so the user's "Today's photo" strip reflects the deletion.
+      console.error(`removeProject50DayMedia: failed to delete blob ${row.objectKey}`, err);
+    }
+  } else {
+    console.warn(
+      `removeProject50DayMedia: skipping out-of-prefix media key ${row.objectKey} for ${uid}`,
+    );
   }
 
-  await prisma.project50DayMedia.delete({ where: { id: row.id } });
+  // deleteMany (not delete) so a concurrent remove of the same id that already
+  // removed the row is a no-op rather than a P2025 throw — keeps it idempotent.
+  await prisma.project50DayMedia.deleteMany({ where: { id: row.id } });
 }
