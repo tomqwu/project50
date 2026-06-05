@@ -8,9 +8,14 @@ vi.mock("@/lib/session", () => ({
 }));
 
 // Mock the request cookie store so the cookie-fallback path is drivable without
-// a real request scope. Defaults to "no cookie".
-const cookieStore = { get: vi.fn<(name: string) => { value: string } | undefined>() };
-vi.mock("next/headers", () => ({ cookies: vi.fn(async () => cookieStore) }));
+// a real request scope. Hoisted so the `cookies()` implementation can be
+// REAPPLIED in beforeEach after vi.resetAllMocks() strips it (otherwise
+// `await cookies()` returns undefined and the route throws on `.get`).
+const { mockCookies, mockCookieGet } = vi.hoisted(() => ({
+  mockCookies: vi.fn(),
+  mockCookieGet: vi.fn<(name: string) => { value: string } | undefined>(),
+}));
+vi.mock("next/headers", () => ({ cookies: mockCookies }));
 
 import { requireUser, UnauthorizedError } from "@/lib/session";
 import { getOrCreateReferralCode } from "@/lib/api/referral";
@@ -20,7 +25,11 @@ import { POST } from "./route";
 beforeEach(async () => {
   await resetDb();
   vi.resetAllMocks();
-  cookieStore.get.mockReturnValue(undefined);
+  // Re-establish the cookie store + factory after the reset wipes them, so
+  // every test (body-code AND cookie-fallback paths) gets a working `cookies()`
+  // returning a store with `.get`. Defaults to "no cookie".
+  mockCookieGet.mockReturnValue(undefined);
+  mockCookies.mockImplementation(async () => ({ get: mockCookieGet }));
 });
 
 afterAll(async () => {
@@ -106,7 +115,7 @@ describe("POST /api/referral/claim", () => {
     const code = await getOrCreateReferralCode(referrer.id);
     const newUser = await createUser({ handle: "newbie" });
     vi.mocked(requireUser).mockResolvedValue(newUser.id);
-    cookieStore.get.mockReturnValue({ value: code });
+    mockCookieGet.mockReturnValue({ value: code });
 
     // Empty body → the cookie is the source of the code.
     const res = await POST(claimRequest({}));
@@ -124,7 +133,7 @@ describe("POST /api/referral/claim", () => {
     const code = await getOrCreateReferralCode(referrer.id);
     const newUser = await createUser({ handle: "newbie" });
     vi.mocked(requireUser).mockResolvedValue(newUser.id);
-    cookieStore.get.mockReturnValue({ value: "STALECODE" });
+    mockCookieGet.mockReturnValue({ value: "STALECODE" });
 
     const res = await POST(claimRequest({ code }));
     expect(res.status).toBe(200);
@@ -142,7 +151,7 @@ describe("POST /api/referral/claim", () => {
   it("clears the cookie even when the captured referral is a no-op (unknown code)", async () => {
     const newUser = await createUser({ handle: "newbie" });
     vi.mocked(requireUser).mockResolvedValue(newUser.id);
-    cookieStore.get.mockReturnValue({ value: "NOPECODE" });
+    mockCookieGet.mockReturnValue({ value: "NOPECODE" });
 
     const res = await POST(claimRequest({}));
     expect(res.status).toBe(200);
