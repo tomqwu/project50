@@ -43,7 +43,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import PublicSharePage from "./page";
+import PublicSharePage, { dynamic } from "./page";
 
 afterEach(() => {
   cleanup();
@@ -197,5 +197,11 @@ describe("PublicSharePage", () => {
 
     // totalAmount = null→0 + 5 = 5, daysCompleted = 2
     expect(screen.getByText("2")).toBeInTheDocument(); // days completed
+  });
+
+  it("renders dynamically (no ISR) so the visibility gate runs per-request", () => {
+    // Caching this page would leak a now-private/deleted challenge to anonymous
+    // visitors until the cache expired, since PATCH/DELETE don't revalidate it.
+    expect(dynamic).toBe("force-dynamic");
   });
 });

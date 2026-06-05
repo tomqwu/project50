@@ -20,6 +20,18 @@ import { DefaultAzureCredential } from "@azure/identity";
 
 const PRESIGN_EXPIRY = 5 * 60; // 5 minutes
 
+// Cache-Control for uploaded media. Media object keys are content-addressed and
+// immutable (see newMediaKey), so the bytes at a given key never change — set a
+// 1-year immutable directive so the BROWSER caches them aggressively.
+//
+// Deliberately `private`, not `public`: media (incl. recap MP4s, even for
+// PRIVATE/FOLLOWERS challenges) is served from a private container via 5-minute
+// presigned GET URLs. `public` would let shared caches/CDNs retain the bytes for
+// a year, so a replayed signed URL could be served from cache long after the
+// 5-min expiry — bypassing access control. `private` keeps the per-user browser
+// cache (perf win retained) while forbidding shared/CDN storage.
+const IMMUTABLE_CACHE_CONTROL = "private, max-age=31536000, immutable";
+
 // ---------------------------------------------------------------------------
 // Backend selection
 //
@@ -321,7 +333,11 @@ export async function putObject(
       .getContainerClient(getContainerName())
       .getBlockBlobClient(objectKey)
       .upload(body, body.length, {
-        blobHTTPHeaders: { blobContentType: contentType },
+        blobHTTPHeaders: {
+          blobContentType: contentType,
+          // Private + immutable: per-user browser cache only (see constant).
+          blobCacheControl: IMMUTABLE_CACHE_CONTROL,
+        },
       });
     return;
   }
@@ -331,6 +347,8 @@ export async function putObject(
     Key: objectKey,
     Body: body,
     ContentType: contentType,
+    // Private + immutable: per-user browser cache only (see constant).
+    CacheControl: IMMUTABLE_CACHE_CONTROL,
   });
   await getClient().send(command);
 }
