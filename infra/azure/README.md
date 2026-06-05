@@ -30,10 +30,13 @@ then back to 1 when traffic subsides.
 - **Per-replica resources** — `cpu = 0.5` / `memory = 1Gi`, kept deliberately
   minimal. We scale OUT (more replicas), not down per replica; 0.25 vCPU / 0.5Gi
   risks OOM for the Next standalone server, so don't shrink it.
-- **Health probes** — because a warm replica is always in the routing pool, the
-  container declares `startup_probe` + `readiness_probe` on `/api/ready` and a
-  `liveness_probe` on `/api/health` (port 3000) so a not-yet-ready or wedged
-  replica is kept out of / restarted in the ingress rotation.
+- **Health probes** (port 3000) — because a warm replica is always in the
+  routing pool: `startup_probe` and `liveness_probe` hit `/api/health` (a static,
+  dependency-free check — a startup probe failure kills the revision, so it must
+  not depend on Postgres/Blob), while `readiness_probe` hits `/api/ready` (checks
+  the deps and withholds traffic from a not-yet-ready replica without restarting
+  it). So a still-booting or wedged replica is kept out of / restarted in the
+  ingress rotation.
 - **Cost tradeoff** — at min 1 that one replica runs **24/7** (~0.5 vCPU + 1Gi),
   billing active-usage rates against the Azure Sponsorship credits instead of
   going to $0 at idle. The warm-baseline cost buys away the cold start.
