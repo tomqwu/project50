@@ -17,14 +17,19 @@
 !**/.env.example
 **/test-results
 **/playwright-report
-# Terraform artifacts: gitignored (infra/azure/.gitignore) so they don't show in
-# `git status` and the clean-tree gate can't catch them — exclude them here so
-# `az acr build .` never uploads local plan/state/tfvars (which can hold SECRETS)
-# to the ACR build context. The image only needs app/package sources, not infra/.
+# infra/ holds Terraform (tfvars, tfvars.json, auto.tfvars, tfstate, plans,
+# override.tf — all secret-bearing) and is NEVER needed by the web image build
+# context (the Dockerfile only copies package manifests, apps/, packages/). Exclude
+# it WHOLESALE so `az acr build .` can't upload any infra secret file — this kills
+# the entire class of "missed Terraform secret variant" at once.
+infra/
+**/infra/
+# Defense-in-depth: also exclude Terraform/secret artifacts anywhere else (harmless
+# overlap with infra/ above; catches stray files outside the infra tree).
 **/.terraform/
 **/*.tfstate*
 **/*.tfplan
 **/tfplan
-infra/azure/tfplan
 **/*.tfvars
+**/*.tfvars.json
 **/.DS_Store
