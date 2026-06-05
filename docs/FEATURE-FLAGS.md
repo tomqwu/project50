@@ -76,7 +76,7 @@ deterministic FNV-1a hash, stable per `(key, user)` across processes.
 
 | Flag | Default | Client-safe | Wired at | Purpose |
 | --- | --- | --- | --- | --- |
-| `shareInstagram` | **ON** | no | `apps/web/lib/publish/visible-capabilities.ts`, consumed in the celebrate page (`app/(app)/challenges/[id]/celebrate/page.tsx`) | **Kill-switch** for the Instagram option in the celebrate-screen social share panel. Flip OFF (`FLAG_SHARE_INSTAGRAM=false`) to instantly pull the Instagram button — server-side, no deploy — if the Graph API / deeplink misbehaves. |
+| `shareInstagram` | **ON** | no | **Defense in depth:** UI filter in `apps/web/lib/publish/visible-capabilities.ts` (celebrate page hides the button) **and** the authoritative publish path `apps/web/lib/api/publish.ts` (rejects an `INSTAGRAM` publish with `422 PLATFORM_DISABLED` when OFF). | **Kill-switch** for Instagram sharing. Flip OFF (`FLAG_SHARE_INSTAGRAM=false`) to instantly pull it — server-side, no deploy — if the Graph API / deeplink misbehaves. The endpoint enforcement holds even if the UI is bypassed (direct API call / stale client). |
 | `newOnboarding` | off | no | _(reserved)_ | Server-gated experimental onboarding flow. |
 | `publicBanner` | off | yes | _(reserved)_ | Client-visible marketing banner toggle. |
 

@@ -31,6 +31,7 @@ afterEach(() => {
   delete process.env.IG_TOKEN;
   delete process.env.WECHAT_APP_ID;
   delete process.env.APP_BASE_URL;
+  delete process.env.FLAG_SHARE_INSTAGRAM;
 });
 
 afterAll(async () => {
@@ -143,6 +144,53 @@ describe("publishChallengeAsset", () => {
     expect(result.method).toBe("DEEPLINK");
     expect(result.shareUrl).toContain("facebook.com/sharer");
     expect(result.shareUrl).toContain(encodeURIComponent("https://signed-get/recap.mp4"));
+  });
+
+  describe("shareInstagram kill-switch (#285)", () => {
+    it("rejects an INSTAGRAM publish with 422 PLATFORM_DISABLED when the flag is OFF", async () => {
+      process.env.FLAG_SHARE_INSTAGRAM = "false";
+      process.env.APP_BASE_URL = "https://project50.app";
+      const owner = await createUser({ handle: "alice" });
+      const challenge = await createChallenge(owner.id, { visibility: "PUBLIC" });
+
+      await expect(
+        publishChallengeAsset(owner.id, challenge.id, "INSTAGRAM", "IMAGE"),
+      ).rejects.toMatchObject({ status: 422, code: "PLATFORM_DISABLED" });
+    });
+
+    it("does not reach the asset/visibility checks when Instagram is killed (fails fast)", async () => {
+      // A PRIVATE challenge would normally 422 MUST_BE_PUBLIC for IMAGE; the
+      // kill-switch fires first, proving the publish never proceeds.
+      process.env.FLAG_SHARE_INSTAGRAM = "false";
+      const owner = await createUser({ handle: "alice" });
+      const challenge = await createChallenge(owner.id, { visibility: "PRIVATE" });
+
+      await expect(
+        publishChallengeAsset(owner.id, challenge.id, "INSTAGRAM", "IMAGE"),
+      ).rejects.toMatchObject({ status: 422, code: "PLATFORM_DISABLED" });
+    });
+
+    it("allows an INSTAGRAM publish when the flag is ON (default behaviour unchanged)", async () => {
+      process.env.APP_BASE_URL = "https://project50.app";
+      const owner = await createUser({ handle: "alice" });
+      const challenge = await createChallenge(owner.id, { visibility: "PUBLIC" });
+
+      // Default ON (no override): proceeds exactly as before.
+      const result = await publishChallengeAsset(owner.id, challenge.id, "INSTAGRAM", "IMAGE");
+      expect(result.ok).toBe(true);
+      expect(result.method).toBe("WEBSHARE");
+    });
+
+    it("does not affect other platforms when Instagram is killed", async () => {
+      process.env.FLAG_SHARE_INSTAGRAM = "false";
+      process.env.APP_BASE_URL = "https://project50.app";
+      const owner = await createUser({ handle: "alice" });
+      const challenge = await createChallenge(owner.id, { visibility: "PUBLIC" });
+
+      const result = await publishChallengeAsset(owner.id, challenge.id, "FACEBOOK", "IMAGE");
+      expect(result.ok).toBe(true);
+      expect(result.method).toBe("DEEPLINK");
+    });
   });
 
   it("caption includes challenge title", async () => {
