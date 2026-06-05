@@ -17,6 +17,14 @@
 !**/.env.example
 **/test-results
 **/playwright-report
-**/.terraform
+# Terraform artifacts: gitignored (infra/azure/.gitignore) so they don't show in
+# `git status` and the clean-tree gate can't catch them — exclude them here so
+# `az acr build .` never uploads local plan/state/tfvars (which can hold SECRETS)
+# to the ACR build context. The image only needs app/package sources, not infra/.
+**/.terraform/
 **/*.tfstate*
+**/*.tfplan
+**/tfplan
+infra/azure/tfplan
+**/*.tfvars
 **/.DS_Store
