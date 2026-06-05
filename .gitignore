@@ -8,3 +8,9 @@ coverage/
 
 # Claude Code session/worktree dir (machine-local)
 .claude/
+
+# Terraform auto-loaded var files — may carry the ops alert email; keep out of git.
+# (infra/azure/alerts.auto.tfvars persists var.alert_email across routine applies;
+#  commit alerts.auto.tfvars.example instead — see infra/azure/README.md.)
+*.auto.tfvars
+infra/azure/alerts.auto.tfvars
