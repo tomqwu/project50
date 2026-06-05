@@ -1,28 +1,50 @@
-# Scheduled offsite backups — Postgres dump + media-bucket sync.
+# Scheduled offsite Postgres backup — pg_dump -> Azure Blob, with retention.
 #
-# Implements:
-#   - #23  Automated backups + tested restore -> the `pg-backup` and
-#          `storage-sync` jobs below; the tested-restore RUNBOOK + quarterly
-#          test schedule live in docs/BACKUPS.md.
+# Implements #272 (Automated Postgres backups + tested restore drill): the
+# `pg-backup` job dumps the PROD Azure Postgres Flexible Server and uploads the
+# dump to an Azure Blob container (with retention). The tested-restore DRILL +
+# runbook live in docs/BACKUPS.md + scripts/pg-restore-drill.sh (the operator
+# runs it with `az` access — it cannot run against prod from CI here).
+#
+# Media (user photos / recap MP4s) backup is tracked SEPARATELY in #320; this
+# workflow covers Postgres only.
 #
 # DESIGN NOTES
 # ------------
-# This workflow is INERT until secrets are configured, exactly like deploy.yml.
-# A `preflight` job surfaces secret presence as boolean outputs (secrets cannot
-# be referenced in job-level `if:`), and every real job is gated on those. On a
-# fork or before secrets are added, the jobs are SKIPPED (not failed), so CI
-# stays green and nothing runs.
+# INERT until secrets are configured, exactly like deploy.yml. A `preflight` job
+# surfaces secret presence as a boolean output (secrets cannot be referenced in
+# job-level `if:`), and the backup job is gated on it. On a fork or before the
+# secrets exist the job is SKIPPED (not failed), so CI stays green and nothing
+# runs — we never claim a backup ran that didn't.
 #
-# Required repository secrets (see docs/BACKUPS.md / docs/SECRETS.md):
-#   DATABASE_URL        Postgres conn string for the DB to back up.
-#                       (DIRECT_URL is preferred for dumps when you have a pooler
-#                        — add it as a secret and the script uses it first.)
-#   BACKUP_S3_BUCKET    Offsite target for the dump, e.g. s3://proj50-backups/pg
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION
-#                       Creds for the offsite backup bucket (aws s3).
-#   BACKUP_S3_ENDPOINT  (optional) custom endpoint for R2 / MinIO.
-#   MEDIA_SRC           Source media bucket, e.g. s3://project50-media-prod
-#   MEDIA_DST           Backup media bucket, e.g. s3://project50-media-backup
+# The Blob upload uses `az storage blob upload --auth-mode login`, which REQUIRES
+# an Azure login on the runner. So the CI workflow ALWAYS uses `azure/login`
+# (federated OIDC) — the OIDC creds are mandatory.
+#
+# The scheduled backup ALWAYS reads the dump connection from the Key Vault secret
+# `database-url-admin` (the prod ADMIN URL) — the single source of truth. It does
+# NOT reuse the shared `DATABASE_URL` repo secret: that one is the APP/pooler
+# connection (least-priv `p50app` role, possibly a pooler host / Prisma-only
+# params) and is the WRONG connection/role for `pg_dump`. The federated login
+# already grants Key Vault access, so no DB conn string is passed into CI at all.
+#
+# Required repository secrets (ALL of these — the workflow stays inert otherwise):
+#   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
+#                         Federated-credential login (OIDC, no client secret).
+#                         The app registration needs: Key Vault Secrets User on
+#                         kv-project50-dev-6z7n AND Storage Blob Data Contributor
+#                         on the backup container. The script reads the admin
+#                         conn string from `database-url-admin` in Key Vault.
+#   BACKUP_STORAGE_ACCOUNT  Storage account for dumps (e.g. stp50backupszv34o5).
+# Optional:
+#   KEY_VAULT_NAME          override; default kv-project50-dev-6z7n.
+#   BACKUP_CONTAINER        container; default db-backups.
+#   BACKUP_RETENTION_DAYS   daily dumps to keep; default 14.
+#
+# (The local operator path of scripts/pg-backup.sh additionally accepts an
+# explicit DATABASE_URL env to override the KV read — NOT wired into CI here.)
+#
+# See docs/BACKUPS.md and infra/azure/README.md for setup + the restore drill.
 
 name: Backup
 
@@ -40,85 +62,70 @@ concurrency:
 
 permissions:
   contents: read
+  # Required for azure/login federated (OIDC) auth.
+  id-token: write
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate: resolve whether the required secrets are present, as boolean outputs.
-  # Downstream jobs read these so the pipeline is inert (skipped) without
-  # secrets — mirrors deploy.yml's `preflight` pattern.
+  # Gate: resolve whether enough secrets are present to take a backup, as a
+  # boolean output. The Blob upload needs `az login` and the dump connection
+  # comes from Key Vault, so CI REQUIRES the Azure federated (OIDC) creds AND the
+  # storage account. Without all of them the pipeline is inert (skipped, not
+  # failed). No DB conn string is gated on / passed — the admin URL is read from
+  # the `database-url-admin` Key Vault secret at run time.
   # ---------------------------------------------------------------------------
   preflight:
     name: Preflight (secret gate)
     runs-on: ubuntu-latest
     outputs:
-      has_db: ${{ steps.check.outputs.has_db }}
-      has_media: ${{ steps.check.outputs.has_media }}
+      has_backup: ${{ steps.check.outputs.has_backup }}
     steps:
       - id: check
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
-          MEDIA_SRC: ${{ secrets.MEDIA_SRC }}
-          MEDIA_DST: ${{ secrets.MEDIA_DST }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          BACKUP_STORAGE_ACCOUNT: ${{ secrets.BACKUP_STORAGE_ACCOUNT }}
         run: |
-          if [ -n "$DATABASE_URL" ] && [ -n "$BACKUP_S3_BUCKET" ]; then
-            echo "has_db=true" >> "$GITHUB_OUTPUT"
+          # Require the full Azure-login set (Blob upload authenticates via it)
+          # AND the storage account. Anything missing => inert/skipped.
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] \
+             && [ -n "$AZURE_SUBSCRIPTION_ID" ] && [ -n "$BACKUP_STORAGE_ACCOUNT" ]; then
+            echo "has_backup=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_db=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::DATABASE_URL/BACKUP_S3_BUCKET not set — pg-backup job will be skipped."
-          fi
-          if [ -n "$MEDIA_SRC" ] && [ -n "$MEDIA_DST" ]; then
-            echo "has_media=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_media=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::MEDIA_SRC/MEDIA_DST not set — storage-sync job will be skipped."
+            echo "has_backup=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Backup secrets not set (need AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID for azure/login — the Blob upload authenticates via it — plus BACKUP_STORAGE_ACCOUNT) — pg-backup will be skipped."
           fi
 
   # ---------------------------------------------------------------------------
-  # #23 — Postgres logical backup, uploaded offsite. Inert without DB secrets.
+  # #272 — Postgres logical backup -> Azure Blob. Inert without secrets.
   # ---------------------------------------------------------------------------
   pg-backup:
-    name: Postgres backup (pg_dump -> offsite)
+    name: Postgres backup (pg_dump -> Azure Blob)
     needs: preflight
-    if: needs.preflight.outputs.has_db == 'true'
+    if: needs.preflight.outputs.has_backup == 'true'
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
-      BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
-      BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
+      # NB: no DATABASE_URL — the backup reads the prod ADMIN conn string from the
+      # Key Vault `database-url-admin` secret (single source of truth). The shared
+      # DATABASE_URL is the app/pooler (p50app) connection, wrong for pg_dump.
+      KEY_VAULT_NAME: ${{ secrets.KEY_VAULT_NAME }}
+      BACKUP_STORAGE_ACCOUNT: ${{ secrets.BACKUP_STORAGE_ACCOUNT }}
+      BACKUP_CONTAINER: ${{ secrets.BACKUP_CONTAINER }}
+      BACKUP_RETENTION_DAYS: ${{ secrets.BACKUP_RETENTION_DAYS }}
     steps:
       - uses: actions/checkout@v6
-      # The runner ships pg_dump, but pin a known major to match prod Postgres
-      # (16). `pg_dump` must be >= the server's major to dump it reliably.
-      - name: Install PostgreSQL 16 client
-        run: |
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
+      # Azure login (federated OIDC) — REQUIRED: the script reads the admin conn
+      # string from Key Vault and uploads to Blob with --auth-mode login, both of
+      # which need an authenticated `az`. The preflight gate guarantees these
+      # creds are present before this job runs.
+      - name: Azure login (federated)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # pg_dump runs inside the postgres:16 docker image (preinstalled on the
+      # runner) so its major >= the prod server (16); az CLI is preinstalled too.
       - name: Run backup
-        run: ./scripts/backup/pg-backup.sh
-
-  # ---------------------------------------------------------------------------
-  # #23 — Mirror the media bucket to a backup bucket. Inert without media secrets.
-  # ---------------------------------------------------------------------------
-  storage-sync:
-    name: Media bucket sync
-    needs: preflight
-    if: needs.preflight.outputs.has_media == 'true'
-    runs-on: ubuntu-latest
-    env:
-      SRC: ${{ secrets.MEDIA_SRC }}
-      DST: ${{ secrets.MEDIA_DST }}
-      S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Sync media bucket
-        run: ./scripts/backup/storage-sync.sh
+        run: ./scripts/pg-backup.sh

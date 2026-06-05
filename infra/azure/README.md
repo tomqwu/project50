@@ -703,6 +703,61 @@ az storage account blob-service-properties show --account-name "$SA" \
 > reasserts the policy-free `blob_properties`) so account deletion stays a true
 > hard-erase. Run this as the **final step of every deploy** (see the runbook).
 
+## Backups & tested restore (#272)
+
+Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this infra:
+
+- **Postgres logical backup** — [`scripts/pg-backup.sh`](../../scripts/pg-backup.sh)
+  `pg_dump`s the Flexible Server (`psql-project50-dev-zv34o5`) via the
+  `postgres:16` docker image (client major ≥ server 16) and uploads a gzipped
+  custom-format dump to a Blob container (`db-backups`), pruning by a daily
+  retention (default 14). It reads the prod **admin** conn string from the
+  `database-url-admin` Key Vault secret (the single source of truth — NOT the
+  shared `DATABASE_URL`/`p50app` app connection, which is the wrong role/host for
+  `pg_dump`; a local operator may override via the dedicated `BACKUP_DATABASE_URL`
+  env, never the ambient `DATABASE_URL`). It uploads with `--auth-mode login` (no
+  account key).
+- **Media backup** — tracked separately in **#320** (the cross-account
+  private-Blob mirror needs a live Azure cross-account run to validate). Postgres
+  backup is covered here.
+- **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
+  runs the `pg-backup` job **daily 03:17 UTC**, INERT until secrets are set
+  (mirrors `deploy.yml`'s preflight gate). The Blob upload uses `--auth-mode
+  login`, so **CI requires the Azure federated (OIDC) creds**
+  (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`) plus `BACKUP_STORAGE_ACCOUNT`.
+  CI passes **no DB conn string** — it reads the admin URL from Key Vault (so it
+  never backs up the wrong `p50app` connection). Azure Flexible Server's own
+  **PITR** (provider window) is a separate, complementary layer.
+- **Tested restore drill** — [`scripts/pg-restore-drill.sh`](../../scripts/pg-restore-drill.sh)
+  restores the latest backup into a **throwaway** DB (`project50_restore_test`,
+  local docker by default), sanity-checks it (migration ledger + core tables +
+  row counts), times the restore (validates RTO), and tears it down. Run it
+  quarterly; a failed drill is incident-class.
+
+**Operator one-time setup (Azure-account steps — NOT in this Terraform):**
+
+1. Create a **separate** backup storage account (e.g. `stp50backups<suffix>`,
+   ideally cross-region from the live data) + a private `db-backups` container
+   (DB dumps). Enable **versioning + soft-delete on this BACKUP account**.
+2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`)
+   and **Storage Blob Data Contributor** (on the backup account).
+3. Add the repo secrets (`AZURE_CLIENT_ID`/`TENANT`/`SUBSCRIPTION` for federated
+   login — **required for CI** — plus `BACKUP_STORAGE_ACCOUNT`) — see
+   `docs/BACKUPS.md`.
+4. Run the **first backup** and the **restore drill** by hand to confirm.
+5. (Hardening) add a Blob **lifecycle policy** / **immutability** so the backup
+   identity can't erase recent history.
+
+### `CRON_SECRET` — reminder / nudge cron routes
+
+The `/api/cron/reminders` and `/api/cron/streak-nudges` routes **fail closed
+(503) until `CRON_SECRET` is set**, then require `Authorization: Bearer
+${CRON_SECRET}`. Create the value out of band like the other app secrets and wire
+it into the Container App as the `CRON_SECRET` env var from a `cron-secret` Key
+Vault reference (that wiring belongs in `main.tf`). Until it's set + a scheduler
+is pointed at the routes, **no reminders/nudges are sent**. Full steps:
+[`docs/BACKUPS.md` → CRON_SECRET](../../docs/BACKUPS.md#cron_secret--reminder--nudge-cron-routes).
+
 ## Notes
 - Module source is the private landing-zone repo; `terraform init` needs git
   access to it (`gh auth setup-git` locally, or a token in CI).
