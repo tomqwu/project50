@@ -203,6 +203,9 @@ model Challenge {
   @@index([ownerId])
   // Active / latest Project 50 run lookup: where ownerId+kind+status.
   @@index([ownerId, kind, status])
+  // Global leaderboard access path: equality on kind/visibility/status, then
+  // the startDate range + sort (lib/leaderboard.ts getLeaderboard global scope).
+  @@index([kind, visibility, status, startDate])
 }
 
 model Activity {
