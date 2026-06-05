@@ -132,10 +132,18 @@ RG=rg-project50-dev-canadacentral
 #    GitHub release notes — without it the ACR build context has NO git tags, so
 #    next.config.mjs's `git describe` fallback bakes in "dev / Local development
 #    build". The title can contain spaces, so the script emits shell-quoted flags
-#    and the line MUST be run through `eval`:
+#    and the line MUST be run through `eval`.
+#
+#    CAPTURE the helper output FIRST and ABORT on failure: the helper exits
+#    non-zero when HEAD isn't at $TAG (or the tag is missing), and inside an
+#    inline `$(...)` that failure would otherwise be SWALLOWED — `az acr build`
+#    would still run and bake the Dockerfile's default "dev/local" badge,
+#    defeating the tag/HEAD gate. So gate on the capture, then `eval` only the
+#    already-captured args:
+BUILD_ARGS=$(bash scripts/release-build-args.sh "$TAG") \
+  || { echo "release-build-args failed (HEAD not at $TAG?)"; exit 1; }
 eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
-  --platform linux/amd64 --file apps/web/Dockerfile \
-  $(bash scripts/release-build-args.sh "$TAG") ."
+  --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
 #    (Equivalently: `ACR_LINE=1 bash scripts/release-build-args.sh "$TAG"` prints
 #    a full, ready-to-eval `az acr build ...` line — it tags the image with the
 #    commit sha too, matching `terraform apply -var image_tag=$IMAGE_SHA` below.)
@@ -239,10 +247,14 @@ IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == deploy image_tag
 # SHA — the exact tag Stage 3's `terraform apply -var image_tag=$IMAGE_SHA` pulls.
 # The CalVer tag/title/url ride in as `--build-arg NEXT_PUBLIC_RELEASE_*` so the
 # footer ReleaseBadge shows the live release (see release-build-args.sh; the line
-# MUST be `eval`'d because the release title can contain spaces).
+# MUST be `eval`'d because the release title can contain spaces). As in the normal
+# path, CAPTURE the helper output FIRST and ABORT on failure — an inline `$(...)`
+# would swallow the helper's non-zero exit (HEAD not at $TAG) and build a default
+# "dev/local" badge anyway.
+BUILD_ARGS=$(bash scripts/release-build-args.sh "$TAG") \
+  || { echo "release-build-args failed (HEAD not at $TAG?)"; exit 1; }
 eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
-  --platform linux/amd64 --file apps/web/Dockerfile \
-  $(bash scripts/release-build-args.sh "$TAG") ."
+  --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
 
 cd infra/azure
 terraform init
