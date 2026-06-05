@@ -30,10 +30,13 @@ Cross-references: [`SECRETS.md`](./SECRETS.md), [`RUNBOOKS.md`](./RUNBOOKS.md),
 
 ### 1.1 What the app is
 
-Project 50 is a habit-challenge app: a user runs a fixed 7-rule / 50-day program (or a
-custom plan), logs daily activity with photos/video, and optionally shares progress
-with a social graph (follow / feed / reactions). Paid tiers are handled via Stripe.
-There is a Next.js web app and an Expo mobile app that talks to the same API.
+Project 50 is a habit-transformation app built around the **Project 50 program**: a
+user runs a fixed **7 daily rules over 50 days, all-or-nothing with a hard reset** (or
+a custom plan), logs daily activity with photos, and optionally shares progress with a
+social graph (follow / feed / reactions). The threat surface is this program-tracking
+app — **not** a social-graph video feed. Paid tiers are handled via Stripe. There is a
+Next.js web app (the reference implementation, on **Azure Container Apps**) and an Expo
+mobile app that talks to the same API.
 
 ### 1.2 Actors
 
@@ -43,9 +46,9 @@ There is a Next.js web app and an Expo mobile app that talks to the same API.
 | Authenticated user | Semi-trusted | Owns their own content; can follow others, react, block, report. Identified by a NextAuth JWT (web cookie) or a minted Bearer JWT (mobile). |
 | Admin | Trusted (internal) | `User.isAdmin` flag gates moderation/admin surfaces. |
 | Stripe | Trusted (verified) | Authenticates to `/api/billing/webhook` by signature, not session. |
-| Cron caller (Vercel/CI) | Trusted (shared secret) | Authenticates to `/api/cron/*` with `Authorization: Bearer ${CRON_SECRET}`. |
-| OAuth IdP (Google / Facebook) | Trusted (external) | Asserts user identity during sign-in. |
-| Object store (S3/MinIO) | Trusted (credentialed) | Holds all user media; accessed by the app via presigned URLs. |
+| Cron caller (external scheduler) | Trusted (shared secret) | Authenticates to `/api/cron/*` (`reminders`, `streak-nudges`) with `Authorization: Bearer ${CRON_SECRET}`, **constant-time** compared (`apps/web/lib/cron-auth.ts`). There is **no Vercel cron** — any scheduler (an Azure-side trigger / external pinger) that holds the secret can invoke them; unset `CRON_SECRET` → route stays locked. |
+| OAuth IdP (Facebook; Google when enabled) | Trusted (external) | Asserts user identity during sign-in. |
+| Object store (Azure Blob; S3/MinIO in dev) | Trusted (credentialed) | Holds all user media. In prod the app reaches **Azure Blob** via the app's **managed identity** (short-lived user-delegation SAS URLs, **no account key**); dev/CI use S3/MinIO presigned URLs. |
 
 ### 1.3 Authentication
 
@@ -107,7 +110,7 @@ From `packages/db/prisma/schema.prisma`:
 | --- | --- | --- |
 | `User` (id, handle, displayName, avatarUrl, isAdmin) | Low–moderate PII | **No email/password column** today (see Gaps). OAuth identities are stored as `Identity` rows holding only `provider` + `providerAccountId`. |
 | User content (`Challenge`, `Activity`, `DayStatus`, `Milestone`, `Recap`) | Moderate | Personal habit/health-adjacent logs; visibility-gated. |
-| Media (`ActivityMedia.objectKey`) | Moderate–high | Photos/video in object storage; reached only via short-lived presigned URLs. |
+| Media (`ActivityMedia.objectKey`) | Moderate–high | Activity photos in object storage (**Azure Blob** in prod; S3/MinIO in dev); reached only via short-lived (5-min) signed URLs (SAS on Azure, presigned on S3). |
 | Social graph (`Follow`, `Reaction`) | Moderate | Reveals relationships and engagement. |
 | Trust & safety (`Block`, `Report`) | Moderate | Safety-critical; mis-enforcement enables harassment. |
 | Billing (`Subscription`, `Referral`) | Moderate | No card data stored locally — Stripe is the system of record. |
@@ -132,9 +135,9 @@ That materially shrinks the blast radius of a database compromise.
                 │             │             │              │
                 ▼             ▼             ▼              ▼
           ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐
-          │ Postgres │  │ S3/MinIO │  │ Stripe   │  │ Google/FB    │
-          │ (Prisma) │  │ presigned│  │ (webhook │  │ OAuth IdPs   │
-          │          │  │ URLs     │  │  signed) │  │              │
+          │ Postgres │  │Azure Blob│  │ Stripe   │  │ Facebook /   │
+          │ (Prisma) │  │ (MI SAS; │  │ (webhook │  │ Google OAuth │
+          │          │  │ S3 dev)  │  │  signed) │  │ IdPs         │
           └──────────┘  └──────────┘  └──────────┘  └──────────────┘
 ```
 
@@ -143,8 +146,10 @@ That materially shrinks the blast radius of a database compromise.
   (`apps/web/middleware.ts`).
 - **Boundary 2 (app ↔ DB):** all access via Prisma (parameterized — no string-built
   SQL). DB credentials in env only.
-- **Boundary 3 (app ↔ object store):** the browser/mobile client never holds S3
-  credentials; it gets a short-lived (5 min) presigned URL. Upload type/size are
+- **Boundary 3 (app ↔ object store):** the browser/mobile client never holds storage
+  credentials; it gets a short-lived (5 min) signed URL (a Blob SAS URL on Azure,
+  signed by the app's **managed identity** user-delegation key — **no account key
+  on the app**; an S3 presigned URL on the dev fallback). Upload type/size are
   validated before a PUT URL is issued.
 - **Boundary 4 (app ↔ Stripe):** inbound webhooks are authenticated by signature, not
   session.
@@ -243,11 +248,14 @@ procedure matches `SECRETS.md`.
 
 HSTS header is set in middleware (2-year, includeSubDomains, preload). `Secure` cookies
 are forced over HTTPS. The app intentionally omits `upgrade-insecure-requests` (so the
-local http MinIO works); transport security relies on the host/CDN terminating TLS.
+local http MinIO works); transport security relies on **Azure Container Apps**
+terminating TLS at the ingress (the managed `www` cert).
 
-**Reviewer should verify:** TLS is enforced end-to-end at the edge; HTTP→HTTPS redirect
-exists; the production object-store origin is HTTPS (the http exception is for local
-MinIO only); cert/domain config per `docs/` TLS notes.
+**Reviewer should verify:** TLS is enforced end-to-end at the Container Apps ingress;
+the prod object-store origin is HTTPS (Azure Blob `*.blob.core.windows.net` SAS URLs —
+the http exception is for local MinIO only); the canonical origin is `https://www.project50.fit`
+and the apex 301-redirects to it (the apex binding is open issue **#291** — see
+[`DOMAIN-TLS.md`](./DOMAIN-TLS.md)).
 
 ### 2.8 Stripe webhook signature verification — ✅ implemented
 
@@ -267,19 +275,28 @@ verification.
 - **Export:** `GET /api/account/export` → `exportAccountData(uid)`, returned as a
   downloadable JSON attachment (`Content-Disposition: attachment`).
 
-**Reviewer should verify:** deletion also removes/orphans object-store media (DB cascade
-won't delete S3 objects — confirm a cleanup path or accept retention); export is scoped
-to the requesting user only and includes all personal data; both require auth (they call
-`requireUser`).
+**Reviewer should verify:** deletion also erases object-store media — `deleteUserMedia`
+(`apps/web/lib/storage.ts`) deletes the user's blobs, and on Azure the media account has
+**blob soft delete DISABLED** so the erase is a true **hard-erase** (a recoverable soft-
+deleted blob would silently break the GDPR contract; the disabled state is enforced by
+omission in `infra/azure/main.tf` and verified at the data plane after each deploy — see
+[`infra/azure/README.md`](../infra/azure/README.md) / [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md)).
+Export is scoped to the requesting user only and includes all personal data; both require
+auth (they call `requireUser`).
 
 ### 2.10 Cron endpoint auth — ✅ implemented
 
-`/api/cron/*` require `Authorization: Bearer ${CRON_SECRET}`; unset secret → 503
-(disabled), wrong token → 401.
+`/api/cron/*` (`reminders`, `streak-nudges`) require `Authorization: Bearer
+${CRON_SECRET}`; unset secret → route stays locked, wrong/missing token → not
+authorized. The token is compared in **constant time** (`isAuthorizedCron` in
+`apps/web/lib/cron-auth.ts` SHA-256s both sides, then `timingSafeEqual` on the
+fixed-length digests — closing the timing side-channel from the **#274** audit,
+now **closed**). There is **no Vercel cron**: any scheduler holding the secret
+invokes these over the public ingress.
 
-**Reviewer should verify:** `CRON_SECRET` is set in prod and high-entropy; constant-time
-comparison is acceptable for this low-frequency endpoint (currently a `!==` string
-compare — note for hardening).
+**Reviewer should verify:** `CRON_SECRET` is set in prod and high-entropy; the
+constant-time compare is in place (it is — `cron-auth.ts`); the scheduler keeps the
+secret confidential.
 
 ### 2.11 SQL injection — ✅ implemented (ORM)
 
@@ -326,12 +343,16 @@ These are acknowledged. Each should be a tracked issue and triaged before public
    (follow/block/report/account DELETE, billing portal/checkout) for cross-site forgery;
    add an explicit anti-CSRF check or `Origin`/`Sec-Fetch-Site` assertion if any gap is
    found. The mobile Bearer path is not cookie-based and is not CSRF-exposed.
-6. **Object-store media lifecycle on account deletion.** DB cascade does not delete S3
-   objects (see §2.9). *Action:* add a deletion/cleanup job or documented retention.
+6. **Object-store media lifecycle on account deletion — ✅ addressed.** `deleteUserMedia`
+   erases the user's blobs, and the Azure media account has **blob soft delete OFF** so
+   the erase is a hard-erase (§2.9). *Verify:* soft delete stays OFF after every deploy
+   (data-plane check in [`infra/azure/README.md`](../infra/azure/README.md)); the cleanup
+   runs as part of account deletion on every backend.
 7. **No content moderation on uploads.** Type/size only (§2.3). *Action:* wire
    post-upload moderation before media is shown publicly (flagged in code).
 8. **`Retry-After` header + broader rate-limit coverage** (§2.2).
-9. **Constant-time secret comparison** for `CRON_SECRET` (§2.10) — low risk, easy win.
+9. **Constant-time secret comparison for `CRON_SECRET` — ✅ done (#274 closed).** Now a
+   `timingSafeEqual` on SHA-256 digests (`apps/web/lib/cron-auth.ts`); see §2.10.
 10. **e2e provider gating** — confirmed double-gated and prod-disabled (§1.3); keep
     `AUTH_E2E` / `AUTH_E2E_ALLOW_PROD` out of every production environment and verify in
     the pen-test that no `e2e` credentials provider is reachable in prod.
@@ -361,14 +382,15 @@ self-assessment missed.
   per-user object isolation, block/report enforcement.
 - API routes under `apps/web/app/api/*` (uploads/presign, billing, account, follow,
   block, reports, feed, project50, cron).
-- Object-storage access model (presigned URL abuse, key enumeration, type/size bypass).
+- Object-storage access model (SAS / presigned URL abuse, key enumeration, type/size
+  bypass; the managed-identity SAS-minting path on Azure Blob).
 - Stripe webhook endpoint.
 - Security headers / CSP / cookie flags.
 
 **Out of scope (unless separately agreed)**
 - Stripe's own infrastructure and Google/Facebook IdPs.
-- Underlying cloud host / managed Postgres / object-store provider internals (DoS volume
-  testing requires provider sign-off).
+- Underlying cloud host internals (Azure Container Apps / Postgres Flexible Server /
+  Azure Blob platform) — DoS volume testing requires provider sign-off.
 - Source-level dev-tooling advisories already triaged in §3.3 (note them, don't
   re-litigate count).
 

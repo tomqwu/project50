@@ -1,148 +1,208 @@
 # Custom Domain, DNS & TLS
 
-A runbook to put the Project 50 **web app** (`apps/web`, a Next.js App Router
-app) on a custom domain with HTTPS. The default host is **Vercel** (see
-[DEPLOY.md](./DEPLOY.md)); Cloudflare is documented as an alternative for DNS/TLS.
+A runbook for putting the Project 50 **web app** (`apps/web`, a Next.js App
+Router app) on its custom domain with HTTPS. The app runs on **Azure Container
+Apps** (Canada Central) — see [`infra/azure/README.md`](../infra/azure/README.md)
+and [DEPLOY.md](./DEPLOY.md).
 
-This is an **end-to-end** procedure: it covers the generic DNS/TLS plumbing
-**and** the app-specific wiring that must change when the origin URL changes —
-auth callback URLs, the `Secure`-cookie switch, OAuth provider config, CSP/CDN
-hosts, and HSTS. Skipping the app-specific section will produce a site that
-loads but silently breaks sign-in.
+The live domain is **`project50.fit`**, and the canonical, cert-bearing origin is
+**`https://www.project50.fit`** (the `www` subdomain). The infra source of truth
+for the custom-domain + TLS setup is **[`infra/azure/README.md`](../infra/azure/README.md)**
+(§§ *Custom domain & TLS — managed outside Terraform*, *Apex domain → www*); this
+runbook mirrors it and adds the app-side wiring.
 
-> **TODO (your accounts):** anything that requires a registrar login, a Vercel/
-> Cloudflare dashboard, or an OAuth provider console is marked **TODO** below —
-> those are one-time manual steps done by you, not by code.
+This is an **end-to-end** procedure: the DNS/TLS plumbing **and** the app-specific
+wiring that must change if the origin URL ever changes — auth callback URLs, the
+`Secure`-cookie switch, OAuth provider config, the CSP, and HSTS. Skipping the
+app-specific section produces a site that loads but silently breaks sign-in.
 
-Throughout, the example apex domain is `project50.app` (matching the CDN host
-`cdn.project50.app` already used in [CDN.md](./CDN.md)). Substitute your own.
+> **TODO (your accounts):** steps needing a registrar login (Namecheap), an Azure
+> change, or an OAuth provider console are marked **TODO** — one-time manual steps,
+> not code.
 
 ---
 
 ## TL;DR
 
-1. **Register** a domain (**TODO: registrar**).
-2. **Add the domain** to the host (Vercel project → Domains, or Cloudflare) and
-   create the **DNS records** it tells you to (apex + `www`).
-3. Let the host **provision a managed TLS cert** (automatic, auto-renewing).
-4. Pick a **canonical host** (apex *or* `www`) and redirect the other to it.
-5. **Wire the app to the new https origin** — this is the part that is easy to
-   forget:
-   - Set `AUTH_URL` (and/or legacy `NEXTAUTH_URL`) to `https://<canonical-host>`.
-     This is what `shouldUseSecureCookies()` keys on for `Secure` session
-     cookies (`apps/web/lib/auth-config.ts`).
-   - Update **OAuth redirect URIs** (Google + Facebook) to the new
-     `/api/auth/callback/<provider>` URLs.
-   - Update `S3_PUBLIC_URL` / CDN host if media moves to a domain subhost
-     (drives `next.config.mjs` `images.remotePatterns` **and** the CSP) — see
-     [CDN.md](./CDN.md).
-6. **Verify** https, the redirect, sign-in, image loads, and HSTS.
+1. **`www` is the single canonical origin**, fronted by an Azure-**managed** TLS
+   cert (auto-renewed) bound to the Container App. DNS: a `www` `CNAME` → the app
+   FQDN, plus the `asuid.www` `TXT` domain-verification record Azure requires.
+2. The managed cert + custom-domain binding are **created and managed with `az`,
+   NOT in Terraform** — azurerm 4.75 genuinely cannot represent them (see
+   [Why TLS is managed outside Terraform](#why-tls-is-managed-outside-terraform-azurerm-475)).
+   Azure auto-renews the cert, so there's no PEM toil.
+3. The **apex `project50.fit` is NOT bound on the Container App.** Apex managed
+   certs fail there (the HTTP→HTTPS redirect breaks the ACME challenge), so the
+   apex is routed to `www` with a **registrar-level 301 redirect at Namecheap**.
+   Apex binding / the missing redirect is tracked in **open issue
+   [#291](https://github.com/tomqwu/project50/issues/291)**.
+4. **Wire the app to the canonical https origin** (mostly already defaulted):
+   - `AUTH_URL` defaults to `https://www.project50.fit` (the Terraform `auth_url`
+     var) — what `shouldUseSecureCookies()` keys on for `Secure` cookies.
+   - OAuth redirect URIs use `https://www.project50.fit/api/auth/callback/<provider>`.
+5. **Verify** https, the apex→www redirect, sign-in, the `Secure` cookie, and HSTS.
+
+There is **no CDN** and no `cdn.*` host — media is served via short-lived SAS URLs
+straight from Blob storage (see [CDN.md](./CDN.md) / [OBJECT-STORAGE.md](./OBJECT-STORAGE.md)),
+so no CDN subdomain or its CSP/cert wiring is involved.
 
 ---
 
-## 1. Choose & register a domain
+## 1. The domain & canonical host
 
-- Pick an apex (e.g. `project50.app`). Prefer a registrar that supports the DNS
-  record types you need (apex `ALIAS`/`ANAME`/flattened `CNAME`, plus `CAA`).
-- **TODO: registrar** — register the domain and note where its **nameservers**
-  are managed. You will either:
-  - keep DNS at the registrar and add records there, **or**
-  - delegate DNS to Cloudflare (point the registrar's nameservers at the two
-    Cloudflare nameservers Cloudflare assigns), then manage records in
-    Cloudflare. Delegating to Cloudflare is what enables option B in §2/§3.
+- Registered domain: **`project50.fit`** (registrar **Namecheap** — **TODO:
+  registrar** for any record change).
+- Canonical origin: **`https://www.project50.fit`**. `www` is the **only** host
+  bound on the Container App and the **only** one that carries a managed cert.
+- The apex `project50.fit` is **not** bound on the app; it 301-redirects to `www`
+  at the registrar (§4).
 
-> Set a restrictive `CAA` record once DNS is live so only your cert authority can
-> issue certs, e.g. `project50.app. CAA 0 issue "letsencrypt.org"` (Vercel/
-> Cloudflare-managed certs) — confirm the exact CA string with your host before
-> adding, an over-tight `CAA` will block renewals.
+Why `www`-canonical (not apex): apex managed certs don't provision on Container
+Apps (§3 / §4), so making the apex canonical would mean no cert on the canonical
+origin. `www` provisions cleanly, so it is the canonical, cert-bearing host.
 
 ---
 
-## 2. DNS records
+## 2. DNS records (Namecheap)
 
-You need records for both the **apex** (`project50.app`) and the **`www`**
-subdomain. The apex is the awkward one: classic `CNAME` is illegal at a zone
-apex, so use the host's apex target mechanism.
+Manage these on **Namecheap → Domain List → project50.fit → Manage** (**TODO:
+registrar**). The live setup:
 
-### Option A — Vercel (default)
+| Host        | Type    | Value                                                         | Purpose |
+| ----------- | ------- | ------------------------------------------------------------- | ------- |
+| `www`       | `CNAME` | the Container App FQDN (`ca-project50-web-dev.<env-region>.azurecontainerapps.io`) | Points `www` at the app. |
+| `asuid.www` | `TXT`   | the domain-verification id Azure shows when you add the hostname | Azure custom-domain ownership validation for the `www` binding. |
+| `@` (apex)  | URL **Redirect** | `https://www.project50.fit`, **Permanent (301)**, **unmasked** | Routes the apex to `www` at the registrar (§4) — no apex cert on the app. |
 
-In the Vercel project: **Settings → Domains → Add**. Add both `project50.app`
-and `www.project50.app`; Vercel shows the exact target values. Typical records:
-
-| Host                 | Type    | Value                              | Notes                              |
-| -------------------- | ------- | ---------------------------------- | ---------------------------------- |
-| `project50.app` (apex) | `A`     | `76.76.21.21`                      | Vercel's apex anycast IP (Vercel shows the current value). |
-| `project50.app` (apex) | `AAAA`  | _(value Vercel shows)_             | Add if your registrar supports IPv6 `AAAA`. |
-| `www`                | `CNAME` | `cname.vercel-dns.com`             | Vercel's CNAME target.             |
-
-> Use the values **Vercel displays for your project** — the apex IP above is the
-> historically-published one but can change; the dashboard is authoritative.
-
-### Option B — Cloudflare (DNS in front of the host)
-
-Manage the zone in Cloudflare and point records at the origin host:
-
-| Host    | Type    | Value                     | Proxy        |
-| ------- | ------- | ------------------------- | ------------ |
-| `@` (apex) | `CNAME` | `cname.vercel-dns.com`  | Proxied (orange cloud). Cloudflare **CNAME-flattens** the apex automatically. |
-| `www`   | `CNAME` | `cname.vercel-dns.com`    | Proxied.     |
-
-When Cloudflare is **proxied** (orange cloud), Cloudflare terminates TLS at its
-edge and connects to the origin — set Cloudflare SSL mode to **Full (strict)**
-so the origin cert is validated (Vercel serves a valid cert for the domain). If
-you instead use **DNS-only** (grey cloud), Cloudflare is pure DNS and the host
-provisions/serves the cert directly (behaves like Option A).
-
-> Whichever option: after adding records, DNS propagation can take minutes to
-> (rarely) hours. Verify with `dig project50.app +short` and
-> `dig www.project50.app +short`.
+> Get the exact `www` CNAME target and the `asuid.www` TXT value from Azure when
+> you add the hostname (`az containerapp hostname add` shows them) — don't guess.
+> DNS propagation can take minutes; verify with `dig www.project50.fit +short`.
 
 ---
 
-## 3. TLS / HTTPS provisioning
+## 3. TLS / HTTPS — the `www` managed cert
 
-Certificates are **managed and auto-renewing** — you do not hand-manage PEM
-files.
+The `www` cert is an Azure-**managed** TLS cert on the Container Apps
+**environment** + a custom-domain **binding** of that cert to the app. Azure
+**issues and auto-renews** it — no PEM handling.
 
-- **Vercel (Option A / DNS-only Cloudflare):** once the domain's DNS resolves to
-  Vercel, Vercel automatically issues a Let's Encrypt cert for both apex and
-  `www` and renews it before expiry. Nothing to configure beyond adding the
-  domain. The site is unreachable over https until the cert is issued (usually
-  under a minute after DNS verifies).
-- **Cloudflare (proxied, Option B):** Cloudflare issues an edge "Universal SSL"
-  cert for the proxied hostnames automatically and renews it. Keep an origin cert
-  on Vercel too and use **Full (strict)** so the Cloudflare→origin hop is also
-  encrypted and validated.
+Live ids (ops reference; subscription `81e891a1-b374-4898-8fed-0871de418dae`, RG
+`rg-project50-dev-canadacentral`, env `cae-project50-dev`, app
+`ca-project50-web-dev`):
 
-There is **no app-side TLS config**: Next.js runs behind the host's TLS
-terminator. The app only cares that the **public origin is https**, which it
-learns from `AUTH_URL` (see §5).
+| What | Live value |
+| --- | --- |
+| Managed cert name | `mc-cae-project50--www-project50-fi-5521` |
+| Binding (custom domain) | `www.project50.fit` → `ca-project50-web-dev`, binding type `SniEnabled`, validation `CNAME` |
+
+**Inspect the cert + binding (read-only):**
+
+```bash
+SUB=81e891a1-b374-4898-8fed-0871de418dae
+RG=rg-project50-dev-canadacentral
+ENV=cae-project50-dev
+APP=ca-project50-web-dev
+DOMAIN=www.project50.fit
+
+# Managed cert (state should be Succeeded; subject = the domain)
+az containerapp env certificate list -g "$RG" --name "$ENV" \
+  --managed-certificates-only \
+  --query "[?properties.subjectName=='$DOMAIN'].{name:name,state:properties.provisioningState,subject:properties.subjectName}" -o table
+
+# The custom-domain binding on the app
+az containerapp hostname list -g "$RG" --name "$APP" \
+  --query "[?name=='$DOMAIN']" -o json
+```
+
+**(Re)create the binding with `az`** if it is ever lost (the `www` CNAME +
+`asuid.www` TXT must be in place first; Azure then auto-provisions + auto-renews
+the managed cert):
+
+```bash
+az containerapp hostname add  -g "$RG" --name "$APP" --hostname "$DOMAIN"
+az containerapp hostname bind -g "$RG" --name "$APP" --hostname "$DOMAIN" \
+  --environment "$ENV" --validation-method CNAME
+# Azure provisions + SNI-binds the managed cert; verify with the list commands above.
+```
+
+There is **no app-side TLS config**: Next.js runs behind the Container Apps TLS
+terminator. The app only needs the public origin to be https — which it learns
+from `AUTH_URL` (§5).
+
+### Why TLS is managed outside Terraform (azurerm 4.75)
+
+The managed cert + binding are deliberately **not** in Terraform — a routine
+`terraform apply -var image_tag=…` does not touch them and is unaffected (no new
+vars, no resources to import). This is the documented outcome of #268, because
+**azurerm 4.75 genuinely cannot represent these resources** — two hard blockers:
+
+1. **The managed-cert name contains `--`.** Azure auto-generated
+   `mc-cae-project50--www-project50-fi-5521`, with a **double hyphen**. The
+   provider's `name` ValidateFunc for
+   `azurerm_container_app_environment_managed_certificate` rejects any value
+   containing `--` (`strings.Contains(v, "--")`), at **plan/validate** time — so
+   the live cert simply cannot be declared without `terraform validate` erroring,
+   even as an import.
+2. **The binding can't reference a managed cert.**
+   `azurerm_container_app_custom_domain`'s settable cert field parses as a
+   `/certificates/...` environment-cert id, but a managed-cert binding references a
+   `/managedCertificates/...` id (a different path) that the field does not accept;
+   on Read the provider records the managed cert under a *computed* field, leaving
+   the settable one empty. So a managed-cert binding can't be faithfully expressed.
+
+Forcing these into Terraform would error `terraform validate`/plan and **break
+routine deploys**, so they stay under `az` and are documented here +
+[`infra/azure/README.md`](../infra/azure/README.md). **Revisit when** azurerm
+relaxes the `--` rule **and** lets the custom domain bind a `/managedCertificates/...`
+id (or the cert is reissued with a representable name).
 
 ---
 
-## 4. www ↔ apex redirect (pick a canonical host)
+## 4. Apex `project50.fit` → `www` (open issue #291)
 
-Serve the site on **one** canonical origin and 301-redirect the other, so cookies
-and OAuth callbacks have a single, stable origin. Decide apex-canonical
-(`project50.app`) **or** www-canonical (`www.project50.app`) and be consistent —
-this same host is what goes into `AUTH_URL` and the OAuth redirect URIs.
+**The apex is routed to `www` with a registrar-level 301 redirect at Namecheap —
+do NOT bind the apex on the Container App.**
 
-- **Vercel:** add both domains, then in **Domains** set one as the redirect to
-  the other (Vercel offers a "Redirect to…" toggle, 308/301). Apex-canonical is
-  the common choice for this app.
-- **Cloudflare:** use a **Redirect Rule** / Bulk Redirect from `www` → apex (or
-  vice-versa), `301`, preserving path and query.
+**Why not an apex managed cert:** apex managed certs **fail** on Container Apps.
+Issuance uses an **HTTP ACME challenge** on `http://project50.fit/.well-known/...`,
+but the app's ingress **redirects HTTP→HTTPS**, which breaks the challenge before
+the CA can validate it. (Subdomains like `www` provision cleanly because the `www`
+CNAME validation path isn't subject to the same apex redirect trap.) So there is
+**no reliable apex managed cert**; adding fragile apex-cert Terraform would just
+produce a perpetually-failing resource — deliberately omitted.
 
-> If you change which host is canonical later, you must also update `AUTH_URL`
-> and every OAuth redirect URI (§5) — they must match the canonical origin
-> exactly, scheme included.
+**Status — open issue [#291](https://github.com/tomqwu/project50/issues/291)
+([MED] Apex project50.fit not bound — TLS reset, no apex→www redirect):** until the
+registrar redirect below is in place, hitting the bare apex gives a **TLS reset**
+and there is **no apex→www redirect**. The recommended fix is the Namecheap 301
+redirect.
+
+**Recommended path (registrar URL redirect at Namecheap)** — **TODO: registrar:**
+
+1. Namecheap → **Domain List → project50.fit → Manage**.
+2. Ensure the `www` host already points at the app (§2): the `www` `CNAME` → app
+   FQDN, and the `asuid.www` `TXT` Azure required for the `www` binding.
+3. Under **Redirect Domain**, add an **unmasked (301 permanent)** redirect:
+   - **Source:** `@` (apex `project50.fit`) — optionally both `http://`/`https://`.
+   - **Destination:** `https://www.project50.fit`
+   - Type: **Permanent (301)**, **unmasked** (a real redirect, not a frame).
+4. Save. Namecheap serves the apex over its own redirect endpoint, so the apex
+   **never needs a cert on the Container App**. Verify:
+
+   ```bash
+   curl -sI http://project50.fit  | grep -i '^location:'   # → https://www.project50.fit
+   curl -sI https://project50.fit | grep -i '^location:'   # → https://www.project50.fit
+   ```
+
+This keeps `www` as the single canonical, cert-bearing origin and routes the apex
+to it at the registrar layer — no apex cert, no fragile apex Terraform.
 
 ---
 
 ## 5. App-specific wiring (do not skip)
 
-Changing the public origin has four app-level consequences. All of these live in
-env/config, not code changes.
+Changing the public origin has app-level consequences. These live in env/config,
+not code changes — and the prod defaults already point at the canonical origin.
 
 ### 5a. `AUTH_URL` / `NEXTAUTH_URL` → the https origin
 
@@ -159,65 +219,59 @@ export function shouldUseSecureCookies(env = process.env): boolean | undefined {
 
 `auth.ts` passes `useSecureCookies: true` only when this returns `true`. So:
 
-- **Set `AUTH_URL=https://<canonical-host>`** (e.g. `https://project50.app`) in
-  the production environment — for Vercel, in **Project → Settings → Environment
-  Variables (Production)**. `NEXTAUTH_URL` is accepted as a legacy fallback; set
-  one or the other.
-- It **must be `https://`**. If it is missing or `http://`, `shouldUseSecureCookies`
-  returns `undefined`, the session cookie is **not** marked `Secure`, and
-  (combined with HSTS / a proxied https edge) the browser may refuse to send it —
-  users appear logged out immediately after signing in. This is the single most
-  common custom-domain auth bug.
-- It must match the **canonical** host from §4 exactly (no trailing slash). A
+- The Terraform **`auth_url` var defaults to `https://www.project50.fit`** (the
+  canonical origin), so a routine `terraform apply -var image_tag=…` needs **no
+  `-var auth_url=…` override** (passing it is harmless). `NEXTAUTH_URL` is a legacy
+  fallback; set one or the other.
+- It **must be `https://`**. If missing or `http://`, `shouldUseSecureCookies`
+  returns `undefined`, the session cookie isn't marked `Secure`, and the browser
+  may refuse to send it — users appear logged out right after signing in. This is
+  the single most common custom-domain auth bug.
+- It must match the **canonical** host (`www`) exactly, no trailing slash. A
   mismatch (e.g. `AUTH_URL` on apex while users land on `www`) breaks the OAuth
-  callback origin check.
+  callback origin check — which is also why the apex is a redirect, not a second
+  served origin.
 
-See the `AUTH_URL` row in [SECRETS.md](./SECRETS.md) (it is plain config, not a
-secret, but **must be updated on any domain change**).
+See the `AUTH_URL` row in [SECRETS.md](./SECRETS.md) (plain config, not a secret,
+but **must be updated on any domain change**).
 
-### 5b. OAuth redirect URIs (Google + Facebook)
+### 5b. OAuth redirect URIs (Facebook; Google when enabled)
 
-The app uses Google and Facebook providers (`apps/web/auth.ts`). Auth.js exposes
-each provider's callback at:
+The app's OAuth providers (`apps/web/auth.ts`) expose each callback at:
 
 ```
-https://<canonical-host>/api/auth/callback/google
-https://<canonical-host>/api/auth/callback/facebook
+https://www.project50.fit/api/auth/callback/facebook
+https://www.project50.fit/api/auth/callback/google   # when Google is enabled
 ```
 
-Add these **exact** URLs to each provider console (**TODO: provider consoles**):
+Add the **exact** URL to each provider console (**TODO: provider consoles**):
 
-- **Google** — Cloud Console → APIs & Services → Credentials → your OAuth 2.0
-  Client → **Authorized redirect URIs**: add
-  `https://project50.app/api/auth/callback/google`. Also add the canonical
-  origin under **Authorized JavaScript origins** if required. Keep any existing
-  preview/`localhost` URIs if you still need them.
 - **Facebook** — App Dashboard → **Facebook Login → Settings → Valid OAuth
-  Redirect URIs**: add `https://project50.app/api/auth/callback/facebook`. Also
-  add the domain under **App Domains** and ensure the app is in **Live** mode for
-  public users.
+  Redirect URIs**: add `https://www.project50.fit/api/auth/callback/facebook`.
+  Add `project50.fit` under **App Domains** and ensure the app is in **Live** mode.
+  (Facebook credentials come from the `facebook-client-id`/`facebook-client-secret`
+  Key Vault secrets — see [SECRETS.md](./SECRETS.md).)
+- **Google** (if/when enabled) — Cloud Console → Credentials → your OAuth client →
+  **Authorized redirect URIs**: add
+  `https://www.project50.fit/api/auth/callback/google`, and the canonical origin
+  under **Authorized JavaScript origins** if required.
 
-If you support both apex and `www` during a transition, register both callback
-URLs; otherwise register only the canonical one. The client IDs/secrets
-(`GOOGLE_CLIENT_ID`, `FACEBOOK_CLIENT_ID`, …) are unchanged — only the redirect
-URIs change. See [SECRETS.md](./SECRETS.md) for those env vars.
+Register only the **canonical** (`www`) callback — the apex is a redirect, never a
+served callback origin. The client IDs/secrets are unchanged on a domain move;
+only the redirect URIs change.
 
-### 5c. CSP / `S3_PUBLIC_URL` / CDN host
+### 5c. CSP / media origin (no CDN host)
 
-`apps/web/middleware.ts` sends a Content-Security-Policy whose `img-src` /
-`media-src` / `connect-src` include the **storage origin derived from
-`S3_PUBLIC_URL` (falling back to `S3_ENDPOINT`)**. The same value drives
-`next.config.mjs` `images.remotePatterns`. Therefore:
-
-- If media is served from a CDN subhost of the new domain (e.g.
-  `https://cdn.project50.app`), set **`S3_PUBLIC_URL=https://cdn.project50.app`**.
-  The CSP and `remotePatterns` pick the host up automatically — no code edit. See
-  [CDN.md](./CDN.md) for the full CDN setup.
-- The app's own origin (`'self'`) in the CSP is relative, so moving the app to a
-  new domain needs **no CSP change** for first-party content. Only the
-  media/CDN host (a separate origin) must be reflected via `S3_PUBLIC_URL`.
-- The OAuth `form-action` allowances (`accounts.google.com`, `www.facebook.com`)
-  are provider hosts and are independent of your domain — leave them as-is.
+`apps/web/middleware.ts` sends a CSP whose `img-src` / `media-src` / `connect-src`
+include the **storage origin** the app serves media from. In production that is
+the **Azure Blob host** (`*.blob.core.windows.net`) reached via per-request SAS
+URLs — **there is no CDN and no `cdn.*` subdomain** to allow-list. The app's own
+origin (`'self'`) is relative, so moving the app's domain needs **no CSP change**
+for first-party content. The S3/MinIO `S3_PUBLIC_URL` knob (which also drives the
+CSP/`remotePatterns` when set) is **dev/fallback only** and unset in prod — see
+[OBJECT-STORAGE.md](./OBJECT-STORAGE.md) / [CDN.md](./CDN.md). The OAuth
+`form-action` allowances (`accounts.google.com`, `www.facebook.com`) are provider
+hosts, independent of your domain — leave them as-is.
 
 ### 5d. HSTS (already sent — https only)
 
@@ -227,64 +281,58 @@ URIs change. See [SECRETS.md](./SECRETS.md) for those env vars.
 strict-transport-security: max-age=63072000; includeSubDomains; preload
 ```
 
-No change is needed in code. Notes for go-live:
+No code change needed. Notes for go-live:
 
-- HSTS is **only honored over https**. It has no effect until the domain serves a
-  valid cert (§3), which is the normal end state here.
-- `includeSubDomains` means **every** subdomain (including `cdn.project50.app`)
-  must also be https-capable — which it is when fronted by the CDN/host. Make sure
-  no subdomain needs plain http before relying on this.
-- `preload` signals intent to be added to the browser HSTS preload list. Only
-  **submit the apex to <https://hstspreload.org/>** once you are confident every
-  subdomain is permanently https — preload removal is slow. Submission is a
-  separate **TODO** and is optional; the header is harmless until then.
+- HSTS is **only honored over https**, so it has no effect until the cert is
+  issued (§3) — the normal end state for `www`.
+- `includeSubDomains` covers every subdomain of `project50.fit`. There is no
+  `cdn.*` subdomain to worry about; ensure no subdomain needs plain http before
+  relying on this.
+- `preload` signals intent for the browser HSTS preload list. Only **submit the
+  apex to <https://hstspreload.org/>** once you're confident every subdomain is
+  permanently https (preload removal is slow). Optional; the header is harmless
+  until then.
 
 ---
 
 ## 6. Verification checklist
 
-After DNS resolves and the cert is issued:
+After DNS resolves and the `www` cert is issued:
 
-- [ ] `https://project50.app` and `https://www.project50.app` both load over TLS
-      (valid cert, no warning).
-- [ ] The non-canonical host **301/308-redirects** to the canonical one (§4),
-      path/query preserved.
-- [ ] `http://project50.app` upgrades to https (host/Cloudflare "Always Use HTTPS"
-      or the redirect handles it).
-- [ ] **Sign in with Google** and **with Facebook** complete and land back on the
-      app authenticated (validates 5a + 5b).
+- [ ] `https://www.project50.fit` loads over TLS (valid managed cert, no warning).
+- [ ] `http://project50.fit` and `https://project50.fit` **301-redirect** to
+      `https://www.project50.fit` (the Namecheap apex redirect — §4 / #291).
+- [ ] **Sign in with Facebook** (and Google if enabled) completes and lands back
+      authenticated (validates 5a + 5b).
 - [ ] After sign-in, the **session cookie is marked `Secure`** (DevTools →
       Application → Cookies). If not, re-check `AUTH_URL` is `https://…` (5a).
-- [ ] Uploaded **images/media load** from the CDN host with no CSP violation in
-      the console (validates 5c).
+- [ ] Uploaded **images/media load** from the Blob SAS URLs with no CSP violation
+      in the console (validates 5c).
 - [ ] Response headers include `strict-transport-security` and
       `content-security-policy` (validates 5d / middleware is running).
 
 Quick header check:
 
 ```bash
-curl -sI https://project50.app | grep -iE 'strict-transport-security|content-security-policy|location'
+curl -sI https://www.project50.fit | grep -iE 'strict-transport-security|content-security-policy|location'
 ```
 
 ---
 
 ## Cross-references
 
-- [DEPLOY.md](./DEPLOY.md) — Vercel project setup, env scopes, preview vs
-  production deploys.
-- [SECRETS.md](./SECRETS.md) — `AUTH_URL`, OAuth client IDs/secrets,
-  `S3_PUBLIC_URL`, and where they live.
-- [CDN.md](./CDN.md) — putting a CDN in front of media and wiring `S3_PUBLIC_URL`
-  / `next.config.mjs` / the CSP.
+- [`infra/azure/README.md`](../infra/azure/README.md) — the managed cert/binding
+  + apex-redirect source of truth, and the deploy runbook.
+- [DEPLOY.md](./DEPLOY.md) — Azure Container Apps deploy (local, gated), env, image build.
+- [SECRETS.md](./SECRETS.md) — `AUTH_URL`, the Facebook OAuth Key Vault secrets.
+- [CDN.md](./CDN.md) / [OBJECT-STORAGE.md](./OBJECT-STORAGE.md) — media is SAS-served
+  from Blob (no CDN, no `cdn.*` host).
 
 ## Open TODOs (manual, your accounts)
 
-- [ ] **Registrar:** register the domain; decide registrar-DNS vs Cloudflare.
-- [ ] **Host:** add apex + `www` to Vercel (or configure Cloudflare zone) and
-      create the DNS records the dashboard specifies.
-- [ ] **Redirect:** choose the canonical host and configure the www↔apex redirect.
-- [ ] **Env:** set `AUTH_URL` (https, canonical) in production; update
-      `S3_PUBLIC_URL` if media moves to a domain subhost.
-- [ ] **OAuth consoles:** add the `/api/auth/callback/{google,facebook}` redirect
-      URIs (and App Domains / JS origins) for the new domain.
-- [ ] **HSTS preload (optional):** submit the apex once all subdomains are https.
+- [ ] **Registrar (Namecheap):** add the apex `@` → `https://www.project50.fit`
+      **301 unmasked** redirect (open issue [#291](https://github.com/tomqwu/project50/issues/291));
+      keep the `www` CNAME + `asuid.www` TXT in place.
+- [ ] **OAuth consoles:** ensure the `www` `/api/auth/callback/{facebook,google}`
+      redirect URIs (+ App Domains / JS origins) are registered.
+- [ ] **HSTS preload (optional):** submit the apex once all hosts are https.
