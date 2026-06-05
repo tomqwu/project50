@@ -31,6 +31,9 @@ set -euo pipefail
 # --- TAG: explicit arg, else the latest tag reachable from HEAD --------------
 TAG="${1:-}"
 if [ -z "$TAG" ]; then
+  # `--abbrev=0` returns the nearest OLDER tag even when HEAD isn't that release;
+  # the HEAD-equivalence check below rejects that case so the badge never links to
+  # stale release metadata for code that isn't actually at the tag.
   TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 fi
 if [ -z "$TAG" ]; then
@@ -41,6 +44,22 @@ fi
 # --- SHA + build time --------------------------------------------------------
 SHA="$(git rev-parse --short=7 HEAD)"
 TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# --- HARD GATE: the selected tag MUST point at HEAD --------------------------
+# The image is built from HEAD, so the badge's tag/title/url must describe HEAD.
+# If $TAG resolves to a different commit (a stale `git describe` fallback, or an
+# explicit tag that isn't checked out), FAIL — building would ship newer code
+# with a badge linking to the wrong release.
+HEAD_FULL="$(git rev-parse HEAD)"
+TAG_FULL="$(git rev-list -n1 "$TAG" 2>/dev/null || true)"
+if [ -z "$TAG_FULL" ]; then
+  echo "release-build-args.sh: tag '$TAG' does not exist in this repo" >&2
+  exit 1
+fi
+if [ "$TAG_FULL" != "$HEAD_FULL" ]; then
+  echo "release-build-args: HEAD ($SHA) is not at tag $TAG — deploy from a tagged commit or pass the exact tag" >&2
+  exit 1
+fi
 
 # --- TITLE + URL from the GitHub release (best effort) -----------------------
 # Default to the tag name / empty URL so a missing gh or release still works.

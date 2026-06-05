@@ -230,7 +230,20 @@ by the app — so it isn't required pre-apply, only before migrations.)
 
 ```bash
 KV=kv-project50-dev-6z7n
-TAG=v2026.06.04.3   # any pushed image; on first bootstrap this is the initial image
+# Same identifier split as the normal path: IMAGE_SHA = the IMAGE tag (== deploy
+# image_tag), TAG = the CalVer release for the BADGE only (a `--build-arg`).
+TAG=v2026.06.04.3                          # the cut CalVer release (badge only)
+IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == deploy image_tag
+
+# Build + push the initial image to ACR (from the repo root), tagged by COMMIT
+# SHA — the exact tag Stage 3's `terraform apply -var image_tag=$IMAGE_SHA` pulls.
+# The CalVer tag/title/url ride in as `--build-arg NEXT_PUBLIC_RELEASE_*` so the
+# footer ReleaseBadge shows the live release (see release-build-args.sh; the line
+# MUST be `eval`'d because the release title can contain spaces).
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
+  --platform linux/amd64 --file apps/web/Dockerfile \
+  $(bash scripts/release-build-args.sh "$TAG") ."
+
 cd infra/azure
 terraform init
 
@@ -282,11 +295,13 @@ done
 # ── Stage 3: full apply — now creates azurerm_container_app.web ──
 #    All five referenced secrets exist, so the Container App resolves them. This
 #    also creates the Postgres server + random_password.db_admin + the db_admin_*
-#    / postgres_fqdn outputs. On a fresh DB the app pointing at $TAG is fine:
-#    there's no live traffic / old schema yet, so image-before-migrate is safe
-#    here. (On an EXISTING deployment, do NOT use this path — use the normal path
-#    above, which reads the admin URL from KV and migrates before the image.)
-terraform apply -var "image_tag=$TAG"
+#    / postgres_fqdn outputs. image_tag is the COMMIT SHA built above
+#    (project50-web:$IMAGE_SHA) — the same image, NOT the CalVer $TAG. On a fresh
+#    DB the app pointing at this image is fine: there's no live traffic / old
+#    schema yet, so image-before-migrate is safe here. (On an EXISTING deployment,
+#    do NOT use this path — use the normal path above, which reads the admin URL
+#    from KV and migrates before the image.)
+terraform apply -var "image_tag=$IMAGE_SHA"
 
 # ── Stage 4: reconstruct database-url-admin from outputs, migrate, set real
 #             database-url, roll a revision ──
