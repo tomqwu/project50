@@ -1,125 +1,143 @@
-# Deployment (CD)
+# Deployment
 
-Continuous deployment for the **web app** (`apps/web`, a Next.js app) plus
-automatic database migrations on release.
+How the **web app** (`apps/web`, a Next.js app) gets to production, plus how DB
+migrations run on release.
 
-This document covers issues:
+> **Canonical runbook:** the full, step-by-step deploy procedure (with the exact
+> commands, the one-time secrets-state migration, scaling, object storage, and
+> Key Vault) lives in [`infra/azure/README.md`](../infra/azure/README.md). This
+> file is the **model overview**; it points at that runbook rather than
+> duplicating it. When the two disagree, `infra/azure/README.md` wins.
 
-- **#17** — CD: deploy web to production host with preview deploys per PR.
-- **#21** — Run DB migrations automatically on release (`prisma migrate deploy`).
+## The model: local, gated, IaC (no CI/CD pipeline)
 
-## TL;DR
+The app runs on **Azure Container Apps** (`ca-project50-web-dev`, Canada
+Central), fronted by the custom domain **`https://www.project50.fit`**. There is
+**no GitHub OIDC continuous deployment** — deploys are run **locally** from an
+`az login` session, gated on:
 
-| Trigger                | Workflow                          | What happens                                            |
-| ---------------------- | --------------------------------- | ------------------------------------------------------- |
-| Pull request opened/updated | `.github/workflows/preview.yml` | Builds a Vercel **preview** deploy, comments the URL on the PR. |
-| CI passes on `main`    | `.github/workflows/deploy.yml`    | Runs `prisma migrate deploy`, then deploys **production**. |
-| Manual (Actions tab)   | `.github/workflows/deploy.yml`    | Same as above (`workflow_dispatch`).                    |
+1. **CI green** on the merge commit,
+2. **merged to `main`**, and
+3. a **CalVer release tag** cut for the commit.
 
-**The pipeline is inert until secrets are configured.** Without secrets every
-deploy job is _skipped_ (not failed), so CI stays green on this repo and on
-forks. Nothing deploys until you complete the manual setup below.
+`.github/workflows/release.yml` auto-cuts a CalVer tag `vYYYY.MM.DD.N` + a
+GitHub release on every green merge to `main` (that tag feeds the in-app
+`ReleaseBadge` and the deploy below — it does **not** deploy anything).
 
-The default production host is **Vercel**. The `migrate` job is host-agnostic;
-only the `deploy`/`preview` jobs are Vercel-specific. To use a different host,
-replace the `deploy`/`preview` jobs and keep `migrate` as-is.
+> **`.github/workflows/deploy.yml` is INERT.** It is a leftover Vercel scaffold
+> (a `migrate` job + an `amondnet/vercel-action` `deploy` job, gated behind a
+> `preflight` secret check). The repo has **no `VERCEL_*` secrets** and **no
+> `DATABASE_URL` Actions secret**, so every job resolves to *skipped* (not
+> failed) and **nothing is deployed by GitHub Actions**. We do not use Vercel.
+> Treat `deploy.yml`/`preview.yml` as dormant; the real deploy is the local
+> Azure flow below.
 
-## Required secrets
+## TL;DR — deploy after a release
 
-Add these under **Settings → Secrets and variables → Actions** (repository
-secrets) on GitHub.
+Run from the repo root in an `az login` shell (full version in
+[`infra/azure/README.md`](../infra/azure/README.md) § *Deploy runbook*):
 
-| Secret              | Used by            | Description                                                            |
-| ------------------- | ------------------ | --------------------------------------------------------------------- |
-| `DATABASE_URL`      | `migrate` (#21)    | Postgres connection string for the **production** database.           |
-| `VERCEL_TOKEN`      | `deploy`, `preview`| Vercel access token (Account → Settings → Tokens).                    |
-| `VERCEL_ORG_ID`     | `deploy`, `preview`| Vercel organization/team id.                                          |
-| `VERCEL_PROJECT_ID` | `deploy`, `preview`| Vercel project id for the web app.                                    |
+```bash
+TAG=v2026.06.04.3                          # the cut CalVer release (badge only)
+IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == terraform image_tag
 
-`GITHUB_TOKEN` is provided automatically by GitHub Actions and is used to
-comment the preview URL on PRs — you do not need to create it.
+# 1. Build the image IN ACR by commit sha (builds linux/amd64 natively; a local
+#    docker build under arm64 emulation fails). The CalVer tag rides in as a
+#    --build-arg for the footer ReleaseBadge (release-build-args.sh).
+BUILD_ARGS=$(bash scripts/release-build-args.sh "$TAG") \
+  || { echo "release-build-args failed (HEAD not at $TAG?)"; exit 1; }
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
+  --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
 
-> Secret presence is detected by a small `preflight` job in each workflow. If a
-> required secret is empty the dependent job is skipped with a `::notice::`,
-> never a failure.
+# 2. Migrate FIRST (admin URL read from Key Vault), so the new revision never
+#    serves traffic against the old schema. See the runbook for the firewall +
+#    admin-URL steps.
 
-## How migrate-on-release works (#21)
+# 3. Switch the Container App to the new image (no secret VALUES pass through TF).
+cd infra/azure
+terraform plan  -var "image_tag=$IMAGE_SHA"   # review for unexpected destroys
+terraform apply -var "image_tag=$IMAGE_SHA"
 
-`deploy.yml` runs two jobs, strictly ordered:
+# 4. Roll a fresh revision onto the new image.
+az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+  --revision-suffix "rel$(date +%Y%m%d%H%M)"
+```
 
-1. **`migrate`** — checks out the repo, installs deps, runs
-   `pnpm --filter @project50/db exec prisma generate`, then
-   `pnpm --filter @project50/db exec prisma migrate deploy` against the
-   production `DATABASE_URL`. `migrate deploy` only applies **pending**
-   migrations and is a no-op when the schema is already up to date, so re-runs
-   are safe.
-2. **`deploy`** — `needs: [preflight, migrate]`. It only proceeds when `migrate`
-   did **not** fail or get cancelled. This guarantees new application code never
-   serves traffic against an un-migrated schema.
+Two distinct identifiers, kept straight: **`IMAGE_SHA`** = the commit sha = the
+image tag = `terraform -var image_tag`; **`TAG`** = the CalVer release, used only
+for the footer release badge (a `--build-arg`, never the image tag).
 
-Ordering rationale: migrations are run **before** the app is promoted to
-production. Write migrations to be backward-compatible (expand → migrate →
-contract) so the previous app version keeps working during the brief window
-between migrate and deploy.
+## Key facts
 
-## How preview deploys work (#17)
+- **Build by commit sha in ACR:** `az acr build --registry acralztyhlgn6o
+  --image project50-web:<sha> ...`. The image Terraform pulls (`image_tag=<sha>`)
+  is exactly the image you built. `az acr build` builds `linux/amd64` natively;
+  a local `docker build` under arm64 emulation fails.
+- **`auth_url` now defaults to `https://www.project50.fit`** (the canonical host;
+  the apex `project50.fit` 301-redirects to `www`, and OAuth callbacks are
+  registered for `www`). So a routine `terraform apply -var image_tag=...`
+  **without** an `auth_url` override is correct — do not pass the apex.
+- **Migrations run before the image switch.** `prisma migrate deploy`
+  (forward-only, idempotent) is run as the DB admin **before** `terraform apply`
+  flips the image, so the new revision never serves traffic against an
+  un-migrated schema. Write migrations backward-compatible (expand → migrate →
+  contract).
+- **Always roll a fresh revision** after a deploy
+  (`az containerapp update --revision-suffix ...`). Container Apps caches
+  **versionless** Key Vault secret refs (~30 min), so a fresh revision is what
+  picks up rotated secrets immediately. Likewise build with no stale layers
+  (`--no-cache` if a rebuild would reuse a cached `NEXT_PUBLIC_RELEASE_*` layer)
+  so the release-badge env isn't baked stale — a stale deployed image is the #1
+  "works locally but not online" cause.
+- **CalVer release per merge:** one `vYYYY.MM.DD.N` tag + GitHub release per
+  green merge to `main` (`release.yml`); the badge links the deployed
+  tag/sha/time.
+- **No secret values in TF state.** The Container App references Key Vault
+  secrets by **versionless URI**; values are set out of band with
+  `az keyvault secret set`. There is a **one-time secrets-state migration**
+  (`terraform state rm` of three former `azurerm_key_vault_secret` resources)
+  that **must run before the first `terraform apply` with the current code**, or
+  the apply will plan to DELETE the live `database-url` / `database-url-admin` /
+  `auth-secret` secrets and take down the app. That procedure (and the
+  state-history scrub) is documented in
+  [`infra/azure/README.md`](../infra/azure/README.md) — do it first.
 
-`preview.yml` runs on every `pull_request` (opened / synchronize / reopened):
+## Migrate-on-release
 
-- Builds a **preview** Vercel deployment (no `--prod`), producing a unique URL
-  per commit.
-- Comments the preview URL back on the PR (`github-comment: true`).
-- `concurrency` cancels superseded builds when new commits are pushed.
-- Preview deploys **do not run migrations**. Point the Vercel project's preview
-  environment at a disposable/preview database — never production.
-
-> Forked PRs do not receive repository secrets from GitHub. In that case the
-> `preflight` gate resolves to `false` and the preview job is cleanly skipped.
-
-## Manual setup steps (one-time, done by you)
-
-1. **Create the Vercel project**
-   - Import this repo in Vercel.
-   - Set the project **Root Directory** to `apps/web`.
-   - Framework preset: **Next.js**.
-   - Configure environment variables in Vercel (Production + Preview scopes):
-     `DATABASE_URL`, `AUTH_SECRET`, `S3_ENDPOINT`, `S3_ACCESS_KEY`,
-     `S3_SECRET_KEY`, `S3_BUCKET`, and any others from `.env.example`. These are
-     the app's **runtime/build** env on Vercel and are separate from the GitHub
-     Actions secrets above (which are used by the `migrate` job and to authorize
-     the deploy).
-2. **Get the Vercel ids/token**
-   - `VERCEL_TOKEN`: Vercel → Account Settings → Tokens → Create.
-   - `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID`: run `npx vercel link` in the repo
-     and read them from the generated `.vercel/project.json`, or copy them from
-     the project's settings page.
-3. **Add the GitHub Actions secrets** listed in [Required secrets](#required-secrets).
-4. **Provision the production database** and set its connection string as the
-   `DATABASE_URL` GitHub secret (used by the `migrate` job). Use a separate
-   preview database for the Vercel Preview environment.
-5. Push to `main` (or run the **Deploy** workflow manually) to trigger the first
-   production deploy.
+`prisma migrate deploy` applies only **pending** migrations and is a no-op when
+the schema is up to date, so re-runs are safe. It is **forward-only** — there is
+no automatic down-migration. To revert a schema change, author a new forward
+migration and ship it through the same deploy. This forward-only history is why
+the app can always be rolled back (revision rollback, below) without a matching
+DB rollback. See [`infra/azure/README.md`](../infra/azure/README.md) for the
+exact migrate step (admin URL from Key Vault, temp Postgres firewall rule).
 
 ## Rollback
 
-- **App rollback (Vercel):** open the Vercel project → **Deployments**, find the
-  last known-good production deployment, and choose **Promote to Production** (or
-  `vercel rollback`). This is instant and does not touch the database.
-- **Database rollback:** `prisma migrate deploy` only rolls **forward**. There is
-  no automatic down-migration. To revert a schema change, author a new
-  forward migration that undoes it and ship it through the same pipeline. This is
-  why migrations should be backward-compatible (expand/contract) — a forward-only
-  history means you can always roll the app back without a matching DB rollback.
-- **Bad migration:** if a migration fails, the `migrate` job fails and the
-  `deploy` job is skipped (no bad code reaches production). Fix the migration and
-  re-run.
+- **App rollback = Container App revision rollback.** Each deploy creates a new
+  Container App revision; the previous good revision is still there. Shift
+  ingress traffic back to it (instant, does **not** touch the DB):
 
-## Switching hosts
+  ```bash
+  RG=rg-project50-dev-canadacentral; APP=ca-project50-web-dev
+  az containerapp revision list -g "$RG" -n "$APP" -o table   # find last-good
+  az containerapp ingress traffic set -g "$RG" -n "$APP" \
+    --revision-weight <last-good-revision>=100
+  ```
 
-The `migrate` job is portable. To deploy somewhere other than Vercel:
+  See [`RUNBOOKS.md`](./RUNBOOKS.md) → *Bad deploy / rollback* for the full lever
+  (activate/restart a revision, 100% traffic shift).
+- **Database rollback:** forward-only — ship a new forward migration that undoes
+  the change. Never hand-edit `_prisma_migrations`.
+- **Bad migration:** because migrations run **before** the image switch, a failed
+  migration aborts the deploy and the live revision keeps serving the old
+  schema. Fix the migration forward and re-run.
 
-1. Replace the `deploy` job in `deploy.yml` and the `preview` job in
-   `preview.yml` with your host's deploy action/CLI.
-2. Update the `preflight` secret gate to check whatever secrets your host needs.
-3. Keep the `deploy` job's `needs: [preflight, migrate]` ordering so migrations
-   still run first.
+## Scaling
+
+The Container App keeps **`min_replicas = 1`** (one warm replica 24/7) and scales
+out to **`max_replicas = 4`** under HTTP-concurrency load, so there is **no cold
+start** on the first request after idle. Health probes target `/api/health`
+(startup/liveness, dependency-free) and `/api/ready` (readiness, checks
+DB + Blob). Details and the scale-to-zero opt-out (`-var min_replicas=0`) are in
+[`infra/azure/README.md`](../infra/azure/README.md) § *Scaling*.
