@@ -285,8 +285,11 @@ az postgres flexible-server firewall-rule create -g rg-project50-dev-canadacentr
   --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
 APP_DB_PW="p50app_$(openssl rand -hex 12)"
 DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
+# Pipe the repo SQL file in on stdin (it is NOT inside the postgres:16 image, so
+# `-f infra/azure/sql/app-role.sql` would look for it in the container and fail).
+# Read the script from stdin with `-f -`; run from the repo root so the path resolves.
 docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
-  -f infra/azure/sql/app-role.sql
+  -f - < infra/azure/sql/app-role.sql
 az keyvault secret set --vault-name "$KV" --name database-url \
   --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
 az postgres flexible-server firewall-rule delete -g rg-project50-dev-canadacentral \
@@ -315,14 +318,15 @@ az keyvault secret set --vault-name "$KV" --name database-url \
 
 # Admin connection string — deployer-only (migrations + role bootstrap). The
 # admin password is ONLY retrievable from the TF output (Azure never reveals an
-# existing Flexible Server admin password); assemble the URL from the outputs:
-#   cd infra/azure
-#   PG_HOST="$(terraform output -raw postgres_fqdn)"
-#   ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
-#   ADMIN_PW="$(terraform output -raw db_admin_password)"   # sensitive output
-#   ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
-az keyvault secret set --vault-name "$KV" --name database-url-admin \
-  --value "postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
+# existing Flexible Server admin password); assemble the URL from the outputs
+# (run these from infra/azure so `terraform output` resolves):
+( cd infra/azure
+  PG_HOST="$(terraform output -raw postgres_fqdn)"
+  ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
+  ADMIN_PW="$(terraform output -raw db_admin_password)"   # sensitive output
+  ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
+  az keyvault secret set --vault-name "$KV" --name database-url-admin \
+    --value "postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require" )
 
 # Auth.js JWT signing key
 az keyvault secret set --vault-name "$KV" --name auth-secret \
