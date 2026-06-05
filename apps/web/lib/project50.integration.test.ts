@@ -2,6 +2,17 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { prisma, resetDb } from "@/test/db";
 import { addDays, PROJECT50_LENGTH_DAYS } from "@project50/core";
+
+// Object storage is partially mocked: keep the real (presignGet-driven) read
+// path so listProject50DayMedia still returns signed URLs, but spy on
+// deleteObject so removeProject50DayMedia's blob deletion is asserted without
+// hitting a real S3/Azure backend.
+const deleteObjectMock = vi.fn<(key: string) => Promise<void>>();
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/storage")>();
+  return { ...actual, deleteObject: (key: string) => deleteObjectMock(key) };
+});
+
 import {
   startProject50,
   getProject50State,
@@ -9,9 +20,14 @@ import {
   getProject50History,
   attachProject50DayMedia,
   listProject50DayMedia,
+  removeProject50DayMedia,
 } from "./project50";
 
-beforeEach(resetDb);
+beforeEach(() => {
+  deleteObjectMock.mockReset();
+  deleteObjectMock.mockResolvedValue(undefined);
+  return resetDb();
+});
 afterAll(async () => {
   await prisma.$disconnect();
 });
@@ -341,6 +357,57 @@ describe("Project 50 day media", () => {
     await startProject50(u.id, "UTC", NOW);
     const state = await getProject50State(u.id, NOW);
     expect(state.today?.media).toEqual([]);
+  });
+
+  it("removeProject50DayMedia deletes the owner's blob and DB row", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "media/u/gone.jpg", width: 5, height: 5 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    expect(deleteObjectMock).toHaveBeenCalledWith("media/u/gone.jpg");
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+  });
+
+  it("removeProject50DayMedia rejects a non-owner and deletes NOTHING (security)", async () => {
+    const owner = await makeUser();
+    const attacker = await prisma.user.create({ data: { handle: "atk", displayName: "Atk" } });
+    const runId = await startProject50(owner.id, "UTC", NOW);
+    await attachProject50DayMedia(owner.id, { objectKey: "media/owner/secret.jpg", width: 9, height: 9 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+
+    await removeProject50DayMedia(attacker.id, row.id);
+
+    // The blob is untouched and the row still exists — no cross-user deletion.
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).not.toBeNull();
+  });
+
+  it("removeProject50DayMedia is a safe no-op for an unknown id", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW);
+
+    await expect(removeProject50DayMedia(u.id, "does-not-exist")).resolves.toBeUndefined();
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+  });
+
+  it("removeProject50DayMedia still deletes the DB row when blob deletion errors", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    await attachProject50DayMedia(u.id, { objectKey: "media/u/orphan.jpg", width: 1, height: 1 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    deleteObjectMock.mockRejectedValueOnce(new Error("storage 500"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    // Storage failure is logged-and-continued; the row is still removed so no
+    // orphaned DB record lingers (an orphaned blob is preferable).
+    expect(errorSpy).toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    errorSpy.mockRestore();
   });
 });
 

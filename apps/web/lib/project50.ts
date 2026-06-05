@@ -7,7 +7,7 @@ import {
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
-import { presignGet } from "@/lib/storage";
+import { presignGet, deleteObject } from "@/lib/storage";
 
 /** One photo attached to a Project 50 day, with a signed view URL for display. */
 export interface Project50DayMediaItem {
@@ -309,4 +309,39 @@ export async function attachProject50DayMedia(
       height: media.height,
     },
   });
+}
+
+/**
+ * Remove one photo (by media id) from the user's Project 50 run.
+ *
+ * SECURITY: the row is loaded JOINED to its challenge and we verify the
+ * challenge's `ownerId === uid` before touching anything. A user may only ever
+ * delete THEIR OWN media — a mismatch (or an unknown id) is a safe no-op, so no
+ * cross-user deletion is possible.
+ *
+ * On a valid owner match we delete the blob first (best-effort: storage errors
+ * are logged-and-continued, mirroring account deletion — an orphaned blob is
+ * preferable to an orphaned DB row), then delete the DB row. Idempotent:
+ * deleting an already-gone id does nothing.
+ */
+export async function removeProject50DayMedia(
+  uid: string,
+  mediaId: string,
+): Promise<void> {
+  const row = await prisma.project50DayMedia.findUnique({
+    where: { id: mediaId },
+    select: { id: true, objectKey: true, challenge: { select: { ownerId: true } } },
+  });
+  // Unknown id, or a row whose challenge is owned by someone else → no-op.
+  if (!row || row.challenge.ownerId !== uid) return;
+
+  try {
+    await deleteObject(row.objectKey);
+  } catch (err) {
+    // Log and continue: the blob may be orphaned, but we still remove the DB
+    // row so the user's "Today's photo" strip reflects the deletion.
+    console.error(`removeProject50DayMedia: failed to delete blob ${row.objectKey}`, err);
+  }
+
+  await prisma.project50DayMedia.delete({ where: { id: row.id } });
 }
