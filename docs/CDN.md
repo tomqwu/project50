@@ -1,132 +1,193 @@
 # Media CDN & Image Optimization
 
 Project 50 stores user-generated media (activity photos, rendered recap MP4s)
-in S3-compatible object storage: **MinIO** in dev/staging, **AWS S3** in
-production. This document describes how a CDN sits in front of that storage,
-how images are optimized, and the environment wiring that ties it together.
+in **Azure Blob Storage** — a single **private** container on the
+`azurerm_storage_account.media` account (see `infra/azure/main.tf`), running
+alongside the web app on **Azure Container Apps**. Media is served to browsers
+via short-lived, per-request **SAS GET URLs** minted by the app, not from a CDN.
+
+This document describes the current delivery model, why a CDN in front of Blob
+has **limited value today**, and the Azure-native path to add one **later** as a
+future enhancement (with its prerequisites). It is honest about the present:
+**there is no CDN in this deployment** — the infra contains no `azurerm_cdn_*`
+or Front Door resource, and this is intentional given the model below.
 
 ## TL;DR
 
-- Put a CDN (CloudFront or Cloudflare) in front of the object-storage bucket.
-- Point `S3_PUBLIC_URL` at the **CDN origin** (not the bucket/MinIO endpoint).
-- Ensure `apps/web/next.config.mjs` `images.remotePatterns` includes the CDN
-  host — it is derived automatically from `S3_PUBLIC_URL` / `S3_ENDPOINT`.
-- Set long-lived `Cache-Control` on stored objects so the CDN caches them.
+- **Current state:** media lives in a **private** Azure Blob container and is
+  delivered via **5-minute SAS GET URLs** (`presignGet()` in
+  `apps/web/lib/storage.ts`). Uploaded objects carry
+  `Cache-Control: private, max-age=31536000, immutable` so the **browser** caches
+  them for a year, but **shared/edge caches and CDNs must not** retain them.
+- **No CDN today, by design.** SAS URLs are per-request signed and expire in
+  5 minutes, so an edge cache can't cache them effectively and **must not** serve
+  them past expiry. A CDN in front of these URLs buys almost nothing.
+- **`next/image` is also disabled** for this media for the same reason — the app
+  uses raw `<img>` (see `apps/web/next.config.mjs`).
+- **A CDN becomes worthwhile only after** migrating hot/public media (feed
+  photos, public share-page images) to **stable, public (non-signed) URLs**.
+  The Azure-native path for that is **Azure Front Door** / **Azure CDN** in front
+  of the storage account — **not** CloudFront. See [Future enhancement](#future-enhancement-azure-front-door--azure-cdn).
 
-## Architecture
+## Current architecture (Azure Blob + SAS, no CDN)
 
 ```
-browser ──▶ CDN (CloudFront / Cloudflare) ──▶ S3 bucket (origin)
-              │  edge cache, TLS, compression
-              ▼
-        cache-control honored from object metadata
+browser ──▶ Azure Blob (private container)
+   ▲              via a 5-min SAS GET URL minted per request by the app
+   │
+   └── app (Container Apps) mints the SAS URL with its MANAGED IDENTITY
+       (user-delegation key), then the browser fetches the blob directly.
 ```
 
-The Next.js app never proxies durable media bytes through itself. Media is
-served directly from the CDN edge. The app only mints **presigned URLs**
-(short-lived, signed GET URLs) for private objects — see below.
+The Next.js app never proxies durable media bytes through itself. To **view** a
+private object the app calls `presignGet(objectKey)` (`apps/web/lib/storage.ts`),
+which returns a **Blob SAS GET URL** scoped to that one blob and valid for
+**5 minutes** (`PRESIGN_EXPIRY`). The browser then fetches the bytes directly
+from `*.blob.core.windows.net`. Uploads use the mirror-image `presignPut()`
+(a 5-min SAS `racw` URL + a direct browser `PUT`).
 
-## Environment wiring
+Authentication is via the app's **managed identity** in production: the app
+holds **no account key** and signs SAS URLs with a short-lived
+**user-delegation key** (`getUserDelegationKey()`), cached ~1h. The container is
+`container_access_type = "private"` and the account sets
+`allow_nested_items_to_be_public = false` (`infra/azure/main.tf`) — so blobs are
+**never** anonymously readable; the SAS signature is the only way in.
 
-| Variable        | Dev (MinIO)              | Prod (S3 + CDN)                          |
-| --------------- | ------------------------ | ---------------------------------------- |
-| `S3_ENDPOINT`   | `http://localhost:9000`  | S3 regional endpoint (internal writes)   |
-| `S3_PUBLIC_URL` | _(unset → endpoint)_     | `https://cdn.project50.app` (CDN origin) |
-| `S3_BUCKET`     | `project50-media`        | `project50-media-prod`                   |
+### Cache-Control: `private, max-age=31536000, immutable`
 
-`S3_PUBLIC_URL` is the public base URL used when serving stored media; it falls
-back to `S3_ENDPOINT` when unset (see `.env.example` and `lib/storage.ts`).
-**In production it must point at the CDN**, so public media URLs resolve to the
-cached edge rather than the bucket directly.
+Object keys are content-addressed and immutable —
+`media/<userId>/<suffix>.<ext>` via `newMediaKey()` — so the bytes at a given key
+never change. Server-side uploads (`putObject`, used for recap MP4s) therefore
+set:
 
-## next/image configuration
+```
+Cache-Control: private, max-age=31536000, immutable
+```
 
-`apps/web/next.config.mjs` configures the Next image optimizer:
+The choice of **`private`** (not `public`) is deliberate and load-bearing (see
+the `IMMUTABLE_CACHE_CONTROL` constant + comment in `apps/web/lib/storage.ts`):
+
+- `max-age=31536000, immutable` lets the **per-user browser cache** keep the
+  bytes for a year — a real perf win, since the key never changes.
+- **`private`** forbids **shared caches and CDNs** from storing the response.
+  Because delivery is via 5-minute SAS URLs, a shared/edge cache that retained
+  the bytes could replay a signed URL and serve it **long after the 5-min
+  expiry**, bypassing the access control on private media (including recap MP4s
+  for PRIVATE/FOLLOWERS challenges). `private` keeps the browser-cache win while
+  forbidding any shared/CDN storage.
+
+So the cache policy is, by design, **browser-cacheable but CDN-hostile** — which
+is exactly the right posture for short-lived, per-request signed URLs.
+
+## Why a CDN in front of Blob has limited value today
+
+A CDN's value is edge caching: many requests collapse onto one cached object
+keyed by URL. The current delivery model defeats that on every axis:
+
+1. **Cache-key churn on the signature.** Each `presignGet()` returns a URL with a
+   fresh SAS query string (signature, `se` expiry, etc.). The CDN cache key is
+   the URL, so it **churns on every render** — the edge would re-fetch the same
+   blob each time, with no hit-rate benefit.
+2. **Short expiry + access control.** The URLs expire in **5 minutes**, and the
+   `private` Cache-Control explicitly tells shared caches **not** to store them.
+   Caching them would be both ineffective and a **security problem** (serving
+   bytes past expiry — see above).
+3. **No stable, dimension-bearing URLs for `next/image`.** The same signed,
+   expiring, query-churning URLs also defeat the Next.js image optimizer (its
+   cache key never stabilizes, and the upstream 403s after 5 minutes). This is
+   the **documented reason the app uses raw `<img>`** for feed photos
+   (`FeedView`), the celebrate photo (`CelebrateView`), and recap frames rather
+   than `next/image` — see the `buildRemotePatterns()` note in
+   `apps/web/next.config.mjs`.
+
+Net: putting Azure Front Door / Azure CDN in front of today's SAS URLs would add
+a hop and cost while caching essentially nothing. **A CDN is only worthwhile
+AFTER** hot/public media moves to **stable public URLs** (next section).
+
+## next/image configuration (present + future)
+
+`apps/web/next.config.mjs` already configures the Next image optimizer, but it is
+**not exercised by today's media** (which stays on raw `<img>`, above). The config
+is staged for the future migration:
 
 - `formats: ["image/avif", "image/webp"]` — modern formats, negotiated per the
   browser `Accept` header with automatic fallback.
 - `remotePatterns` — built by `buildRemotePatterns()`, which derives allowed
   origins from `S3_PUBLIC_URL`, then `S3_ENDPOINT`, plus the localhost MinIO
-  default for dev. **Because the CDN host comes from `S3_PUBLIC_URL`, simply
-  pointing that env var at the CDN automatically allow-lists it for
-  `next/image` — no code change required.**
+  default for dev. This allow-list exists so that **once** public media is served
+  from a stable host (a Front Door/CDN endpoint or a public Blob URL),
+  `next/image` can be re-enabled by pointing that env at the host — no further
+  code change.
 - `deviceSizes` / `imageSizes` — responsive breakpoints for `srcset`.
-- `minimumCacheTTL` — 24h cache for optimizer outputs at the Next layer; the
-  CDN provides the durable edge cache.
+- `minimumCacheTTL` — 24h cache for optimizer outputs at the Next layer.
 
-### Why current media still uses raw `<img>` (not `next/image`)
+> Note: `S3_PUBLIC_URL` / `S3_ENDPOINT` are the **S3/MinIO** knobs (the local-dev
+> / fallback backend, see below). The production Azure backend serves via SAS and
+> does not use them today; they become relevant again only if/when public media
+> is fronted by a stable host that the optimizer should be pointed at.
 
-The media rendered today — feed photos (`FeedView`), the celebrate photo
-(`CelebrateView`), recap frames — is served via **presigned GET URLs**:
-short-lived (5 minutes), query-signed URLs minted by `presignGet()` in
-`lib/storage.ts` (see `lib/api/media.ts`, `lib/api/recap.ts`).
+## Future enhancement: Azure Front Door / Azure CDN
 
-Presigned URLs are a poor fit for `next/image`:
+> **This is a future enhancement with prerequisites — NOT a current TODO.** It is
+> only worth doing once hot/public media (feed photos, public share-page images)
+> is moved off short-lived SAS URLs and onto **stable, public** URLs.
 
-1. **Cache-key churn.** The signature query string changes on every render, so
-   the optimizer's cache key never stabilizes — it would re-fetch and
-   re-encode the same image on every request, adding latency and compute with
-   no caching benefit.
-2. **Expiry.** The URLs expire in 5 minutes; an optimized image cached against
-   one signature points at an upstream that quickly 403s.
-3. **Layout.** `next/image` requires intrinsic `width`/`height` or `fill`; the
-   current photos use CSS `object-fit` without fixed intrinsic dimensions.
+The Azure-native path (use these, **not** AWS CloudFront):
 
-So those components intentionally keep raw `<img>`. Optimization and caching
-for that media is handled at the **CDN/object-storage layer** (formats and
-cache-control on the stored object), not by the Next optimizer.
+- **Azure Front Door** (Standard/Premium) in front of the storage account —
+  global edge caching, TLS, compression, HTTP/2/3, and a custom domain. Premium
+  can reach a private origin via **Private Link**; Standard fronts a
+  public-readable origin.
+- **Azure CDN** as a lighter-weight alternative for straightforward edge caching
+  of public Blob content.
 
-`next/image` becomes the right tool once media is served from **stable, public
-(non-signed) CDN URLs**. At that point the `remotePatterns` allow-list above
-already covers the CDN host, and components can switch to `next/image` with
-explicit dimensions.
+### Prerequisites (what must change first)
 
-## Cache-Control for media
+1. **A public-URL strategy for public media.** Today the container is `private`
+   and `allow_nested_items_to_be_public = false`. To cache at the edge you need
+   stable, non-signed URLs for the **public** subset — e.g. a public-readable
+   container (or public blob access) **scoped to feed/share-page images only**,
+   or an equivalent public-URL scheme — while keeping all **private** media
+   (PRIVATE/FOLLOWERS recaps, etc.) on the existing SAS path. Do **not** make the
+   current private container world-readable: that would break the access-control
+   model and the GDPR hard-erase posture documented in `infra/azure/main.tf`.
+2. **Public-media `Cache-Control` becomes `public`.** Only for the genuinely
+   public objects — so the edge may cache them. Private media keeps `private`.
+3. **Front Door / Azure CDN** in front of the storage account, honoring origin
+   `Cache-Control`, with compression and a custom domain + managed cert.
+4. **Re-enable `next/image`** for the migrated media: point the optimizer's
+   allow-list at the public host (the existing `images` config in
+   `apps/web/next.config.mjs` already covers this once the host is known) and
+   switch `FeedView` / `CelebrateView` to `next/image` with explicit dimensions.
 
-Stored media objects should carry a long-lived, immutable cache policy so the
-CDN and browsers cache aggressively. Keys are content-addressed
-(`media/<userId>/<suffix>.<ext>` — see `newMediaKey()`), so objects are
-effectively immutable:
+Only after (1)–(2) do the SAS-driven blockers above disappear and a CDN start
+paying for itself.
 
-```
-Cache-Control: public, max-age=31536000, immutable
-```
+## S3 / MinIO is the local-dev / fallback backend only
 
-Set this as object metadata at upload time (server-side `putObject`) or via a
-bucket/CDN default response-header policy. For **presigned-URL** delivery the
-header is still honored by the browser, but the CDN cannot cache signed
-responses (the signature makes each URL unique) — another reason public CDN
-URLs are preferred for hot media.
+`apps/web/lib/storage.ts` keeps an **S3-compatible** code path (the `@aws-sdk`
+client, `S3_ENDPOINT` / `S3_PUBLIC_URL` / `S3_BUCKET` env). In this deployment
+that path is **not** the production backend — it is the **local-dev / CI**
+backend (**MinIO**) and a generic S3/AWS fallback. Production runs the **Azure
+Blob** path (managed-identity user-delegation SAS), selected at runtime by the
+`AZURE_STORAGE_*` env wired in `infra/azure/main.tf`.
 
-## Setting up the CDN
+Any AWS-specific CDN guidance (CloudFront, Origin Access Control, S3 bucket
+origins) is therefore **not applicable to this deployment**. If you operate the
+S3/MinIO fallback in some other environment, front it with that provider's CDN as
+you would any S3 bucket — but for Project 50's Azure deployment, follow the
+Azure-native path above.
 
-### CloudFront (AWS)
+## See also
 
-1. Create a CloudFront distribution with the S3 bucket as origin (use Origin
-   Access Control so the bucket stays private to the world but readable by
-   CloudFront).
-2. Attach a cache policy with a long default TTL; honor `Cache-Control` from
-   the origin.
-3. Enable Brotli/Gzip compression and HTTP/2/3.
-4. Use a custom domain (e.g. `cdn.project50.app`) with an ACM cert.
-5. Set `S3_PUBLIC_URL=https://cdn.project50.app`.
-
-### Cloudflare
-
-1. Put the bucket behind Cloudflare (proxied DNS record / R2 + custom domain).
-2. Create a cache rule for the media path with "Cache Everything" and respect
-   origin `Cache-Control`.
-3. Optionally enable Polish/Mirage for additional image optimization at the
-   edge.
-4. Set `S3_PUBLIC_URL` to the Cloudflare-fronted hostname.
-
-## TODO (cloud-account steps)
-
-- [ ] **Provision the CDN distribution** (CloudFront or Cloudflare) against the
-      production media bucket — requires the cloud account / IAM, not yet done.
-- [ ] Issue/attach the TLS cert for the CDN custom domain.
-- [ ] Set production `S3_PUBLIC_URL` to the CDN origin.
-- [ ] Apply the `Cache-Control: public, max-age=31536000, immutable` default
-      response-header policy (or set it on `putObject` uploads).
-- [ ] (Future) Migrate hot media from presigned URLs to public CDN URLs and
-      switch `FeedView` / `CelebrateView` to `next/image`.
+- [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md) — provisioning the storage backend
+  and the presign upload/download flow.
+- [`DOMAIN-TLS.md`](./DOMAIN-TLS.md) — custom domains / managed certs (a CDN
+  custom domain would build on the same DNS/cert posture).
+- `apps/web/lib/storage.ts` — `presignGet` / `presignPut` / `putObject` and the
+  `IMMUTABLE_CACHE_CONTROL` rationale.
+- `infra/azure/main.tf` — `azurerm_storage_account.media` (private container,
+  managed-identity access, no CDN).
+- `apps/web/next.config.mjs` — `images` config + the raw-`<img>` rationale.
+</content>
+</invoke>
