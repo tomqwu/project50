@@ -617,8 +617,12 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
    **versioning + soft-delete on this BACKUP account** (the *live media* account
    keeps soft-delete OFF for GDPR hard-erase — different account).
 2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`),
-   **Storage Blob Data Contributor** (on the backup account), and **Storage Blob
-   Data Reader** (on the live media account `stp50mediazv34o5`, for the mirror).
+   **Storage Blob Data Contributor** (on the backup account), and — for the media
+   mirror — **Storage Blob Data Reader + Storage Blob Delegator** on the live media
+   account `stp50mediazv34o5` (or just **Storage Blob Data Contributor**, which
+   includes delegation). Plain Reader is **not** enough: the cross-account
+   `--auth-mode login` copy mints a source user-delegation SAS, which Reader can't
+   create — the copy would fail.
 3. Add the repo secrets (`AZURE_CLIENT_ID`/`TENANT`/`SUBSCRIPTION` for federated
    login — **required for CI** — plus `BACKUP_STORAGE_ACCOUNT`) — see
    `docs/BACKUPS.md`.

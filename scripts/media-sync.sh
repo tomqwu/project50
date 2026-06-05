@@ -40,8 +40,16 @@
 #   MEDIA_SYNC_TIMEOUT      Max seconds to wait for copies to finish. Default: 1800
 #   MEDIA_SYNC_POLL_INTERVAL Seconds between copy-status polls. Default: 10
 #
-# Auth: `az` must be logged in with Storage Blob Data Reader on the source and
-# Storage Blob Data Contributor on the backup container. In CI this comes from
+# Auth / RBAC: `az` must be logged in. For this OAuth (`--auth-mode login`)
+# cross-account copy, Azure CLI mints a SOURCE user-delegation SAS, which needs
+# the ability to call get_user_delegation_key on the SOURCE account. So the
+# backup identity needs, on the SOURCE media account:
+#     Storage Blob Data Reader + Storage Blob Delegator
+#       (or Storage Blob Data Contributor, which includes delegation)
+# and on the DESTINATION backup account:
+#     Storage Blob Data Contributor.
+# (Plain Storage Blob Data Reader on the source is NOT enough — it cannot mint a
+# delegation key, and the copy would fail.) In CI the identity comes from
 # `azure/login` (federated OIDC) — see backup.yml.
 #
 # Fail-fast.
@@ -74,6 +82,8 @@ echo "[media-sync] mode        : additive (never deletes from the backup)"
 # Server-side batch copy: source container -> backup container. `--pattern '*'`
 # copies all blobs; existing identical destination blobs are left as-is. The
 # copy is async on Azure's side; start-batch returns once the copies are queued.
+# NB: requires Storage Blob Delegator (or Contributor) on the SOURCE account —
+# CLI mints a source user-delegation SAS for the cross-account copy (see header).
 "$AZ" storage blob copy start-batch \
   --account-name "$BACKUP_STORAGE_ACCOUNT" \
   --destination-container "$MEDIA_BACKUP_CONTAINER" \

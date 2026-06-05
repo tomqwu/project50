@@ -10,8 +10,10 @@
 #
 # What it does
 # ------------
-#   1. Resolve the admin connection string — preferring the Key Vault secret
-#      `database-url-admin`, falling back to $DATABASE_URL (env/CI secret).
+#   1. Resolve the admin connection string — reads the Key Vault secret
+#      `database-url-admin` by DEFAULT; a deliberate override is the dedicated
+#      $BACKUP_DATABASE_URL (must be the prod ADMIN URL). The ambient $DATABASE_URL
+#      is IGNORED (it's the app/pooler p50app connection, wrong for pg_dump).
 #   2. pg_dump the database in custom format, gzipped, to a TIMESTAMPED file.
 #      pg_dump runs via the `postgres:16` docker image so its major version is
 #      >= the prod server (16) without needing a local pg client install.
@@ -19,7 +21,7 @@
 #      backup storage account ($BACKUP_STORAGE_ACCOUNT).
 #   4. Prune blobs older than $BACKUP_RETENTION_DAYS daily backups (default 14).
 #
-# Inert without config: if neither a Key Vault secret nor a $DATABASE_URL is
+# Inert without config: if neither a Key Vault secret nor $BACKUP_DATABASE_URL is
 # available the script exits non-zero with a clear message; the CI workflow
 # gates on the secrets so it is SKIPPED (not failed) until they are set.
 #

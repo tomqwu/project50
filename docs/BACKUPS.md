@@ -160,7 +160,7 @@ the storage account, else the job stays inert/skipped):
 
 | Secret | Purpose |
 | --- | --- |
-| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — **required** (used by both the `pg-backup` and `media-sync` jobs). The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n`, **Storage Blob Data Contributor** on the backup account, and **Storage Blob Data Reader** on the live media account (for the media mirror). |
+| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — **required** (used by both the `pg-backup` and `media-sync` jobs). The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n`, **Storage Blob Data Contributor** on the backup account, and — for the media mirror — **Storage Blob Data Reader + Storage Blob Delegator** on the live media account `stp50mediazv34o5` (or just **Storage Blob Data Contributor**, which includes delegation). Plain Reader is **not** enough: the cross-account `--auth-mode login` copy mints a *source user-delegation SAS*, which Reader cannot create. |
 | `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`) — **required**; holds both the DB dumps and the media mirror. |
 | `BACKUP_CONTAINER` | (optional) DB-dump container name; default `db-backups`. |
 | `KEY_VAULT_NAME` | (optional) override; default `kv-project50-dev-6z7n`. |
@@ -172,11 +172,13 @@ the storage account, else the job stays inert/skipped):
 > The script's `BACKUP_DATABASE_URL` override is for the local-operator path only;
 > the ambient `DATABASE_URL` is never used for backups.
 
-> **Least privilege:** the backup identity needs only **read** on the Key Vault
-> secret + **read on the DB** (the admin string is used read-only for `pg_dump`)
-> + **read on the live media** container, and **write** on the backup account —
-> and, for DB-dump retention, delete on the `db-backups` container only. Never
-> delete on the source DB or the live media account.
+> **Least privilege:** the backup identity needs **read** on the Key Vault secret
+> + **read on the DB** (the admin string is used read-only for `pg_dump`) +
+> **read + blob-delegation on the live media** account (Storage Blob Data Reader
+> *and* Storage Blob Delegator, or Contributor — the cross-account copy must mint
+> a source delegation SAS), and **write** on the backup account — and, for DB-dump
+> retention, delete on the `db-backups` container only. Never delete on the source
+> DB or the live media account.
 
 ## Tested restore drill
 
@@ -293,7 +295,8 @@ accidental/malicious wipe of the live container can't propagate.
 > fails — it will never record a "successful" media backup with missing or
 > still-copying blobs.
 
-Run locally too:
+Run locally too (your `az` identity needs **Storage Blob Delegator** — or
+Contributor — on the source media account; see the RBAC note above):
 
 ```bash
 az login
