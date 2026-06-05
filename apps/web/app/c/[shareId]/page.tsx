@@ -5,6 +5,13 @@ import { CelebrateView } from "@/app/(app)/challenges/[id]/celebrate/CelebrateVi
 import type { MilestoneKind } from "@/app/(app)/challenges/[id]/celebrate/CelebrateView";
 import { dayNumber, localDayKey } from "@project50/core";
 
+// Render dynamically on every request — do NOT cache/ISR this page. The
+// visibility gate (getChallengeByShareId returns null unless the challenge is
+// PUBLIC) must run per-request: if the owner flips the challenge to
+// PRIVATE/FOLLOWERS or deletes it, PATCH/DELETE do not invalidate /c/<shareId>,
+// so a cached render would keep leaking a now-private page to anonymous visitors.
+export const dynamic = "force-dynamic";
+
 export default async function PublicSharePage({
   params,
 }: {

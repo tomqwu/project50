@@ -255,12 +255,15 @@ describe("putObject", () => {
     const [headCmd] = mockSend.mock.calls[0] as [{ _type?: string }];
     expect(headCmd._type).toBe("HeadBucket");
     // Second call must be PutObject
-    const [putCmd] = mockSend.mock.calls[1] as [{ _type?: string; Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string }];
+    const [putCmd] = mockSend.mock.calls[1] as [{ _type?: string; Bucket?: string; Key?: string; Body?: Buffer; ContentType?: string; CacheControl?: string }];
     expect(putCmd._type).toBe("PutObject");
     expect(putCmd.Bucket).toBe("project50-media");
     expect(putCmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
     expect(putCmd.Body).toBe(body);
     expect(putCmd.ContentType).toBe("video/mp4");
+    // Media keys are content-addressed/immutable → browser-cache forever, but
+    // `private` so shared/CDN caches can't replay signed-URL bytes cross-user.
+    expect(putCmd.CacheControl).toBe("private, max-age=31536000, immutable");
   });
 
   it("creates the bucket when missing, then uploads (fresh-storage scenario)", async () => {
@@ -773,7 +776,12 @@ describe("Azure Blob backend", () => {
       expect(azureCreateIfNotExists).toHaveBeenCalledOnce();
       expect(getBlockBlobClient).toHaveBeenCalledWith("media/u1/recap.mp4");
       expect(azureUpload).toHaveBeenCalledWith(body, body.length, {
-        blobHTTPHeaders: { blobContentType: "video/mp4" },
+        blobHTTPHeaders: {
+          blobContentType: "video/mp4",
+          // Immutable content-addressed media → browser-cache forever, but
+          // `private` so shared/CDN caches can't replay signed-URL bytes.
+          blobCacheControl: "private, max-age=31536000, immutable",
+        },
       });
       // S3 path untouched
       expect(mockSend).not.toHaveBeenCalled();
@@ -1086,7 +1094,12 @@ describe("Azure managed-identity backend (user-delegation SAS)", () => {
       expect(azureCreateIfNotExists).toHaveBeenCalledOnce();
       expect(getBlockBlobClient).toHaveBeenCalledWith("media/u1/recap.mp4");
       expect(azureUpload).toHaveBeenCalledWith(body, body.length, {
-        blobHTTPHeaders: { blobContentType: "video/mp4" },
+        blobHTTPHeaders: {
+          blobContentType: "video/mp4",
+          // Immutable content-addressed media → browser-cache forever, but
+          // `private` so shared/CDN caches can't replay signed-URL bytes.
+          blobCacheControl: "private, max-age=31536000, immutable",
+        },
       });
       const { DefaultAzureCredential } = await import("@azure/identity");
       expect(vi.mocked(DefaultAzureCredential)).toHaveBeenCalledTimes(1);
