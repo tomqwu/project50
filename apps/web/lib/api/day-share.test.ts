@@ -14,14 +14,18 @@ vi.mock("@/lib/project50", () => ({
   listProject50DayMedia: mockListDayMedia,
 }));
 
-const { mockRuleCheckFindMany, mockJournalFindUnique } = vi.hoisted(() => ({
-  mockRuleCheckFindMany: vi.fn(),
-  mockJournalFindUnique: vi.fn(),
-}));
+const { mockRuleCheckFindMany, mockJournalFindUnique, mockDayStatusFindUnique } = vi.hoisted(
+  () => ({
+    mockRuleCheckFindMany: vi.fn(),
+    mockJournalFindUnique: vi.fn(),
+    mockDayStatusFindUnique: vi.fn(),
+  }),
+);
 vi.mock("@project50/db", () => ({
   prisma: {
     ruleCheck: { findMany: mockRuleCheckFindMany },
     dayJournal: { findUnique: mockJournalFindUnique },
+    dayStatus: { findUnique: mockDayStatusFindUnique },
   },
 }));
 
@@ -43,6 +47,9 @@ beforeEach(() => {
   mockListDayMedia.mockResolvedValue([]);
   mockRuleCheckFindMany.mockResolvedValue([]);
   mockJournalFindUnique.mockResolvedValue(null);
+  // Default the requested day to a COMPLETED day so the existing data-shape
+  // tests exercise the success path; the privacy tests override this.
+  mockDayStatusFindUnique.mockResolvedValue({ completed: true });
 });
 
 describe("getPublicDay", () => {
@@ -67,6 +74,31 @@ describe("getPublicDay", () => {
     expect(await getPublicDay("share-abc", 2.5)).toBeNull();
     expect(await getPublicDay("share-abc", Number.NaN)).toBeNull();
     expect(mockRuleCheckFindMany).not.toHaveBeenCalled();
+  });
+
+  it("returns null for an in-range day that is NOT completed (no DayStatus row)", async () => {
+    // A guessed but unfinished day must not leak partial rule state / photos /
+    // journal — the feature only shares COMPLETED days.
+    mockDayStatusFindUnique.mockResolvedValue(null);
+    expect(await getPublicDay("share-abc", 3)).toBeNull();
+    // We never load the day's media / journal once we know it isn't completed.
+    expect(mockListDayMedia).not.toHaveBeenCalled();
+    expect(mockJournalFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns null for an in-range day whose DayStatus is completed=false", async () => {
+    mockDayStatusFindUnique.mockResolvedValue({ completed: false });
+    expect(await getPublicDay("share-abc", 3)).toBeNull();
+    expect(mockListDayMedia).not.toHaveBeenCalled();
+    expect(mockJournalFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("checks completion via DayStatus for the resolved challenge + dayKey", async () => {
+    await getPublicDay("share-abc", 3);
+    expect(mockDayStatusFindUnique).toHaveBeenCalledWith({
+      where: { challengeId_dayKey: { challengeId: "run-1", dayKey: "2026-06-03" } },
+      select: { completed: true },
+    });
   });
 
   it("derives the dayKey via addDays(startDate, n-1) and queries that day", async () => {

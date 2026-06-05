@@ -53,6 +53,17 @@ export async function getPublicDay(
 
   const dayKey = addDays(challenge.startDate, dayNumber - 1);
 
+  // Only COMPLETED days are shareable. Without this gate a visitor could guess
+  // an in-range day number (e.g. today) and read a half-finished day's partial
+  // rule state, signed photo URLs, and journal text. DayStatus.completed is the
+  // canonical 7/7 flag (set by toggleRule), so gate on it and bail before
+  // loading any of the day's media/journal when it isn't a completed day.
+  const status = await prisma.dayStatus.findUnique({
+    where: { challengeId_dayKey: { challengeId: challenge.id, dayKey } },
+    select: { completed: true },
+  });
+  if (!status?.completed) return null;
+
   const [checkRows, media, journalRow] = await Promise.all([
     prisma.ruleCheck.findMany({
       where: { challengeId: challenge.id, dayKey, done: true },

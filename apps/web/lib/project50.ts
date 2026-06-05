@@ -231,7 +231,11 @@ export async function getProject50State(
   return {
     status: "ACTIVE",
     runId: run.id,
-    shareId: run.shareId,
+    // Only surface the shareId for a PUBLIC run. The public per-day page loads
+    // via getChallengeByShareId, which returns null for PRIVATE/FOLLOWERS — so
+    // exposing the id on a non-public run would render share buttons whose links
+    // 404. Omit it instead, and ShareDayButton won't render.
+    shareId: run.visibility === "PUBLIC" ? run.shareId : undefined,
     today: await buildToday(run.id, run.startDate, todayKey),
     history: await buildHistory(run.id, run.startDate, todayKey),
   };

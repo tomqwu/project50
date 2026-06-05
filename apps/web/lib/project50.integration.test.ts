@@ -41,6 +41,29 @@ describe("getProject50State", () => {
     expect(state.shareId).toBeTruthy();
   });
 
+  it("exposes shareId only for a PUBLIC run, not a PRIVATE/FOLLOWERS one", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+
+    // PUBLIC (the default for a Project 50 run) → shareId is present so the
+    // per-day share links resolve.
+    const publicState = await getProject50State(u.id, NOW);
+    expect(publicState.shareId).toBeTruthy();
+
+    // PRIVATE → getChallengeByShareId returns null for the link, so we must NOT
+    // surface a shareId (the dashboard would otherwise render share buttons whose
+    // public day links 404).
+    await prisma.challenge.update({ where: { id: runId }, data: { visibility: "PRIVATE" } });
+    const privateState = await getProject50State(u.id, NOW);
+    expect(privateState.status).toBe("ACTIVE");
+    expect(privateState.shareId).toBeUndefined();
+
+    // FOLLOWERS is likewise non-public for an anonymous visitor.
+    await prisma.challenge.update({ where: { id: runId }, data: { visibility: "FOLLOWERS" } });
+    const followersState = await getProject50State(u.id, NOW);
+    expect(followersState.shareId).toBeUndefined();
+  });
+
   it("startProject50 normalizes a malformed timezone to UTC before storing", async () => {
     const u = await makeUser();
     const runId = await startProject50(u.id, "Not/A_Zone", NOW);
