@@ -31,4 +31,7 @@ test("hardening headers + locked-down CSP directives are present", async ({ page
   expect(headers["x-content-type-options"]).toBe("nosniff");
   expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   expect(headers["permissions-policy"]).toContain("camera=()");
+  // x-powered-by is disabled (poweredByHeader: false) so the framework isn't
+  // advertised for fingerprinting — #292.
+  expect(headers["x-powered-by"]).toBeUndefined();
 });

@@ -69,16 +69,17 @@ resource "random_string" "suffix" {
   numeric = true
 }
 
-# ── Secrets (generated; stored in the per-app Key Vault) ────────────────────
+# ── Postgres admin password (generated; consumed only by the server resource) ─
+# This is the ONLY generated secret that still lands in TF state — it is the
+# `administrator_password` argument of the Postgres Flexible Server, which has no
+# Key-Vault-native or write-only/ephemeral form on this azurerm version, so the
+# value is unavoidably in state. It is NOT a Key Vault secret here; the admin
+# connection string (database-url-admin) is set out-of-band in Key Vault — see
+# the runbook in README.md.
 resource "random_password" "db_admin" {
   length           = 28
   special          = true
   override_special = "-_." # Postgres-safe specials (avoid URL-breaking chars)
-}
-
-resource "random_password" "auth_secret" {
-  length  = 48
-  special = false
 }
 
 # ── Postgres Flexible Server (burstable B1ms — ~$13/mo) ─────────────────────
@@ -170,13 +171,20 @@ resource "azurerm_role_assignment" "uami_blob" {
   principal_id         = module.onboard.identity_principal_id
 }
 
-# ── Deployer Key Vault access ───────────────────────────────────────────────
-# The principal running `terraform apply` needs to WRITE secrets into the
-# RBAC-mode per-app Key Vault. The onboard module grants the app's UAMI read
-# access, but not the deployer — so grant it here (captured in code, not a
-# manual `az role assignment`), then wait for RBAC to propagate before the
-# secret writes below (data-plane RBAC is eventually-consistent — without the
-# wait the first apply races the grant and 403s).
+# ── Key Vault RBAC propagation gate ─────────────────────────────────────────
+# Two data-plane RBAC grants must be LIVE before the things that depend on them
+# (data-plane RBAC is eventually-consistent — acting before propagation 403s):
+#   1. The DEPLOYER's "Key Vault Secrets Officer" grant (created here) — needed
+#      for the out-of-band `az keyvault secret set` writes the operator runs.
+#   2. The app UAMI's "Key Vault Secrets User" grant (created INSIDE
+#      module.onboard as azurerm_role_assignment.kv_secrets_user) — needed for
+#      the Container App to resolve its versionless KV secret URIs at create time.
+# Previously the (now-removed) azurerm_key_vault_secret resources chained the
+# Container App behind this wait implicitly; with them gone we make the wait
+# depend on BOTH grants and gate the Container App on it explicitly (see
+# `depends_on` on azurerm_container_app.web). The module exposes no handle for
+# its role assignment, so we depend on module.onboard as a whole — which orders
+# after every module resource, including kv_secrets_user.
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_role_assignment" "deployer_kv_secrets" {
@@ -186,50 +194,31 @@ resource "azurerm_role_assignment" "deployer_kv_secrets" {
 }
 
 resource "time_sleep" "kv_rbac_propagation" {
-  depends_on      = [azurerm_role_assignment.deployer_kv_secrets]
+  # Wait covers BOTH the deployer's Secrets Officer grant and the app UAMI's
+  # Secrets User grant (the latter inside module.onboard).
+  depends_on      = [azurerm_role_assignment.deployer_kv_secrets, module.onboard]
   create_duration = "60s"
 }
 
-# ── Secrets in Key Vault (UAMI already has Key Vault Secrets User via onboard)
-# The APP connects as the least-privilege "p50app" role (CRUD on public schema,
-# NOT a superuser/owner). The role + grants are created by the SQL bootstrap in
-# infra/azure/sql/app-role.sql (run by the deployer as admin — the postgresql TF
-# provider can't reach the firewalled Azure DB at plan-time). var.app_db_password
-# is the password set there; it lives in Key Vault, not in TF state.
-resource "azurerm_key_vault_secret" "database_url" {
-  depends_on = [time_sleep.kv_rbac_propagation]
-  name       = "database-url"
-  value = format(
-    "postgresql://p50app:%s@%s:5432/%s?sslmode=require",
-    urlencode(var.app_db_password),
-    azurerm_postgresql_flexible_server.db.fqdn,
-    azurerm_postgresql_flexible_server_database.app.name,
-  )
-  key_vault_id = module.onboard.key_vault_id
-}
-
-# Admin connection — used ONLY by the deployer for `prisma migrate deploy` and
-# the role bootstrap, never by the running app. Kept in Key Vault for the runbook.
-resource "azurerm_key_vault_secret" "database_url_admin" {
-  depends_on = [time_sleep.kv_rbac_propagation]
-  name       = "database-url-admin"
-  value = format(
-    "postgresql://%s:%s@%s:5432/%s?sslmode=require",
-    var.db_admin_login,
-    urlencode(random_password.db_admin.result),
-    azurerm_postgresql_flexible_server.db.fqdn,
-    azurerm_postgresql_flexible_server_database.app.name,
-  )
-  key_vault_id = module.onboard.key_vault_id
-}
-
-resource "azurerm_key_vault_secret" "auth_secret" {
-  name         = "auth-secret"
-  value        = random_password.auth_secret.result
-  key_vault_id = module.onboard.key_vault_id
-}
-
+# ── App secrets: set OUT-OF-BAND in Key Vault, never in Terraform state ──────
+# The values of `database-url`, `database-url-admin`, and `auth-secret` are NOT
+# managed by Terraform — they are created/rotated out of band with
+# `az keyvault secret set` (see the "Key Vault secrets (out of band)" runbook in
+# README.md) and consumed by the Container App below via their versionless
+# Key Vault URIs, exactly like the facebook-* OAuth secrets. This keeps the
+# plaintext connection strings and signing key out of TF state entirely.
+#
+#   database-url        postgresql://p50app:<pw>@<fqdn>:5432/<db>?sslmode=require
+#                       (p50app password from infra/azure/sql/app-role.sql)
+#   database-url-admin  postgresql://<db_admin_login>:<random_password.db_admin>@<fqdn>:5432/<db>?sslmode=require
+#                       (deployer-only: prisma migrate deploy + role bootstrap)
+#   auth-secret         openssl rand -base64 32  (Auth.js JWT signing key)
+#
 # (No storage-key secret — the app uses its managed identity for Blob access.)
+
+# The deployer's Key Vault Secrets Officer grant + RBAC-propagation wait below
+# remain so the out-of-band `az keyvault secret set` writes (run by the same
+# `terraform apply` operator) succeed against the RBAC-mode vault.
 
 # ── Container Apps Environment (logs → platform LAW) ────────────────────────
 resource "azurerm_container_app_environment" "env" {
@@ -242,6 +231,13 @@ resource "azurerm_container_app_environment" "env" {
 
 # ── The web app (scale-to-zero) ─────────────────────────────────────────────
 resource "azurerm_container_app" "web" {
+  # Don't create the app until the UAMI's Key Vault Secrets User grant (and the
+  # deployer's Officer grant) have propagated — otherwise Container Apps fails
+  # resolving the versionless KV secret URIs at create time. Removing the
+  # azurerm_key_vault_secret resources dropped the implicit chain that used to
+  # enforce this, so the dependency is now explicit.
+  depends_on = [time_sleep.kv_rbac_propagation]
+
   name                         = "ca-project50-web-dev"
   container_app_environment_id = azurerm_container_app_environment.env.id
   resource_group_name          = module.onboard.resource_group_name
@@ -259,20 +255,29 @@ resource "azurerm_container_app" "web" {
     identity = module.onboard.identity_id
   }
 
-  # Secrets sourced from Key Vault via the UAMI.
+  # Secrets sourced from Key Vault via the UAMI. The VALUES are set out-of-band
+  # (az keyvault secret set), NOT managed by Terraform — we reference the
+  # versionless secret URI so no credential ever lands in TF state.
   secret {
     name                = "database-url"
-    key_vault_secret_id = azurerm_key_vault_secret.database_url.id
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/database-url"
     identity            = module.onboard.identity_id
   }
   secret {
     name                = "auth-secret"
-    key_vault_secret_id = azurerm_key_vault_secret.auth_secret.id
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/auth-secret"
     identity            = module.onboard.identity_id
   }
-  # OAuth provider credentials. The VALUES are set out-of-band in Key Vault
-  # (az keyvault secret set), NOT managed by Terraform — we reference the
-  # versionless secret URI so no credential ever lands in TF state.
+  # Bearer token guarding GET /api/metrics. The route enforces auth ONLY when
+  # METRICS_TOKEN is set, so leaving it unset leaves the endpoint OPEN on the
+  # public ingress — setting this secret out of band is the lock. Same
+  # out-of-band + versionless-URI pattern.
+  secret {
+    name                = "metrics-token"
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/metrics-token"
+    identity            = module.onboard.identity_id
+  }
+  # OAuth provider credentials — same out-of-band + versionless-URI pattern.
   secret {
     name                = "facebook-client-id"
     key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/facebook-client-id"
@@ -311,6 +316,13 @@ resource "azurerm_container_app" "web" {
       env {
         name        = "AUTH_SECRET"
         secret_name = "auth-secret"
+      }
+      # Locks GET /api/metrics behind a bearer token. Sourced from the
+      # out-of-band metrics-token KV secret; the route only enforces auth when
+      # this is non-empty (see apps/web/app/api/metrics/route.ts).
+      env {
+        name        = "METRICS_TOKEN"
+        secret_name = "metrics-token"
       }
       # No AZURE_STORAGE_KEY — managed-identity mode. AZURE_CLIENT_ID tells
       # DefaultAzureCredential which user-assigned identity to use.
