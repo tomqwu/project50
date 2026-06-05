@@ -13,33 +13,37 @@
 ![Azure](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
 ![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform&logoColor=white)
 
-A social progress-tracking app built around **50-day challenges** — track your daily
-progress, follow friends, and celebrate milestones with shareable cards. Eventual
-integrations: Facebook, Instagram, WeChat.
+A habit-transformation product built around the **Project 50** program: **7 fixed
+daily rules, 50 days, all-or-nothing** — miss a rule and the run **hard-resets** to
+day 1. Don't like the fixed rules? Build a **custom plan** instead. Web is the
+reference implementation; native iOS/Android mirror it.
 
-> Status: **Increment 4 (native Expo app) complete on `feat/inc4-native-expo`.** Phases 0–4 +
-> Increments 1–3 are merged. Native app (Feed, Celebrate, share, navigation) is code-complete
-> and unit-tested. A–E program complete at the code level — see the roadmap below.
+> Status: **Web app is live in production** at
+> [`https://www.project50.fit`](https://www.project50.fit) (Azure Container Apps,
+> Canada Central). The Project 50 program + custom plans, daily journal, leaderboard,
+> per-day sharing, and the native Expo app are shipped. M0 hardening is largely done
+> and the engagement/social epic (#263) is closed. See [`ROADMAP.md`](ROADMAP.md) for
+> the milestone-by-milestone state and the open follow-ups.
 
 ## What it does
 
-- Run one or more **50-day challenges** — either a daily **target** you accumulate toward
-  (e.g. "work out 60 min/day", where a run counts toward the hour) or a simple **binary**
-  habit (done / not done).
-- Log daily **activities** with a **photo** (PNG/JPEG/WebP, directly uploaded to MinIO/S3 via
-  presigned URLs), note, numeric amount, and mood. Photos render in the feed and celebrate view.
+- Run the **Project 50** program — **7 fixed daily rules over 50 days, all-or-nothing**.
+  Complete every rule each day to advance; miss one and the run **hard-resets to day 1**.
+- Or run a **custom plan** — your own rules / length when the fixed program isn't the fit.
+- Keep a **daily journal** (wins + lessons) alongside each day's completion.
+- Log a day with a **photo** (PNG/JPEG/WebP, uploaded via presigned URLs) and **remove** a
+  photo you no longer want. Photos render across the app.
 - Earn **streaks**, **badges**, and a **day-50 finale**.
-- **Follow** friends, see their progress in a feed, and cheer/comment.
-- **Share** milestones via a generated image card, a public link, and the Web Share API.
-- **Generate recap videos** (day / week / 50-day) — Momentum-styled MP4s rendered via
-  [Remotion](https://www.remotion.dev/), stored in S3/MinIO, preview/download/share from the
-  celebrate screen. CI/e2e use `RECAP_FAKE=1` (no Chromium); real renders run locally via
-  `pnpm --filter @project50/recap render:sample`.
-- **Hybrid social sharing** to Facebook, Instagram, and WeChat: each platform is capability-flagged
-  — when API credentials are configured (env: `FB_PAGE_ID`/`FB_PAGE_TOKEN`, `IG_USER_ID`/`IG_TOKEN`,
-  `WECHAT_APP_ID`) the Publisher calls the real platform API; otherwise it falls back to a deep link
-  (Facebook sharer URL) or Web Share API. The UI surfaces capability reasons truthfully and never
-  shows "Posted!" for a non-API share. Image-card sharing requires the challenge to be PUBLIC.
+- See a **leaderboard** — friends and global — on the dashboard.
+- **Share a single completed day** via a public page + generated **OG card** image, with
+  honest, capability-aware platform options:
+  - **Facebook** — opens the Facebook sharer for the public day URL.
+  - **Instagram** — IMAGE-based and **honest**: IG has no web link-share, so the only
+    compliant path is sharing the day-card image through the OS share sheet; when that
+    isn't available we never claim a post happened (copy-link / save-image fallback). The
+    Instagram option sits behind the `shareInstagram` feature-flag kill-switch.
+  - generic **Share…** (native share sheet) and **Copy link**.
+- **Invite friends on Facebook** via the Share Dialog + a **referral** link.
 
 ## Tech stack
 
@@ -47,16 +51,24 @@ TypeScript monorepo (pnpm workspaces):
 
 | Package | Responsibility |
 |---|---|
-| `packages/core` | Pure, framework-free domain logic (streaks, completion, milestones, validation). The testable heart. |
+| `packages/core` | Pure, framework-free domain logic (Project 50 program/date helpers, streaks, completion, milestones, validation). The testable heart. |
 | `packages/db` | Prisma schema + client (PostgreSQL). |
+| `packages/ui` | The **"Momentum"** design system (charcoal + electric-volt accent). |
 | `packages/config` | Shared ESLint + Vitest config (incl. the 99% coverage gate). |
 | `packages/recap` | Remotion compositions + render pipeline for day/week/50-day recap MP4s. |
-| `apps/web` | Next.js (App Router) PWA + API route handlers. |
+| `apps/web` | Next.js 15 (App Router) PWA + API route handlers. |
 | `apps/mobile` | React Native (Expo SDK 52) app — reuses `@project50/core` + REST API. |
 
-Auth: Google/Facebook OAuth (Auth.js). Media: S3-compatible object storage (MinIO in dev).
-Visual design direction: **"Momentum"** (charcoal + electric-volt accent) — see
-`design-explore/momentum/`.
+- **Runtime (prod):** **Azure Container Apps** + **Postgres Flexible Server** + **Azure
+  Blob** for media (via the app's managed identity), in Canada Central. IaC is Terraform
+  (`infra/azure`); deploys run locally, gated on CI-green + merged + tagged.
+- **Media storage:** Azure Blob in production; **MinIO / S3-compatible storage is dev-only**
+  (the backend is selected by env — see [`infra/azure/README.md`](infra/azure/README.md)).
+- **Auth:** Auth.js v5 — Facebook OAuth is wired in prod; Google OAuth + email magic-link
+  sign-in are in-flight (see the roadmap).
+- **Feature flags:** a lightweight typed flag registry gates risky surfaces, including the
+  **Instagram-share kill-switch**. Operator runbook:
+  [`docs/FEATURE-FLAGS.md`](docs/FEATURE-FLAGS.md).
 
 ## Native app (Expo)
 
@@ -156,35 +168,15 @@ checkout. Run `make` with no target to see the full list.
 
 ## Roadmap
 
-The full product is decomposed into sub-projects, each with its own spec → plan → build:
+The web app is **live in production** and the engagement/social epic (#263 — daily
+journal, per-day share, leaderboard, Facebook invite) has shipped. M0 hardening
+(security review, secrets out of Terraform state, monitoring/alerts, Postgres backups
++ restore drill, custom-domain binding, feed pagination, N+1 collapse) is largely
+done; open follow-ups include shared rate-limiter (Redis), media backups, the apex
+domain, and production Google / email sign-in.
 
-- **A. Backend + data model** · **B. Web PWA** — the current first slice.
-- **C. Native iOS/Android apps.**
-- **D. Deep Facebook / Instagram / WeChat publishing.**
-- **E. Recap animation engine** (day/week/50-day highlight videos).
-
-Within the first slice, phased delivery:
-
-- [x] **Phase 0 — Foundation:** monorepo, dev env, CI, coverage gate, Playwright.
-- [x] **Phase 1 — Core domain + schema:** challenges, activities, streaks, milestones, validation.
-- [x] **Phase 2 — Auth + API**.
-- [x] **Phase 3 — Web UI** (Momentum design system + screens).
-- [x] **Phase 4 — Create-challenge UI + Sharing + PWA + full e2e** — complete. First slice (A + B) done.
-- [x] **Increment 1 — Photo upload end-to-end:** presigned S3/MinIO upload, media stored in DB,
-  feed + celebrate render real photos, full e2e round-trip, MinIO in CI.
-- [x] **Increment 2 — Recap animation engine:** Remotion compositions (day/week/50-day),
-  render pipeline with `FakeRecapRenderer` (CI-safe) + `RemotionRenderer` (real h264),
-  `POST /api/challenges/:id/recap` (owner-only) → MP4 stored in MinIO → signed URL,
-  celebrate screen with generate/preview/download/share, full e2e with fake renderer.
-- [ ] **Increment 3 — Hybrid social publishing (in progress):** `Publisher` abstraction with
-  per-platform adapters (Facebook Graph API, Instagram Content Publishing API, WeChat JS-SDK) —
-  capability-flagged: API when credentials are configured, DEEPLINK/WEBSHARE fallback otherwise.
-  `GET /api/publish/capabilities` + `POST /api/challenges/:id/publish`. `SocialShare` panel on the
-  celebrate screen with asset toggle (Image card / Recap video) and honest capability labels.
-  Full e2e: assert panel renders, honest labels visible, Facebook deeplink (`window.open` stubbed).
-- [x] **Sub-project C — Native iOS/Android (Expo):** `apps/mobile` — code-complete + unit-tested (207 tests, 100% coverage on testable dirs); screens: Dashboard, Log Activity (photo), Feed (cheer + optimistic update), Celebrate (recap generate + share); React Navigation stack wired; device verification pending simulator access.
-
-**A–E program: COMPLETE at the code level.** All sub-projects (A: backend + data model, B: web PWA, C: native Expo app, D: social publishing, E: recap animation engine) are implemented and unit-tested. On-device / e2e verification of the native app (C) is the one remaining open item pending simulator access.
-
-Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
+The full milestone plan (M0 Foundation & Hardening → M5 Growth & Scale, across
+**web → iOS → Android**), what has shipped, and the open follow-up issues live in
+[`ROADMAP.md`](ROADMAP.md), tracked in GitHub Issues / Milestones. Per-feature design
+specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/) and implementation
 plans in [`docs/superpowers/plans/`](docs/superpowers/plans/).
