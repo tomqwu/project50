@@ -497,6 +497,56 @@ describe("Project 50 day media", () => {
     expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
   });
 
+  it("removeProject50DayMedia ignores ANOTHER user's same-key references when deciding to delete (owner-scoped)", async () => {
+    // The reference check must be OWNER-SCOPED: a row owned by a DIFFERENT user
+    // that happens to carry the same objectKey must NOT keep THIS user's blob
+    // alive. The key is under THIS user's prefix, so the prefix guard permits
+    // deletion once this user holds no remaining reference.
+    const u = await makeUser();
+    const other = await prisma.user.create({ data: { handle: "other", displayName: "Other" } });
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/owned.jpg`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 1, height: 1 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+
+    // The OTHER user references the very same key across all three tables.
+    const otherRun = await startProject50(other.id, "UTC", NOW);
+    await attachProject50DayMedia(other.id, { objectKey: key, width: 1, height: 1 }, NOW);
+    const otherActivity = await prisma.activity.create({
+      data: { challengeId: otherRun, userId: other.id, dayKey: "2026-06-02", done: true },
+    });
+    await prisma.activityMedia.create({
+      data: { activityId: otherActivity.id, objectKey: key, width: 1, height: 1 },
+    });
+    await prisma.recap.create({ data: { challengeId: otherRun, kind: "DAY", objectKey: key } });
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    // This user holds no remaining reference → blob deleted, despite the other
+    // user's same-key rows (which are left untouched).
+    expect(deleteObjectMock).toHaveBeenCalledWith(key);
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    expect(await prisma.project50DayMedia.count({ where: { objectKey: key } })).toBe(1); // other user's row
+  });
+
+  it("removeProject50DayMedia never touches a foreign-prefix key even when this user's own row is its last reference", async () => {
+    // Defense-in-depth: even owner-scoped to zero references, a key OUTSIDE the
+    // user's media/<uid>/ prefix is never deleted (the prefix guard wins).
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const foreignKey = `media/${u.id}xattacker/victim.jpg`; // NOT under media/<u.id>/
+    await attachProject50DayMedia(u.id, { objectKey: foreignKey, width: 1, height: 1 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    warnSpy.mockRestore();
+  });
+
   it("removeProject50DayMedia rejects a non-owner and deletes NOTHING (security)", async () => {
     const owner = await makeUser();
     const attacker = await prisma.user.create({ data: { handle: "atk", displayName: "Atk" } });

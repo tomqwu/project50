@@ -371,10 +371,23 @@ export async function removeProject50DayMedia(
   //    stores one (Project 50 day photos, activity photos, recaps). The row is
   //    already gone, so no exclusion is needed — any remaining reference means
   //    another view still shows this blob and it must NOT be deleted.
+  //
+  //    OWNER-SCOPED: only THIS user's references count toward retention (mirrors
+  //    account.ts collectUserMediaKeys ownership joins — Project50DayMedia &
+  //    Recap via challenge.ownerId, ActivityMedia via activity.userId). Combined
+  //    with the media/<uid>/ prefix guard below — which already ensures we only
+  //    ever delete keys under the user's OWN prefix — a foreign user's same-key
+  //    row is irrelevant to (and cannot block) erasing this user's own blob.
   const [dayMediaRefs, activityRefs, recapRefs] = await Promise.all([
-    prisma.project50DayMedia.count({ where: { objectKey } }),
-    prisma.activityMedia.count({ where: { objectKey } }),
-    prisma.recap.count({ where: { objectKey } }),
+    prisma.project50DayMedia.count({
+      where: { objectKey, challenge: { ownerId: uid } },
+    }),
+    prisma.activityMedia.count({
+      where: { objectKey, activity: { userId: uid } },
+    }),
+    prisma.recap.count({
+      where: { objectKey, challenge: { ownerId: uid } },
+    }),
   ]);
   const stillReferenced = dayMediaRefs + activityRefs + recapRefs > 0;
 
