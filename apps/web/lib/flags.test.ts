@@ -202,6 +202,28 @@ describe("getFlags", () => {
     expect(flags.newOnboarding).toBe(true);
   });
 
+  it("reflects a flag forced ON via NEXT_PUBLIC_FLAGS (snapshot matches isFeatureEnabled)", () => {
+    const e = env({ NEXT_PUBLIC_FLAGS: "newOnboarding" });
+    const flags = getFlags(e);
+    expect(flags.newOnboarding).toBe(true);
+    expect(flags.newOnboarding).toBe(isFeatureEnabled("newOnboarding", e));
+  });
+
+  it("reflects a flag forced OFF via FLAG_<NAME>=false (snapshot matches isFeatureEnabled)", () => {
+    const e = env({ FLAG_SHARE_INSTAGRAM: "false" });
+    const flags = getFlags(e);
+    expect(flags.shareInstagram).toBe(false);
+    expect(flags.shareInstagram).toBe(isFeatureEnabled("shareInstagram", e));
+  });
+
+  it("matches isFeatureEnabled for every flag under mixed env config", () => {
+    const e = env({ NEXT_PUBLIC_FLAGS: "newOnboarding", FLAG_SHARE_INSTAGRAM: "false" });
+    const flags = getFlags(e);
+    for (const name of Object.keys(FLAGS) as FlagName[]) {
+      expect(flags[name]).toBe(isFeatureEnabled(name, e));
+    }
+  });
+
   it("reads from process.env when no env argument is given", () => {
     const flags = getFlags();
     expect(flags.newOnboarding).toBe(FLAGS.newOnboarding.default);
@@ -228,6 +250,23 @@ describe("getClientFlags", () => {
   it("reflects env overrides for client-safe flags", () => {
     const client = getClientFlags(env({ FLAG_PUBLIC_BANNER: "true" }));
     expect(client.publicBanner).toBe(true);
+  });
+
+  it("reflects a client-safe flag forced ON via NEXT_PUBLIC_FLAGS", () => {
+    // publicBanner defaults OFF; the allow-list must turn it ON in the snapshot,
+    // matching isFeatureEnabled — not just emit the registry default.
+    const e = env({ NEXT_PUBLIC_FLAGS: "publicBanner" });
+    const client = getClientFlags(e);
+    expect(client.publicBanner).toBe(true);
+    expect(client.publicBanner).toBe(isFeatureEnabled("publicBanner", e));
+  });
+
+  it("reflects a client-safe flag forced OFF via FLAG_<NAME>=false", () => {
+    // FLAG_<NAME>=false beats the allow-list, even in the client snapshot.
+    const e = env({ NEXT_PUBLIC_FLAGS: "publicBanner", FLAG_PUBLIC_BANNER: "false" });
+    const client = getClientFlags(e);
+    expect(client.publicBanner).toBe(false);
+    expect(client.publicBanner).toBe(isFeatureEnabled("publicBanner", e));
   });
 
   it("reads from process.env when no env argument is given", () => {

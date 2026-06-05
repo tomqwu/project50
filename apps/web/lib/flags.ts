@@ -115,17 +115,7 @@ function parseFlagList(raw: string | undefined): Set<FlagName> | undefined {
 }
 
 /**
- * Returns whether a flag is enabled. An env override (`FLAG_<NAME>`) wins over
- * the registry default. `env` is injectable for tests; it defaults to
- * `process.env`.
- */
-export function isFlagEnabled(name: FlagName, env: NodeJS.ProcessEnv = process.env): boolean {
-  const override = parseOverride(env[envVarFor(name)]);
-  return override ?? FLAGS[name].default;
-}
-
-/**
- * Resolve a feature flag — the public entry point for #285.
+ * The single source of truth for resolving a flag's on/off state.
  *
  * Precedence, most-specific first:
  *   1. Per-flag boolean override `FLAG_<NAME>` (`true/false/1/0`) — an explicit
@@ -133,6 +123,39 @@ export function isFlagEnabled(name: FlagName, env: NodeJS.ProcessEnv = process.e
  *      so it doubles as a hard kill-switch.
  *   2. Membership in the `NEXT_PUBLIC_FLAGS` comma-list (allow-list → forces ON).
  *   3. The registry {@link FlagDefinition.default}.
+ *
+ * Every public reader — {@link isFeatureEnabled}, {@link getFlags},
+ * {@link getClientFlags} — routes through here, so there is exactly one
+ * resolution path and snapshots can never drift from point reads. Pure and
+ * side-effect free.
+ */
+function resolveFlag(name: FlagName, env: NodeJS.ProcessEnv): boolean {
+  const override = parseOverride(env[envVarFor(name)]);
+  if (override !== undefined) return override;
+
+  const list = parseFlagList(env.NEXT_PUBLIC_FLAGS);
+  if (list?.has(name)) return true;
+
+  return FLAGS[name].default;
+}
+
+/**
+ * Returns whether a flag is enabled, applying the full resolution precedence
+ * (`FLAG_<NAME>` override → `NEXT_PUBLIC_FLAGS` force-ON → default).
+ *
+ * @deprecated Prefer {@link isFeatureEnabled} — this is kept as a back-compat
+ * alias from #126 and now shares the same resolver (it used to honour only the
+ * per-flag `FLAG_<NAME>` override). `env` is injectable for tests; it defaults
+ * to `process.env`.
+ */
+export function isFlagEnabled(name: FlagName, env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveFlag(name, env);
+}
+
+/**
+ * Resolve a feature flag — the public entry point for #285. Applies the full
+ * precedence (see {@link resolveFlag}): `FLAG_<NAME>` override →
+ * `NEXT_PUBLIC_FLAGS` force-ON → registry default.
  *
  * Pure and side-effect free; `env` is injectable for tests and defaults to
  * `process.env`. The `flag` argument is the typed {@link FeatureFlag} union, so
@@ -142,33 +165,41 @@ export function isFeatureEnabled(
   flag: FeatureFlag,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const override = parseOverride(env[envVarFor(flag)]);
-  if (override !== undefined) return override;
-
-  const list = parseFlagList(env.NEXT_PUBLIC_FLAGS);
-  if (list?.has(flag)) return true;
-
-  return FLAGS[flag].default;
+  return resolveFlag(flag, env);
 }
 
-/** Resolves the on/off state of every registered flag. */
+/**
+ * Resolves the on/off state of every registered flag, applying the same
+ * precedence as {@link isFeatureEnabled} (so a flag forced ON via
+ * `NEXT_PUBLIC_FLAGS` or OFF via `FLAG_<NAME>=false` is reflected here too).
+ */
 export function getFlags(env: NodeJS.ProcessEnv = process.env): FlagState {
   const out = {} as FlagState;
   for (const name of Object.keys(FLAGS) as FlagName[]) {
-    out[name] = isFlagEnabled(name, env);
+    out[name] = resolveFlag(name, env);
   }
   return out;
 }
 
 /**
  * Resolves only the client-safe flags, suitable for serialization to the
- * browser. Server-only flags are omitted entirely so their state never leaks.
+ * browser. Each flag is resolved through the same {@link resolveFlag} path as
+ * {@link isFeatureEnabled}, so the snapshot reflects the *actual* configured
+ * state — not just registry defaults.
+ *
+ * **Must be called server-side** (e.g. in a Server Component / layout) and the
+ * result passed down to client components. Server-only inputs like a
+ * `FLAG_<NAME>` env var are not present in the client bundle, so resolving on
+ * the server is the only way the snapshot can see them; `NEXT_PUBLIC_FLAGS` is
+ * inlined into the client bundle too, but the snapshot is still computed once on
+ * the server for a single consistent source of truth. Server-only flags
+ * (`clientSafe: false`) are omitted entirely so their state never leaks.
  */
 export function getClientFlags(env: NodeJS.ProcessEnv = process.env): Partial<FlagState> {
   const out: Partial<FlagState> = {};
   for (const name of Object.keys(FLAGS) as FlagName[]) {
     if (FLAGS[name].clientSafe) {
-      out[name] = isFlagEnabled(name, env);
+      out[name] = resolveFlag(name, env);
     }
   }
   return out;

@@ -51,9 +51,23 @@ Resolution precedence (most specific first):
    `FLAG_SHARE_INSTAGRAM=false`.
 3. The registry **`default`**.
 
-`isFlagEnabled(name)` (the original `#126` API) reads only the per-flag
-`FLAG_<NAME>` override + default; `isFeatureEnabled(flag)` is the superset that
-also honours `NEXT_PUBLIC_FLAGS`. Both are pure and take an injectable `env`.
+All readers share **one** internal resolver (`resolveFlag`), so a point read and
+a serialized snapshot can never disagree:
+
+- `isFeatureEnabled(flag)` — the #285 entry point; full precedence above.
+- `isFlagEnabled(name)` — back-compat alias from `#126`; now identical to
+  `isFeatureEnabled` (it also honours `NEXT_PUBLIC_FLAGS`).
+- `getFlags(env)` / `getClientFlags(env)` — resolve **every** flag through the
+  same path, so a flag forced ON via `NEXT_PUBLIC_FLAGS` or OFF via
+  `FLAG_<NAME>=false` is reflected in the snapshot too (not just registry
+  defaults). All are pure and take an injectable `env`.
+
+> **Client snapshots are computed server-side.** `getClientFlags()` must run on
+> the server (a Server Component / layout) and the result passed down to client
+> components. A server-only `FLAG_<NAME>` env var is not in the client bundle, so
+> resolving on the server is the only way the snapshot reflects it.
+> `getClientFlags()` also omits any flag with `clientSafe: false`, so server-only
+> flag state never leaks to the browser.
 
 A/B bucketing is available via `assignVariant(key, userId, variants)` — a pure,
 deterministic FNV-1a hash, stable per `(key, user)` across processes.
