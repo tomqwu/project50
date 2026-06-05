@@ -2,12 +2,19 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
 // ---- hoisted mocks ----
-const { mockRequireAuth } = vi.hoisted(() => ({
+const { mockRequireAuth, mockCookies, mockCookieGet } = vi.hoisted(() => ({
   mockRequireAuth: vi.fn<() => Promise<string>>(),
+  mockCookies: vi.fn(),
+  mockCookieGet: vi.fn<(name: string) => { value: string } | undefined>(),
 }));
 
 vi.mock("@/lib/auth-guard", () => ({ requireAuth: mockRequireAuth }));
 vi.mock("./_actions/auth", () => ({ signOutAction: vi.fn() }));
+vi.mock("next/headers", () => ({ cookies: mockCookies }));
+// Render the claim component as a marker so its presence is observable.
+vi.mock("./_components/ReferralClaim", () => ({
+  ReferralClaim: () => <div data-testid="referral-claim" />,
+}));
 vi.mock("next/link", () => ({
   // Render as a plain anchor in tests
   default: ({
@@ -33,6 +40,9 @@ describe("AppLayout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockRequireAuth.mockResolvedValue("u1");
+    mockCookieGet.mockReturnValue(undefined);
+    // Re-establish the cookies() factory after resetAllMocks wipes it.
+    mockCookies.mockImplementation(async () => ({ get: mockCookieGet }));
   });
 
   afterEach(() => {
@@ -98,5 +108,21 @@ describe("AppLayout", () => {
   it("gates access via requireAuth", async () => {
     await AppLayout({ children: <div /> });
     expect(mockRequireAuth).toHaveBeenCalled();
+  });
+
+  it("renders the ReferralClaim trigger when a pending p50_ref cookie is present", async () => {
+    mockCookieGet.mockImplementation((name: string) =>
+      name === "p50_ref" ? { value: "ABCD2345" } : undefined,
+    );
+    const ui = await AppLayout({ children: <div /> });
+    render(ui);
+    expect(screen.getByTestId("referral-claim")).toBeInTheDocument();
+  });
+
+  it("does NOT render the ReferralClaim trigger when there is no pending cookie", async () => {
+    mockCookieGet.mockReturnValue(undefined);
+    const ui = await AppLayout({ children: <div /> });
+    render(ui);
+    expect(screen.queryByTestId("referral-claim")).not.toBeInTheDocument();
   });
 });

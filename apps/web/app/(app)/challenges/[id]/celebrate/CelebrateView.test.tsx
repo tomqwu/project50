@@ -87,6 +87,18 @@ describe("CelebrateView — in-progress milestone", () => {
     expect(actions).toHaveAttribute("data-challenge-id", "c1");
     expect(actions).toHaveAttribute("data-visibility", "PUBLIC");
   });
+
+  it("renders the Invite friends action when a referralCode is provided", () => {
+    render(<CelebrateView {...makeProps()} referralCode="ABCD2345" />);
+    expect(screen.getByTestId("celebrate-invite")).toBeInTheDocument();
+    expect(screen.getByTestId("invite-friends-button")).toBeInTheDocument();
+  });
+
+  it("omits the Invite friends action when no referralCode is provided", () => {
+    render(<CelebrateView {...makeProps()} />);
+    expect(screen.queryByTestId("celebrate-invite")).toBeNull();
+    expect(screen.queryByTestId("invite-friends-button")).toBeNull();
+  });
 });
 
 describe("CelebrateView — day 50 complete", () => {

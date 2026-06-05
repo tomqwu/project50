@@ -156,6 +156,27 @@ describe("DashboardView — BINARY challenge", () => {
   });
 });
 
+describe("DashboardView — leaderboard invite seam", () => {
+  it("forwards referralCode so the no-friends empty-state shows the invite button", () => {
+    // Default empty leaderboards → friends empty-state renders.
+    render(
+      <DashboardView
+        primary={baseTarget}
+        challenges={[baseTarget]}
+        referralCode="ABCD2345"
+      />,
+    );
+    expect(screen.getByTestId("leaderboard-empty-friends")).toBeInTheDocument();
+    expect(screen.getByTestId("invite-friends-button")).toBeInTheDocument();
+  });
+
+  it("omits the invite button when no referralCode is provided", () => {
+    render(<DashboardView primary={baseTarget} challenges={[baseTarget]} />);
+    expect(screen.getByTestId("leaderboard-empty-friends")).toBeInTheDocument();
+    expect(screen.queryByTestId("invite-friends-button")).not.toBeInTheDocument();
+  });
+});
+
 describe("DashboardView — TARGET with null unit", () => {
   it("trims unit label when unit is null", () => {
     const noUnit: PrimaryChallenge = {

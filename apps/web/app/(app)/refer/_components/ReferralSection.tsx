@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@project50/ui";
+import { referralUrl } from "@/lib/share-links";
 
 export interface ReferralSectionProps {
   /** The signed-in user's stable referral code. */
@@ -18,10 +19,12 @@ export interface ReferralSectionProps {
  */
 export function ReferralSection({ code, referredCount }: ReferralSectionProps) {
   const [copied, setCopied] = useState(false);
-  const relativeLink = `/?ref=${code}`;
+  // Relative form for display (origin-agnostic SSR); the absolute URL is built
+  // on the client at copy time. Both derive from the shared referralUrl helper.
+  const relativeLink = referralUrl("", code);
 
   async function handleCopy() {
-    const url = `${window.location.origin}/?ref=${code}`;
+    const url = referralUrl(window.location.origin, code);
     await navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

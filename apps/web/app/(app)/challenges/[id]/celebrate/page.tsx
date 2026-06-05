@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/session";
 import { getChallenge, getMilestones } from "@/lib/api/challenges";
 import { listRecaps } from "@/lib/api/recap";
 import { getCapabilities } from "@/lib/publish/registry";
+import { getOrCreateReferralCode } from "@/lib/api/referral";
 import { localDayKey, dayNumber } from "@project50/core";
 import { CelebrateView } from "./CelebrateView";
 import type { MilestoneKind } from "./CelebrateView";
@@ -40,6 +41,10 @@ export default async function CelebratePage({
   // Load existing recaps (visibility-gated)
   const initialRecaps = await listRecaps(id, uid);
 
+  // Viewer's referral code for the "Invite friends" action on the celebrate
+  // screen (created on first access; stable thereafter).
+  const referralCode = await getOrCreateReferralCode(uid);
+
   // Compute props for SocialShare
   const hasRecap = initialRecaps.length > 0;
   const isPublic = challenge.visibility === "PUBLIC";
@@ -62,6 +67,7 @@ export default async function CelebratePage({
           visibility: challenge.visibility as "PUBLIC" | "FOLLOWERS" | "PRIVATE",
         }}
         photoUrl={photoUrl}
+        referralCode={referralCode}
       />
       <div style={{ maxWidth: "480px", margin: "0 auto", padding: "0 32px 48px" }}>
         <SocialShare

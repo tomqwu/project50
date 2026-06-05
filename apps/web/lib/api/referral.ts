@@ -77,6 +77,27 @@ export async function getReferralStats(uid: string): Promise<ReferralStats> {
 }
 
 /**
+ * Return a user's account-creation time, or `null` for an unknown user id.
+ *
+ * Used by COOKIE-based referral attribution: the claim path compares the
+ * referral's CAPTURE time (stored in the `p50_ref` cookie) to this `createdAt`.
+ * A genuine referral means the invite link was clicked at or before the account
+ * was created (`capturedAt <= createdAt`); a returning account, or an organic
+ * signup that later clicked the link, has `createdAt < capturedAt` and is
+ * excluded. This capture-vs-signup comparison is the authoritative signal
+ * (explicit body-code claims are not gated by it). Chosen because the cookie
+ * claim is a decoupled client POST after sign-in, so the Auth.js `createUser`
+ * "is new" flag isn't available at that point — `User.createdAt` is.
+ */
+export async function getUserCreatedAt(uid: string): Promise<Date | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: uid },
+    select: { createdAt: true },
+  });
+  return user?.createdAt ?? null;
+}
+
+/**
  * Record that `newUserId` was referred via `referrerCode`.
  *
  * Returns `true` if a new referral was recorded, `false` when it was a no-op

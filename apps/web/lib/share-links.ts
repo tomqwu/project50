@@ -26,3 +26,16 @@ export function dayShareUrl(origin: string, shareId: string, dayNumber: number):
 export function facebookSharerUrl(url: string): string {
   return `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
 }
+
+/**
+ * Shareable referral URL for a user's referral `code`:
+ *   `${origin}/?ref=${code}`
+ *
+ * This is the single source of truth for the `?ref=<code>` convention used by
+ * the referral program (`ReferralSection` / the `/refer` page) and F4's
+ * "Invite friends" action. `origin` is a bare scheme+host with NO trailing
+ * slash (e.g. "https://www.project50.fit"), matching our base-url helpers.
+ */
+export function referralUrl(origin: string, code: string): string {
+  return `${origin}/?ref=${code}`;
+}

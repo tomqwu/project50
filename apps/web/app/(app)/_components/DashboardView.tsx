@@ -34,6 +34,8 @@ export interface DashboardViewProps {
   friendsLeaderboard?: LeaderboardEntry[];
   /** Global-scope leaderboard rows. */
   globalLeaderboard?: LeaderboardEntry[];
+  /** Viewer's referral code, forwarded to the leaderboard's invite empty-state. */
+  referralCode?: string;
 }
 
 export function DashboardView({
@@ -41,6 +43,7 @@ export function DashboardView({
   challenges,
   friendsLeaderboard = [],
   globalLeaderboard = [],
+  referralCode,
 }: DashboardViewProps) {
   if (!primary) {
     return (
@@ -159,7 +162,11 @@ export function DashboardView({
       </div>
 
       {/* Leaderboard (friends + global) — fills the previously-flat area. */}
-      <Leaderboard friends={friendsLeaderboard} global={globalLeaderboard} />
+      <Leaderboard
+        friends={friendsLeaderboard}
+        global={globalLeaderboard}
+        referralCode={referralCode}
+      />
 
       {/* Other challenges */}
       {others.length > 0 && (
