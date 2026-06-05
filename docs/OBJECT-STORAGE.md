@@ -8,7 +8,9 @@ store behind `apps/web/lib/storage.ts` and the presign upload/download flow.
 - **Production:** **AWS S3**, **Cloudflare R2**, or self-hosted **MinIO** — any
   S3-compatible endpoint. The app code is provider-agnostic.
 
-Read alongside [`CDN.md`](./CDN.md) (the CDN that fronts this bucket),
+Read alongside [`CDN.md`](./CDN.md) (media delivery — note the **production
+backend is Azure Blob via short-lived SAS URLs**, and there is **no CDN today**;
+this S3/MinIO path is the local-dev / fallback backend),
 [`BACKUPS.md`](./BACKUPS.md) (mirroring media to a backup bucket),
 [`SECRETS.md`](./SECRETS.md) (the `S3_*` env vars + rotation) and
 [`RUNBOOKS.md`](./RUNBOOKS.md) (storage-down runbook).

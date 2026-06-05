@@ -1,0 +1,16 @@
+# Azure Monitor alerts — operator config (#271)
+#
+# Copy this file to `alerts.auto.tfvars` (NOT committed — it's gitignored) and
+# set the ops alert email. Terraform AUTO-LOADS every `*.auto.tfvars` on every
+# plan/apply, so the value PERSISTS across routine deploys: a normal
+# `terraform apply -var image_tag=...` (no `-var alert_email=...`) keeps the
+# alerts enabled instead of destroying them.
+#
+#   cp alerts.auto.tfvars.example alerts.auto.tfvars
+#   # then edit alerts.auto.tfvars and set a real address:
+#
+# alert_email = "ops@example.com"
+#
+# Leave alerts.auto.tfvars ABSENT (or alert_email = "") to keep monitoring inert
+# — the action group + every alert in monitoring.tf are count-gated to zero, so
+# nothing is created.

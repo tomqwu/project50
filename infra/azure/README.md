@@ -17,6 +17,58 @@ media. Extends the landing-pad onboarding (same Terraform state,
 The app's managed identity (`uami-project50-dev`, from onboard) pulls the image
 (AcrPull) and reads the Key Vault secrets (Key Vault Secrets User).
 
+## Monitoring & alerts (#271)
+
+`monitoring.tf` codifies Azure Monitor metric alerts for the Container App and
+Postgres, all wired to a single email **action group**. Everything is
+**count-gated on `var.alert_email`** (mirroring the repo's env-gating pattern):
+
+- **No `alert_email` set ⇒ nothing is created.** The action group and every alert
+  resolve to `count = 0`, so a no-email `terraform apply` adds **zero** new
+  resources and the existing deploy plan stays clean (inert until enabled).
+- **Activate** by setting the email in an auto-loaded tfvars file (NOT a one-shot
+  `-var`):
+
+  ```bash
+  cd infra/azure
+  cp alerts.auto.tfvars.example alerts.auto.tfvars
+  # edit alerts.auto.tfvars → alert_email = "ops@example.com"
+  ```
+
+  Terraform **auto-loads every `*.auto.tfvars`** on every plan/apply, so the email
+  **persists across applies**. This is the only correct way to enable alerts: the
+  normal deploy runs `terraform apply -var image_tag=…` **without**
+  `-var alert_email=…`, so passing the email as a one-shot `-var` would set the
+  gate back to `0` on the next routine apply and **DESTROY the action group + all
+  alerts** (silently disabling monitoring). The `alerts.auto.tfvars` file keeps the
+  gate stable. It is **gitignored** (it may carry the ops email) — commit only
+  `alerts.auto.tfvars.example`.
+
+  Enabling creates the action group `ag-project50-ops-dev` (one email receiver,
+  common alert schema) plus the alerts below.
+
+| Alert | Scope | Metric (namespace) | Condition |
+| --- | --- | --- | --- |
+| 5xx server errors | Container App | `Requests` dim `statusCodeCategory=5xx` (`Microsoft.App/containerApps`) | Total > 5 over 5m (Sev1) |
+| Replica restarts | Container App | `RestartCount` (`Microsoft.App/containerApps`) | Total > 3 over 15m (Sev2) |
+| CPU high | Postgres | `cpu_percent` (`Microsoft.DBforPostgreSQL/flexibleServers`) | Avg > 80% over 15m (Sev2) |
+| Storage high | Postgres | `storage_percent` (same) | Avg > 85% over 1h (Sev2) |
+| Active connections high | Postgres | `active_connections` (same) | Max > 25 over 15m (Sev2) — ~70% of the ~35 B1ms cap |
+
+Thresholds/windows and their rationale are commented inline in `monitoring.tf`.
+
+**Not codified (deliberate follow-ups, not faked):**
+
+- **p95 latency** — Container Apps exposes no server-side latency/percentile
+  metric (`Microsoft.App/containerApps` has no `ResponseTime`). Alert on the app's
+  own `http_request_duration_ms` histogram (`/api/metrics`, see
+  [`docs/OBSERVABILITY.md`](../../docs/OBSERVABILITY.md)) or front the app with
+  Front Door / App Gateway, which do emit latency percentiles.
+- **Uptime / cert-expiry** — classic App Insights availability web tests are
+  retired and Standard web tests need an App Insights component this stack doesn't
+  provision. Use an external black-box checker on `/api/health` (UptimeRobot /
+  Grafana Synthetics — see [`docs/OBSERVABILITY.md`](../../docs/OBSERVABILITY.md) §3).
+
 ### Key Vault secrets — set out of band, NOT in Terraform state
 
 The Container App references these secrets by **versionless Key Vault URI**
