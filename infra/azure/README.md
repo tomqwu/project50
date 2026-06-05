@@ -569,8 +569,10 @@ point at a managed cert (blocker 2), forcing this into Terraform would error
 to **keep the binding + managed cert under `az`** and document it here. There are
 **no** `manage_custom_domain` / `custom_domain_name` vars and **no** gated-off
 placeholder resources in `main.tf` — a routine
-`terraform apply -var image_tag=… -var auth_url=…` is completely unaffected (no
-new vars, no new resources, nothing to import).
+`terraform apply -var image_tag=…` is completely unaffected (no new vars, no new
+resources, nothing to import). `auth_url` already defaults to the canonical
+`https://www.project50.fit`, so a deploy needs no `-var auth_url=…` override
+(passing it is still harmless).
 
 > Earlier drafts also modeled 3 `exempt-managedcert-tag-*` Azure Policy
 > exemptions, but `az policy exemption list` returns **`[]`** — they were

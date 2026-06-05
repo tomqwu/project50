@@ -379,7 +379,8 @@ resource "azurerm_container_app" "web" {
         secret_name = "facebook-client-secret"
       }
       # Public base URL so Auth.js builds correct OAuth callback URLs (otherwise
-      # it derives 0.0.0.0:3000). Switch to the custom domain once it's bound.
+      # it derives 0.0.0.0:3000). var.auth_url defaults to the canonical
+      # https://www.project50.fit (the bound custom domain; apex redirects to it).
       env {
         name  = "AUTH_URL"
         value = var.auth_url

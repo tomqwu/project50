@@ -24,9 +24,9 @@ variable "app_db_password" {
 }
 
 variable "auth_url" {
-  description = "Public base URL of the deployed app — Auth.js uses it to build OAuth callback URLs. The custom domain project50.fit (apply this only after the hostname is bound + cert provisioned)."
+  description = "Public base URL of the deployed app — Auth.js uses it to build OAuth callback URLs. Defaults to the CANONICAL host https://www.project50.fit (the apex project50.fit 301-redirects to www — see README #291). OAuth callbacks are registered for www, so www MUST be the default: a routine `terraform apply -var image_tag=...` without an auth_url override is then correct. Do NOT default this to the apex — that would build apex callback URLs and break OAuth once the apex→www redirect is in place."
   type        = string
-  default     = "https://project50.fit"
+  default     = "https://www.project50.fit"
 }
 
 variable "min_replicas" {
