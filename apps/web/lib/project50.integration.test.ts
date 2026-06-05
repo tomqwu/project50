@@ -328,6 +328,9 @@ describe("Project 50 day media", () => {
 
     const media = await listProject50DayMedia(runId, "2026-06-02");
     expect(media.map((m) => m.objectKey)).toEqual(["first", "second"]);
+    // each item carries its stable row id (used to remove a specific photo).
+    expect(media[0]?.id).toEqual(expect.any(String));
+    expect(media[0]?.id).not.toBe(media[1]?.id);
     expect(media[0]?.width).toBe(1);
     // presignGet yields a signed URL that embeds the object key.
     expect(media[0]?.url).toContain("first");

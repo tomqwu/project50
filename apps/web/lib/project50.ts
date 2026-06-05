@@ -11,6 +11,8 @@ import { presignGet, deleteObject } from "@/lib/storage";
 
 /** One photo attached to a Project 50 day, with a signed view URL for display. */
 export interface Project50DayMediaItem {
+  /** Stable row id, used to remove this specific photo. */
+  id: string;
   objectKey: string;
   width: number;
   height: number;
@@ -131,7 +133,7 @@ export async function listProject50DayMedia(
   const rows = await prisma.project50DayMedia.findMany({
     where: { challengeId: runId, dayKey },
     orderBy: { createdAt: "asc" },
-    select: { objectKey: true, width: true, height: true },
+    select: { id: true, objectKey: true, width: true, height: true },
   });
   return Promise.all(rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })));
 }
