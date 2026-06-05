@@ -34,6 +34,7 @@ import { getPublicDay } from "./day-share";
 const baseChallenge = {
   id: "run-1",
   title: "Project 50",
+  kind: "PROJECT50",
   startDate: "2026-06-01",
   lengthDays: 50,
   timezone: "UTC",
@@ -57,6 +58,24 @@ describe("getPublicDay", () => {
     mockGetChallengeByShareId.mockResolvedValue(null);
     expect(await getPublicDay("nope", 1)).toBeNull();
     expect(mockRuleCheckFindMany).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a PUBLIC non-PROJECT50 (custom) challenge", async () => {
+    // The /c/[shareId]/day/[day] page renders the Project 50-specific 7-rule
+    // layout, so a public CUSTOM challenge must not resolve through it.
+    mockGetChallengeByShareId.mockResolvedValue({ ...baseChallenge, kind: "STANDARD" });
+    expect(await getPublicDay("share-abc", 1)).toBeNull();
+    // Bail before touching any per-day data.
+    expect(mockDayStatusFindUnique).not.toHaveBeenCalled();
+    expect(mockListDayMedia).not.toHaveBeenCalled();
+    expect(mockJournalFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("returns data for a PUBLIC PROJECT50 run's completed day", async () => {
+    mockGetChallengeByShareId.mockResolvedValue({ ...baseChallenge, kind: "PROJECT50" });
+    const result = await getPublicDay("share-abc", 1);
+    expect(result).not.toBeNull();
+    expect(result!.dayNumber).toBe(1);
   });
 
   it("returns null when dayNumber is below 1", async () => {

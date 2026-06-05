@@ -47,6 +47,13 @@ export async function getPublicDay(
   const challenge = await getChallengeByShareId(shareId);
   if (!challenge) return null;
 
+  // The public day page renders the Project 50-specific 7-rule layout, so only
+  // PROJECT50 runs are shareable through it. A public CUSTOM challenge would
+  // render an incorrect page and leak per-day state via a route that doesn't
+  // apply to it — return null (→ notFound) for any non-Project50 kind. (Mirrors
+  // how activeRun / getProject50State scope on kind === "PROJECT50".)
+  if (challenge.kind !== "PROJECT50") return null;
+
   if (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > challenge.lengthDays) {
     return null;
   }
