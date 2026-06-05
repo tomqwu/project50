@@ -112,12 +112,25 @@ ACR=acralztyhlgn6o.azurecr.io
 KV=kv-project50-dev-6z7n
 RG=rg-project50-dev-canadacentral
 
-# 1. Build the image (from repo root) and push to the platform ACR.
-#    (Building the image does NOT switch the app to it — that happens at the
-#    `terraform apply image_tag` in step 5, AFTER migrations.)
-az acr login -n acralztyhlgn6o
-docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
-docker push "$ACR/project50-web:$TAG"
+# 1. Build the image IN ACR (from repo root) and push to the platform ACR.
+#    Use `az acr build` (builds linux/amd64 natively; a local `docker build`
+#    under arm64 emulation fails). Building the image does NOT switch the app to
+#    it — that happens at the `terraform apply image_tag` in step 5, AFTER
+#    migrations.
+#
+#    The release-build-args.sh helper passes the real CalVer tag + GitHub release
+#    URL as `--build-arg NEXT_PUBLIC_RELEASE_*` values. THIS is what makes the
+#    deployed footer ReleaseBadge show the live tag (e.g. v2026.06.04.3) linking
+#    to its GitHub release notes — without it the ACR build context has NO git
+#    tags, so next.config.mjs's `git describe` fallback bakes in
+#    "dev / Local development build". The title can contain spaces, so the script
+#    emits shell-quoted flags and the line MUST be run through `eval`:
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$TAG \
+  --platform linux/amd64 --file apps/web/Dockerfile \
+  $(bash scripts/release-build-args.sh "$TAG") ."
+#    (Equivalently: `ACR_LINE=1 bash scripts/release-build-args.sh "$TAG"` prints
+#    a full, ready-to-eval `az acr build ...` line. The image is tagged with the
+#    CalVer "$TAG" — the same value step 5's `terraform apply image_tag=$TAG` rolls.)
 
 # 2. Ensure the KV secrets that must exist BEFORE the apply are present (NOT in
 #    TF state). The Container App reads all referenced secrets by versionless URI

@@ -83,6 +83,25 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 # Give the Next/webpack build headroom; the default heap can OOM on large apps.
 ENV NODE_OPTIONS=--max-old-space-size=4096
+# Release metadata for the in-app ReleaseBadge (apps/web/app/_components/ReleaseBadge.tsx
+# via lib/build-info.ts). next.config.mjs inlines NEXT_PUBLIC_RELEASE_* into the
+# client bundle at `next build`, PREFERRING these env vars over its `git describe`
+# fallback. Production images build via `az acr build` from a context with NO git
+# tags, so without these the badge degrades to "dev / Local development build".
+# Pass the real CalVer tag + GitHub release URL as build args so the deployed
+# footer badge links to the release notes — see scripts/release-build-args.sh and
+# infra/azure/README.md. ARGs must precede `next build`; ENV makes them visible to
+# next.config.mjs. Defaults mirror the local "dev" fallback when args are omitted.
+ARG NEXT_PUBLIC_RELEASE_TAG=dev
+ARG NEXT_PUBLIC_RELEASE_SHA=local
+ARG NEXT_PUBLIC_RELEASE_TIME=
+ARG NEXT_PUBLIC_RELEASE_TITLE=Local development build
+ARG NEXT_PUBLIC_RELEASE_URL=
+ENV NEXT_PUBLIC_RELEASE_TAG=$NEXT_PUBLIC_RELEASE_TAG \
+    NEXT_PUBLIC_RELEASE_SHA=$NEXT_PUBLIC_RELEASE_SHA \
+    NEXT_PUBLIC_RELEASE_TIME=$NEXT_PUBLIC_RELEASE_TIME \
+    NEXT_PUBLIC_RELEASE_TITLE=$NEXT_PUBLIC_RELEASE_TITLE \
+    NEXT_PUBLIC_RELEASE_URL=$NEXT_PUBLIC_RELEASE_URL
 RUN pnpm --filter @project50/web build
 
 # Resolve the concrete pnpm store path of the generated @prisma/client package
