@@ -221,12 +221,31 @@ changes are tracked. The wall-clock validates the **RTO** target above.
 ### Deeper checks (optional, manual)
 
 Beyond the script's automated checks, for a thorough quarterly drill also verify
-the restored schema matches the code's migrations and the app boots against it:
+the restored schema matches the code's migrations and the app boots against it.
+Run the drill with `--keep` so the **scratch** DB survives, then point these
+checks at **that scratch DB** (the restored copy) — never at your local
+dev/admin Postgres.
+
+> **Target the SCRATCH DB, not your local admin/dev Postgres (#321).** In the
+> **default local-container** flow the throwaway Postgres runs **inside a docker
+> container with no published port** (the drill reaches it via `docker exec`), so
+> a host-side `127.0.0.1:5432` does **not** reach the scratch DB — that host port
+> is your own dev/admin Postgres, the WRONG database to verify. So either run
+> these checks **inside the drill container** (`docker exec`), or re-run the drill
+> against a **port-published / external** scratch server via `--scratch-url` and
+> point the URL below at that. Fixing this verification-target snippet is the doc
+> half of **#321** (see [Follow-ups](#follow-ups-321)).
 
 ```bash
-SCRATCH="postgresql://postgres:drill@127.0.0.1:5432/project50_restore_test"  # from a --keep run
+# The scratch DB URL. For the default local-docker --keep run it lives INSIDE the
+# drill container (no host port), so reach it via docker exec, e.g.:
+#   docker exec -i p50-restore-drill-<pid> psql "$SCRATCH" -c '\dt'
+# For a port-published / external scratch server, set SCRATCH to that host:port.
+SCRATCH="postgresql://postgres:drill@127.0.0.1:5432/project50_restore_test"
 
-# Restored schema is at the migration head the app expects (no drift):
+# Restored schema is at the migration head the app expects (no drift). Run this so
+# DATABASE_URL resolves to the SCRATCH DB above (exec inside the drill container,
+# or a published/external scratch host) — NOT your local dev DB:
 DATABASE_URL="$SCRATCH" pnpm --filter @project50/db exec prisma migrate status
 # -> expect "Database schema is up to date!"
 
@@ -238,6 +257,26 @@ curl -sS http://localhost:3000/api/ready | jq   # expect database:true
 > **TODO (automate the drill):** a `schedule: cron` Actions job can run the drill
 > quarterly against the latest blob and fail (alert) on a bad restore. Kept
 > manual here to stay inert without infra and because it needs `az` + docker.
+
+## Follow-ups (#321)
+
+Two non-blocking hardening refinements were deferred from #272 to keep the
+verified Postgres-backup + restore-drill core moving. They are tracked in
+[#321](https://github.com/tomqwu/project50/issues/321):
+
+1. **Dedicated read-only backup DB role (security).** The scheduled backup
+   currently reads `database-url-admin`, so the backup identity (the GitHub OIDC
+   app registration) effectively has **admin DB access**. The follow-up creates a
+   **least-privilege, read-only backup role** in Postgres (`SELECT` /
+   `pg_read_all_data`, no DDL/DML), publishes it as a `database-url-backup` Key
+   Vault secret, and points `pg-backup.sh` at that instead of admin — shrinking
+   the blast radius if the backup identity is compromised. Until then, treat the
+   backup credential as admin-equivalent.
+2. **Restore-drill verification-target doc fix.** The optional post-restore
+   verification snippet under [Deeper checks](#deeper-checks-optional-manual)
+   pointed at the wrong database for the **default local-container** flow (it
+   should query the **scratch** DB, not the host's admin/dev Postgres). The
+   snippet above has been corrected to target the scratch DB explicitly.
 
 ## Restoring for real (incident recovery)
 
