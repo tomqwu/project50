@@ -11,9 +11,10 @@ variable "db_admin_login" {
 }
 
 variable "app_db_password" {
-  description = "Password for the least-privilege 'p50app' role the app connects as. Created by infra/azure/sql/app-role.sql; pass at apply via -var (kept out of TF state). Required."
+  description = "Password for the least-privilege 'p50app' role the app connects as (created by infra/azure/sql/app-role.sql). No longer consumed by Terraform — the `database-url` secret is now set out of band via `az keyvault secret set` (see README runbook), keeping the value out of TF state. Retained as an optional input so the deploy script can thread it through to the out-of-band secret-set step; safe to omit from `terraform apply`."
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "auth_url" {
