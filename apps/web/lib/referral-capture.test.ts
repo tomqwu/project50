@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   REFERRAL_COOKIE,
   REFERRAL_COOKIE_MAX_AGE_SECONDS,
@@ -103,5 +103,67 @@ describe("captureReferralFromRequest", () => {
 
   it("has a max-age of about 30 minutes", () => {
     expect(REFERRAL_COOKIE_MAX_AGE_SECONDS).toBe(30 * 60);
+  });
+
+  describe("Secure flag (derived from the app scheme, not NODE_ENV)", () => {
+    const savedAuthUrl = process.env.AUTH_URL;
+    const savedNextAuthUrl = process.env.NEXTAUTH_URL;
+    const savedNodeEnv = process.env.NODE_ENV;
+
+    afterEach(() => {
+      restoreEnv("AUTH_URL", savedAuthUrl);
+      restoreEnv("NEXTAUTH_URL", savedNextAuthUrl);
+      Object.defineProperty(process.env, "NODE_ENV", {
+        value: savedNodeEnv,
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
+    });
+
+    function restoreEnv(key: string, value: string | undefined) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+
+    it("marks the cookie Secure when AUTH_URL is https (even over an http request)", () => {
+      process.env.AUTH_URL = "https://www.project50.fit";
+      delete process.env.NEXTAUTH_URL;
+      captureReferralFromRequest(fakeRequest("http://internal/?ref=ABCD2345"), res.response);
+      expect(res.set.mock.calls[0]![2]).toMatchObject({ secure: true });
+    });
+
+    it("falls back to NEXTAUTH_URL https when AUTH_URL is unset", () => {
+      delete process.env.AUTH_URL;
+      process.env.NEXTAUTH_URL = "https://www.project50.fit";
+      captureReferralFromRequest(fakeRequest("http://internal/?ref=ABCD2345"), res.response);
+      expect(res.set.mock.calls[0]![2]).toMatchObject({ secure: true });
+    });
+
+    it("does NOT mark the cookie Secure for an http deployment, but still SETS it", () => {
+      delete process.env.AUTH_URL;
+      delete process.env.NEXTAUTH_URL;
+      // A production build (NODE_ENV=production) served over http must NOT be
+      // Secure, or the browser never sends the cookie back over http.
+      Object.defineProperty(process.env, "NODE_ENV", {
+        value: "production",
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
+      const captured = captureReferralFromRequest(
+        fakeRequest("http://app.test/?ref=ABCD2345"),
+        res.response,
+      );
+      expect(captured).toBe(true);
+      expect(res.set.mock.calls[0]![2]).toMatchObject({ secure: false });
+    });
+
+    it("falls back to the incoming request scheme when no AUTH_URL is configured (https request → Secure)", () => {
+      delete process.env.AUTH_URL;
+      delete process.env.NEXTAUTH_URL;
+      captureReferralFromRequest(fakeRequest("https://app.test/?ref=ABCD2345"), res.response);
+      expect(res.set.mock.calls[0]![2]).toMatchObject({ secure: true });
+    });
   });
 });

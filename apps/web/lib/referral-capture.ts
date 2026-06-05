@@ -38,6 +38,24 @@ export function isValidReferralCode(code: string): boolean {
 }
 
 /**
+ * Whether the `p50_ref` cookie should carry the `Secure` flag.
+ *
+ * Derived from the app SCHEME — never `NODE_ENV` — mirroring the Auth.js
+ * secure-cookie convention (`shouldUseSecureCookies`): a production build served
+ * over plain http (the e2e server, or an http deployment) has
+ * `NODE_ENV=production` but must NOT mark the cookie Secure, or the browser
+ * refuses to send it back over http and the whole cookie-claim flow silently
+ * breaks. Signal, in order: the configured `AUTH_URL`/`NEXTAUTH_URL` scheme,
+ * else the incoming request's own scheme. For prod (https www.project50.fit)
+ * this stays Secure.
+ */
+function shouldSecureReferralCookie(request: NextRequest): boolean {
+  const url = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+  if (url) return url.startsWith("https://");
+  return request.nextUrl.protocol === "https:";
+}
+
+/**
  * If the incoming request carries a valid `?ref=<code>`, set the pending
  * referral cookie on `response`. Edge-safe (no DB). Returns whether a cookie
  * was set. Invalid/garbage/absent codes are ignored (no cookie, no throw).
@@ -56,8 +74,9 @@ export function captureReferralFromRequest(
     sameSite: "lax",
     path: "/",
     maxAge: REFERRAL_COOKIE_MAX_AGE_SECONDS,
-    // Secure in production (https); plain over http so local/e2e still works.
-    secure: process.env.NODE_ENV === "production",
+    // Secure only when the app is served over https (scheme-derived, NOT
+    // NODE_ENV) so an http deployment's browser still sends the cookie back.
+    secure: shouldSecureReferralCookie(request),
   });
   return true;
 }
