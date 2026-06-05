@@ -56,43 +56,59 @@ az acr login -n acralztyhlgn6o
 docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
 docker push "$ACR/project50-web:$TAG"
 
-# 2. Open the Postgres firewall to your IP for the migrate + role bootstrap
-MYIP=$(curl -s https://api.ipify.org)
-az postgres flexible-server firewall-rule create -g "$RG" \
-  --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
-
-# 3. Migrate as ADMIN, then create/refresh the least-privilege p50app role.
-#    The app connects as p50app (NOT admin); migrations + role bootstrap use admin.
-#    database-url-admin is an OUT-OF-BAND KV secret (NOT managed by Terraform) —
-#    set it once with the server admin creds (see "Key Vault secrets" runbook).
-APP_DB_PW="p50app_$(openssl rand -hex 12)"
-ADMIN_URL="$(az keyvault secret show --vault-name "$KV" --name database-url-admin --query value -o tsv)"
-DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
-docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
-  -f infra/azure/sql/app-role.sql
-
-# 4. Set the APP connection string out of band (NOT in TF state). Derive the
-#    host/db from the admin URL you just used. The Container App reads this by
-#    versionless URI; force a new revision (step 6) to pick up a changed value.
-PG_HOST="$(echo "$ADMIN_URL" | sed -E 's#.*@([^:/]+).*#\1#')"
-az keyvault secret set --vault-name "$KV" --name database-url \
-  --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
-
-# 5. Apply the infra (no secret values pass through Terraform anymore)
+# 2. Apply the infra FIRST. This creates the Postgres server and the generated
+#    server admin password (random_password.db_admin). No secret VALUES pass
+#    through Terraform — the DB connection strings are set out of band below.
 cd infra/azure
 terraform init
 terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres
 terraform apply -var "image_tag=$TAG"
 
-# 6. Restart the revision so it picks up the p50app credentials, then remove the temp rule
+# 3. Read the server coordinates + admin password from TF outputs, and build +
+#    store the ADMIN connection string out of band. The admin password is only
+#    retrievable via this output (Azure never reveals an existing Flexible Server
+#    admin password) — see the db_admin_password note in outputs.tf.
+PG_HOST="$(terraform output -raw postgres_fqdn)"
+ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
+ADMIN_PW="$(terraform output -raw db_admin_password)"
+ADMIN_URL="postgresql://${ADMIN_LOGIN}:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$ADMIN_PW")@${PG_HOST}:5432/project50?sslmode=require"
+az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
+cd -
+
+# 4. Open the Postgres firewall to your IP for the migrate + role bootstrap
+MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g "$RG" \
+  --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
+
+# 5. Migrate as ADMIN, then create/refresh the least-privilege p50app role.
+#    The app connects as p50app (NOT admin); migrations + role bootstrap use admin.
+APP_DB_PW="p50app_$(openssl rand -hex 12)"
+DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
+docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
+  -f infra/azure/sql/app-role.sql
+
+# 6. Set the APP connection string out of band (NOT in TF state). The Container
+#    App reads this by versionless URI; force a new revision (step 7) to pick up
+#    a changed value.
+az keyvault secret set --vault-name "$KV" --name database-url \
+  --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
+
+# 7. Restart the revision so it picks up the DB credentials, then remove the temp rule
 az containerapp revision restart -g "$RG" -n ca-project50-web-dev \
   --revision "$(az containerapp show -g "$RG" -n ca-project50-web-dev --query 'properties.latestRevisionName' -o tsv)"
 az postgres flexible-server firewall-rule delete -g "$RG" \
   --server-name <psql-name> --name temp-deploy --yes
 
-# 7. App URL
-terraform output -raw app_url
+# 8. App URL
+cd infra/azure && terraform output -raw app_url
 ```
+
+> **Bootstrap order matters.** `terraform apply` (step 2) must run **before** the
+> DB secret-sets, because it creates the server and the `random_password.db_admin`
+> value the admin URL is built from. So: **apply → read outputs → set
+> `database-url-admin` + `database-url` → app picks them up** (on the next
+> revision). On a fresh bootstrap or after the state scrub below, this is the only
+> way to reconstruct `database-url-admin`.
 
 ### Key Vault secrets — create / rotate (out of band)
 
@@ -107,11 +123,16 @@ KV=kv-project50-dev-6z7n
 az keyvault secret set --vault-name "$KV" --name database-url \
   --value "postgresql://p50app:<url-encoded-pw>@<psql-fqdn>:5432/project50?sslmode=require"
 
-# Admin connection string — deployer-only (migrations + role bootstrap). Built
-# from the server administrator_password (random_password.db_admin in TF state,
-# read via `terraform output` or the Azure portal) + the admin login.
+# Admin connection string — deployer-only (migrations + role bootstrap). The
+# admin password is ONLY retrievable from the TF output (Azure never reveals an
+# existing Flexible Server admin password); assemble the URL from the outputs:
+#   cd infra/azure
+#   PG_HOST="$(terraform output -raw postgres_fqdn)"
+#   ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
+#   ADMIN_PW="$(terraform output -raw db_admin_password)"   # sensitive output
+#   ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
 az keyvault secret set --vault-name "$KV" --name database-url-admin \
-  --value "postgresql://p50admin:<url-encoded-pw>@<psql-fqdn>:5432/project50?sslmode=require"
+  --value "postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
 
 # Auth.js JWT signing key
 az keyvault secret set --vault-name "$KV" --name auth-secret \
