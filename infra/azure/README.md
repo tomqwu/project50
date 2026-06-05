@@ -80,19 +80,30 @@ unavoidably in state. It is *not* stored as a Key Vault secret here.
 > Container App references each by versionless URI; a missing one fails the
 > apply): `database-url`, `database-url-admin`, `auth-secret` (already in KV from
 > the prior deployment), `facebook-client-id`, `facebook-client-secret` (already
-> in KV), and **`metrics-token`** (NEW in this release — set it in step 3 below).
+> in KV), and **`metrics-token`** (NEW in this release — set it in step 2 of the
+normal deploy path below, before the apply).
 >
 > Skip this block ONLY on a brand-new green-field bootstrap where these resources
 > were never in state. See also
 > [One-time migration](#one-time-migration-stop-terraform-tracking-these-secret-values)
 > (state-history scrub + rotate-once) below.
 
+### Normal deploy path (existing deployment — the common case)
+
+The Postgres server and the `database-url-admin` KV secret **already exist** from
+the prior deployment, so this path reads the admin URL **straight from Key
+Vault** and never touches the `db_admin_*` Terraform outputs (those are newly
+added in this release and don't exist in state until *after* a successful apply —
+see [Bootstrap / secret recovery](#bootstrap--secret-recovery) for first-ever or
+post-scrub recreation).
+
 End-to-end order (each step depends on the previous; **migrations run BEFORE the
 image switch** so live traffic never hits the new revision against the old
 schema):
 
-**[one-time `state rm` migration above] → set/verify KV secrets → `prisma
-migrate deploy` → `terraform apply image_tag` → roll revision.**
+**[one-time `state rm` migration above] → set/verify KV secrets → read
+`database-url-admin` from KV → `prisma migrate deploy` → `terraform apply
+image_tag` → roll revision.**
 
 ```bash
 # 0. Pick the release tag to deploy
@@ -103,48 +114,35 @@ RG=rg-project50-dev-canadacentral
 
 # 1. Build the image (from repo root) and push to the platform ACR.
 #    (Building the image does NOT switch the app to it — that happens at the
-#    `terraform apply image_tag` in step 6, AFTER migrations.)
+#    `terraform apply image_tag` in step 5, AFTER migrations.)
 az acr login -n acralztyhlgn6o
 docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
 docker push "$ACR/project50-web:$TAG"
 
-# 2. Ensure the Postgres server + admin password exist. On an EXISTING deployment
-#    they already do — read the admin password from TF outputs (Azure never
-#    reveals an existing Flexible Server admin password; see the db_admin_password
-#    note in outputs.tf). On a green-field bootstrap, run a one-time
-#    `terraform apply -var image_tag=$TAG` FIRST to create the server (this also
-#    creates the Container App pointing at $TAG — that's fine on a fresh DB since
-#    there's no live traffic / old schema yet), then continue here.
-cd infra/azure
-terraform init
-PG_HOST="$(terraform output -raw postgres_fqdn)"
-ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
-ADMIN_PW="$(terraform output -raw db_admin_password)"
-ADMIN_URL="postgresql://${ADMIN_LOGIN}:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$ADMIN_PW")@${PG_HOST}:5432/project50?sslmode=require"
-cd -
-
-# 3. Set/verify the KV secrets that must exist BEFORE the apply (NOT in TF state).
-#    Admin URL was assembled in step 2; the app (p50app) URL is set in step 5
-#    after the role password is generated. The Container App reads all of these
-#    by versionless URI — any one missing fails `terraform apply` (step 6).
-az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
-# metrics-token is NEW in this release: it must exist before the apply that wires
-# the secret ref, OR the apply fails resolving it. Any value works; setting it
-# also ACTIVATES the /api/metrics bearer-auth lock (the intended outcome — an
-# unset token leaves the endpoint open). Skip only if it already exists in KV.
+# 2. Set/verify the KV secrets that must exist BEFORE the apply (NOT in TF state).
+#    The Container App reads all referenced secrets by versionless URI — any one
+#    missing fails `terraform apply` (step 5). metrics-token is NEW in this
+#    release: any value works; setting it also ACTIVATES the /api/metrics
+#    bearer-auth lock (an unset token leaves the endpoint open). Skip the set if
+#    it already exists in KV.
 az keyvault secret set --vault-name "$KV" --name metrics-token \
   --value "$(openssl rand -base64 32)" >/dev/null
-# (auth-secret + facebook-client-id/secret are assumed already in KV from the
-#  prior deployment — verify with the loop in the ⚠️ callout above.)
+# (database-url-admin, database-url, auth-secret, facebook-client-id/secret are
+#  already in KV from the prior deployment — verify with the loop in the ⚠️
+#  callout above. database-url is refreshed in step 4 after the role bootstrap.)
 
-# 4. Open the Postgres firewall to your IP for the migrate + role bootstrap
+# 3. Open the Postgres firewall to your IP for the migrate + role bootstrap
 MYIP=$(curl -s https://api.ipify.org)
 az postgres flexible-server firewall-rule create -g "$RG" \
   --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
 
-# 5. MIGRATE FIRST (as ADMIN), BEFORE switching the image — so the new revision
-#    never serves traffic against the old schema. Then create/refresh the
-#    least-privilege p50app role and store the app connection string out of band.
+# 4. Read the ADMIN connection string straight from Key Vault (it already exists
+#    on an existing deployment — no dependency on the new TF outputs). MIGRATE
+#    FIRST (as ADMIN), BEFORE switching the image, so the new revision never
+#    serves traffic against the old schema. Then refresh the least-privilege
+#    p50app role + store the app connection string out of band.
+ADMIN_URL="$(az keyvault secret show --vault-name "$KV" --name database-url-admin --query value -o tsv)"
+PG_HOST="$(echo "$ADMIN_URL" | sed -E 's#.*@([^:/]+).*#\1#')"
 APP_DB_PW="p50app_$(openssl rand -hex 12)"
 DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
 docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
@@ -152,22 +150,64 @@ docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_
 az keyvault secret set --vault-name "$KV" --name database-url \
   --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
 
-# 6. NOW switch the Container App to the new image (schema is already migrated).
+# 5. NOW switch the Container App to the new image (schema is already migrated).
 #    No secret VALUES pass through Terraform. `plan` MUST show no destroy of the
 #    three KV-secret resources (it won't if the one-time `state rm` was done).
 cd infra/azure
+terraform init
 terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres; review for unexpected destroys
 terraform apply -var "image_tag=$TAG"
 
-# 7. Roll a fresh revision so it picks up the (possibly just-changed) DB
+# 6. Roll a fresh revision so it picks up the (possibly just-changed) DB
 #    credentials immediately, then remove the temp firewall rule.
 az containerapp revision restart -g "$RG" -n ca-project50-web-dev \
   --revision "$(az containerapp show -g "$RG" -n ca-project50-web-dev --query 'properties.latestRevisionName' -o tsv)"
 az postgres flexible-server firewall-rule delete -g "$RG" \
   --server-name <psql-name> --name temp-deploy --yes
 
-# 8. App URL
+# 7. App URL
 terraform output -raw app_url
+```
+
+### Bootstrap / secret recovery
+
+Use this path only on a **green-field bootstrap** (no server yet) or to
+**recreate `database-url-admin`** after the state-history scrub. It is the ONLY
+way to obtain the server admin password, which comes from the `db_admin_password`
+Terraform output — and **that output does not exist in state until AFTER a
+successful `terraform apply`**. So here the apply runs FIRST, then the outputs are
+read:
+
+```bash
+KV=kv-project50-dev-6z7n
+TAG=v2026.06.04.3   # any pushed image; on first bootstrap this is the initial image
+cd infra/azure
+terraform init
+
+# 1. APPLY FIRST — creates the Postgres server + the random_password.db_admin
+#    value + the db_admin_* / postgres_fqdn outputs. On a fresh DB the Container
+#    App pointing at $TAG is fine: there's no live traffic / old schema yet, so
+#    image-before-migrate is safe here. (On an existing deployment, do NOT use
+#    this path — use the normal path above, which reads the admin URL from KV.)
+#    Pre-create metrics-token first so the secret ref resolves (see normal path).
+az keyvault secret set --vault-name "$KV" --name metrics-token \
+  --value "$(openssl rand -base64 32)" >/dev/null
+terraform apply -var "image_tag=$TAG"
+
+# 2. Reconstruct database-url-admin from the now-existing outputs (Azure never
+#    reveals an existing admin password; the output is the only source — see the
+#    db_admin_password note in outputs.tf).
+PG_HOST="$(terraform output -raw postgres_fqdn)"
+ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
+ADMIN_PW="$(terraform output -raw db_admin_password)"
+ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
+ADMIN_URL="postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
+az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
+
+# 3. Now migrate + bootstrap the p50app role + set database-url + set auth-secret,
+#    then re-apply with the real release image_tag and roll a revision — i.e.
+#    continue from step 3 of the normal deploy path above (open firewall →
+#    migrate → set database-url → terraform apply -var image_tag=$TAG → restart).
 ```
 
 ### Key Vault secrets — create / rotate (out of band)
