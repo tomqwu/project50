@@ -23,8 +23,7 @@ import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 import { apiClient } from "./apiClient";
-
-const DEFAULT_BASE_URL = "http://localhost:3000";
+import { resolveApiBaseUrl } from "./config";
 
 /** Android notification channel id for Project 50 daily reminders. */
 export const PROJECT50_REMINDER_CHANNEL = "project50-reminders";
@@ -102,7 +101,7 @@ export async function savePushToken(
   token: string,
   baseUrl?: string,
 ): Promise<void> {
-  const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? DEFAULT_BASE_URL;
+  const base = baseUrl ?? resolveApiBaseUrl();
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const auth = apiClient.getToken();

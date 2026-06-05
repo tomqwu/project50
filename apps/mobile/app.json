@@ -16,7 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.project50",
       "associatedDomains": [
-        "applinks:project50.app"
+        "applinks:www.project50.fit"
       ]
     },
     "android": {
@@ -32,13 +32,8 @@
           "data": [
             {
               "scheme": "https",
-              "host": "project50.app",
+              "host": "www.project50.fit",
               "pathPrefix": "/oauth/callback"
-            },
-            {
-              "scheme": "https",
-              "host": "project50.app",
-              "pathPrefix": "/"
             }
           ],
           "category": [

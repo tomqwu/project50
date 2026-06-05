@@ -8,6 +8,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as AuthSession from "expo-auth-session";
 import { apiClient } from "./apiClient";
+import { resolveApiBaseUrl } from "./config";
 import { OAUTH_CALLBACK_PATH, parseOAuthRedirect } from "./deeplink";
 
 const TOKEN_KEY = "project50_session_token";
@@ -62,7 +63,7 @@ export async function signOut(): Promise<void> {
  * For use in development and automated e2e flows only; not available in production.
  */
 export async function signInDev(handle: string, baseUrl?: string): Promise<string> {
-  const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
+  const base = baseUrl ?? resolveApiBaseUrl();
 
   // Step 1: Get CSRF token
   const csrfResp = await fetch(`${base}/api/auth/csrf`);
@@ -155,7 +156,7 @@ export async function exchangeOAuthCode(
   redirectUri: string = REDIRECT_URI,
   baseUrl?: string,
 ): Promise<string | null> {
-  const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
+  const base = baseUrl ?? resolveApiBaseUrl();
 
   const resp = await fetch(`${base}${exchangePathForProvider(provider)}`, {
     method: "POST",
@@ -180,17 +181,19 @@ export async function exchangeOAuthCode(
 
 /**
  * Handle an inbound deep-link redirect URL for OAuth.
- * Parses the URL, and if it carries an authorization code, exchanges it for a
- * session token. Returns the token, or null when the URL is not a usable OAuth
- * callback (no code, or an error/cancel from the provider).
+ * Parses the URL, and if it is an OAuth callback path carrying an authorization
+ * code, exchanges it for a session token. Returns the token, or null when the
+ * URL is not a usable OAuth callback (wrong path, no code, or an error/cancel
+ * from the provider). Gating on the callback path means an arbitrary deep link
+ * that happens to carry a `code` param is not mistaken for an OAuth redirect.
  */
 export async function handleDeepLinkRedirect(
   url: string,
   redirectUri: string = REDIRECT_URI,
   baseUrl?: string,
 ): Promise<string | null> {
-  const { provider, code, error } = parseOAuthRedirect(url);
-  if (error || !code) {
+  const { provider, code, error, isCallbackPath } = parseOAuthRedirect(url);
+  if (!isCallbackPath || error || !code) {
     return null;
   }
   return exchangeOAuthCode(provider ?? "facebook", code, redirectUri, baseUrl);
@@ -253,7 +256,7 @@ export async function handleOAuthResult(
     return null;
   }
 
-  const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
+  const base = baseUrl ?? resolveApiBaseUrl();
 
   const resp = await fetch(`${base}${exchangePath}`, {
     method: "POST",

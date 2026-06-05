@@ -517,6 +517,7 @@ describe("handleDeepLinkRedirect", () => {
       code: "dl-code",
       state: "s",
       error: null,
+      isCallbackPath: true,
     });
     mockFetchOk({ token: "dl-token" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
@@ -534,6 +535,7 @@ describe("handleDeepLinkRedirect", () => {
       code: "dl-code",
       state: null,
       error: null,
+      isCallbackPath: true,
     });
     mockFetchOk({ token: "dl-fb" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
@@ -563,9 +565,25 @@ describe("handleDeepLinkRedirect", () => {
       code: null,
       state: null,
       error: null,
+      isCallbackPath: false,
     });
 
     const token = await handleDeepLinkRedirect("project50://dashboard");
+    expect(token).toBeNull();
+    expect(globalFetch()).not.toHaveBeenCalled();
+  });
+
+  it("returns null (no exchange) when a code rides a non-callback path", async () => {
+    // Even with a code present, a non-callback path must not trigger an exchange.
+    mockParseOAuthRedirect.mockReturnValueOnce({
+      provider: "google",
+      code: "stray-code",
+      state: null,
+      error: null,
+      isCallbackPath: false,
+    });
+
+    const token = await handleDeepLinkRedirect("project50://dashboard?code=stray-code");
     expect(token).toBeNull();
     expect(globalFetch()).not.toHaveBeenCalled();
   });

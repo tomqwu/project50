@@ -64,16 +64,23 @@ No additional exclusions. The 99% gate was established on `src/components/**`.
 - `src/lib/session.ts`: added `restoreSession`, `signOut`, `exchangeOAuthCode`, `handleDeepLinkRedirect` — all 100% covered. `buildGoogleAuthRequest` / `buildFacebookAuthRequest` remain function-level `istanbul ignore next` (pre-existing exclusions; pure React-hook native wiring).
 - `src/screens/SignInScreen.tsx`: 100% covered (Facebook + Google + deep-link redirect paths, all driven via RNTL test seams and mocked `subscribeToDeepLinks`).
 
-#### Universal Links / App Links hosting requirement (TODO: host these)
-The native OAuth redirect can return to the app via the app scheme (`project50://oauth/callback`) **or** a verified domain link. The domain placeholder is `project50.app`, configured in `app.json`:
-- iOS `ios.associatedDomains: ["applinks:project50.app"]`
-- Android `android.intentFilters` with `autoVerify: true` for `https://project50.app/oauth/callback` + `/`, plus the `project50` custom scheme.
+#### Universal Links / App Links hosting requirement (host on the prod domain)
+The native OAuth redirect can return to the app via the app scheme (`project50://oauth/callback`) **or** a verified domain link on the production domain `www.project50.fit`, configured in `app.json`:
+- iOS `ios.associatedDomains: ["applinks:www.project50.fit"]`
+- Android `android.intentFilters` with `autoVerify: true` for `https://www.project50.fit/oauth/callback` (path scoped to the callback so the app does not hijack all site links), plus the `project50` custom scheme.
 
-For the verified-domain links to work, the following must be **hosted on `project50.app`** (not yet done):
-- **iOS**: `https://project50.app/.well-known/apple-app-site-association` — JSON mapping the app's `<TEAM_ID>.com.anonymous.project50` appID to the `applinks` paths (`/oauth/callback*`). Served with `Content-Type: application/json`, no redirects.
-- **Android**: `https://project50.app/.well-known/assetlinks.json` — declaring `com.anonymous.project50` + the release signing certificate's SHA-256 fingerprint for `delegate_permission/common.handle_all_urls`.
+For the verified-domain links to work, the following must be **hosted on `www.project50.fit`** (the web app serves this domain):
+- **iOS**: `https://www.project50.fit/.well-known/apple-app-site-association` — JSON mapping the app's `<TEAM_ID>.com.anonymous.project50` appID to the `applinks` paths (`/oauth/callback*`). Served with `Content-Type: application/json`, no redirects.
+- **Android**: `https://www.project50.fit/.well-known/assetlinks.json` — declaring `com.anonymous.project50` + the release signing certificate's SHA-256 fingerprint for `delegate_permission/common.handle_all_urls`.
 
-Until these are hosted, the custom-scheme redirect (`project50://`) is the working path; the Universal/App Link config is in place and will activate once the well-known files are served.
+Until these are hosted, the custom-scheme redirect (`project50://oauth/callback`) is the working path; the Universal/App Link config is in place and will activate once the well-known files are served.
+
+#### OAuth provider registration (must be done on the FB/Google side)
+The mobile app's redirect URIs must be whitelisted in each provider's OAuth app **Valid OAuth Redirect URIs**:
+- `https://www.project50.fit/oauth/callback` — Universal Link (iOS) / App Link (Android) form.
+- `project50://oauth/callback` — custom-scheme form (the fallback that works without hosted well-known files).
+
+Facebook: App Dashboard → **Facebook Login → Settings → Valid OAuth Redirect URIs**. Google: Cloud Console → **Credentials → OAuth client → Authorized redirect URIs** (and the iOS/Android OAuth client IDs as appropriate). The backend exchange endpoints (`/api/mobile/auth/{google,facebook}`) already accept the `redirectUri` echoed by the app; it must byte-match a registered URI.
 
 ### Task: Offline support + sync (#92 iOS, #110 Android)
 - `src/lib/offline.ts`: 100% covered. Local read-cache (`cacheGet`/`cacheSet`), durable write-queue (`enqueueMutation`/`flushQueue`, success-clears / failure-retains), connectivity (`isOnline` via NetInfo), and the high-level helpers (`loadProject50StateOffline`, `toggleRuleOffline`, `logActivityOffline`, `syncOnReconnect`). All deps (AsyncStorage, NetInfo, ApiClient) are injectable; `offline.test.ts` mocks the real native modules at the module boundary and injects in-memory stubs for the functional cases.

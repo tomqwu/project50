@@ -1,6 +1,7 @@
 /**
  * Typed API client for the project50 backend.
- * Configured with EXPO_PUBLIC_API_BASE_URL (default: http://localhost:3000).
+ * Base URL resolves via src/lib/config.ts: EXPO_PUBLIC_API_BASE_URL override →
+ * dev-build localhost (`__DEV__`) → prod domain (https://www.project50.fit).
  * Auth is passed via Bearer token in the Authorization header.
  */
 
@@ -8,6 +9,7 @@ import type {
   GoalType,
   DayKey,
 } from "@project50/core";
+import { resolveApiBaseUrl } from "./config";
 
 // Re-export core types used by callers of this module
 export type { GoalType, DayKey } from "@project50/core";
@@ -237,14 +239,12 @@ export class ApiError extends Error {
 
 // ─── Client ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_BASE_URL = "http://localhost:3000";
-
 export class ApiClient {
   private readonly baseUrl: string;
   private token: string | null = null;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? DEFAULT_BASE_URL;
+    this.baseUrl = baseUrl ?? resolveApiBaseUrl();
   }
 
   /** Set the auth token (call after sign-in). */
@@ -399,5 +399,8 @@ export class ApiClient {
   }
 }
 
-/** Default singleton API client. Override baseUrl via EXPO_PUBLIC_API_BASE_URL. */
+/**
+ * Default singleton API client. Base URL resolves via resolveApiBaseUrl():
+ * EXPO_PUBLIC_API_BASE_URL override → dev-build localhost → prod domain.
+ */
 export const apiClient = new ApiClient();

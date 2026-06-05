@@ -52,13 +52,33 @@ function lastCall(): [string, RequestInit] {
 // ─── Constructor / auth ─────────────────────────────────────────────────────
 
 describe("ApiClient constructor + auth", () => {
-  it("uses default base URL when none provided", async () => {
+  it("uses the resolved default base URL when none provided (dev → localhost)", async () => {
+    // Under jest-expo, __DEV__ is true, so the default resolves to localhost.
     const client = new ApiClient();
     mockFetchOk([]);
     await client.listChallenges();
     const [url] = lastCall();
     expect(url).toContain("http://localhost:3000");
   });
+
+  it("defaults to the prod domain in a production (non-dev) build", async () => {
+    const realDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    try {
+      const client = new ApiClient();
+      mockFetchOk([]);
+      await client.listChallenges();
+      const [url] = lastCall();
+      expect(url).toBe("https://www.project50.fit/api/challenges");
+    } finally {
+      (globalThis as { __DEV__?: boolean }).__DEV__ = realDev;
+    }
+  });
+
+  // The EXPO_PUBLIC_API_BASE_URL override precedence + normalisation is unit-
+  // tested in config.test.ts against the pure resolveApiBaseUrlFrom() helper
+  // (Expo inlines EXPO_PUBLIC_* at build time, so it can't be mutated at runtime
+  // under jest-expo). Here we cover that an explicit constructor baseUrl wins.
 
   it("uses custom base URL", async () => {
     const client = new ApiClient("https://api.example.com");

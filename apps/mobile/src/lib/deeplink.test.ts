@@ -58,6 +58,8 @@ import {
   isOAuthRedirect,
   subscribeToDeepLinks,
   OAUTH_CALLBACK_PATH,
+  OAUTH_UNIVERSAL_LINK_HOST,
+  OAUTH_CALLBACK_URL,
 } from "./deeplink";
 
 beforeEach(() => {
@@ -79,18 +81,21 @@ describe("parseOAuthRedirect", () => {
       code: null,
       state: null,
       error: null,
+      isCallbackPath: false,
     });
     expect(parseOAuthRedirect("")).toEqual({
       provider: null,
       code: null,
       state: null,
       error: null,
+      isCallbackPath: false,
     });
     expect(parseOAuthRedirect(null)).toEqual({
       provider: null,
       code: null,
       state: null,
       error: null,
+      isCallbackPath: false,
     });
   });
 
@@ -101,6 +106,7 @@ describe("parseOAuthRedirect", () => {
       code: "abc123",
       state: "xyz",
       error: null,
+      isCallbackPath: true,
     });
   });
 
@@ -112,19 +118,19 @@ describe("parseOAuthRedirect", () => {
   });
 
   it("infers the provider from the path segment after callback", () => {
-    const url = "https://project50.app/oauth/callback/facebook?code=fb-code";
+    const url = "https://www.project50.fit/oauth/callback/facebook?code=fb-code";
     const out = parseOAuthRedirect(url);
     expect(out.provider).toBe("facebook");
     expect(out.code).toBe("fb-code");
   });
 
   it("returns provider null when path has no segment after callback", () => {
-    const url = "https://project50.app/oauth/callback?code=c";
+    const url = "https://www.project50.fit/oauth/callback?code=c";
     expect(parseOAuthRedirect(url).provider).toBeNull();
   });
 
   it("returns provider null when a non-empty path has no callback segment", () => {
-    const url = "https://project50.app/some/other/path?code=c";
+    const url = "https://www.project50.fit/some/other/path?code=c";
     expect(parseOAuthRedirect(url).provider).toBeNull();
   });
 
@@ -170,11 +176,25 @@ describe("parseOAuthRedirect", () => {
       code: null,
       state: null,
       error: null,
+      isCallbackPath: false,
     });
   });
 
   it("exposes the OAuth callback path constant", () => {
     expect(OAUTH_CALLBACK_PATH).toBe("oauth/callback");
+  });
+
+  it("targets the prod domain for the Universal/App Link OAuth callback", () => {
+    expect(OAUTH_UNIVERSAL_LINK_HOST).toBe("www.project50.fit");
+    expect(OAUTH_CALLBACK_URL).toBe("https://www.project50.fit/oauth/callback");
+  });
+
+  it("parses a prod-domain Universal Link OAuth callback", () => {
+    const out = parseOAuthRedirect(
+      "https://www.project50.fit/oauth/callback?code=prod-code&state=s",
+    );
+    expect(out.code).toBe("prod-code");
+    expect(out.state).toBe("s");
   });
 });
 
@@ -191,6 +211,15 @@ describe("isOAuthRedirect", () => {
 
   it("is false for a non-OAuth deep link", () => {
     expect(isOAuthRedirect("project50://dashboard")).toBe(false);
+  });
+
+  it("is false when a code rides a non-callback path", () => {
+    // A code on the wrong path must NOT be treated as an OAuth redirect.
+    expect(isOAuthRedirect("project50://dashboard?code=x")).toBe(false);
+  });
+
+  it("is true on the prod-domain Universal Link callback path", () => {
+    expect(isOAuthRedirect("https://www.project50.fit/oauth/callback?code=c")).toBe(true);
   });
 
   it("is false for empty url", () => {
