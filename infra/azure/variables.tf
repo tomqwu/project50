@@ -1,3 +1,9 @@
+variable "alert_email" {
+  description = "Email address that receives Azure Monitor alerts (action group + metric alerts in monitoring.tf). Left EMPTY by default: with no email the action group and every alert are count-gated to zero, so `terraform apply` creates nothing new and the deploy plan stays clean. Activate alerting by passing `-var alert_email=ops@example.com` at apply time."
+  type        = string
+  default     = ""
+}
+
 variable "image_tag" {
   description = "Container image tag in the platform ACR (repo: project50-web). Set to the release tag (e.g. v2026.06.04.3) or a commit SHA at deploy time."
   type        = string

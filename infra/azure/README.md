@@ -17,6 +17,42 @@ media. Extends the landing-pad onboarding (same Terraform state,
 The app's managed identity (`uami-project50-dev`, from onboard) pulls the image
 (AcrPull) and reads the Key Vault secrets (Key Vault Secrets User).
 
+## Monitoring & alerts (#271)
+
+`monitoring.tf` codifies Azure Monitor metric alerts for the Container App and
+Postgres, all wired to a single email **action group**. Everything is
+**count-gated on `var.alert_email`** (mirroring the repo's env-gating pattern):
+
+- **`alert_email = ""` (the default) ⇒ nothing is created.** The action group and
+  every alert resolve to `count = 0`, so a no-email `terraform apply` adds **zero**
+  new resources and the existing deploy plan stays clean (inert until enabled).
+- **Activate** by passing the email at apply time:
+  `terraform apply -var alert_email=ops@example.com …` — this creates the action
+  group `ag-project50-ops-dev` (one email receiver, common alert schema) plus the
+  alerts below.
+
+| Alert | Scope | Metric (namespace) | Condition |
+| --- | --- | --- | --- |
+| 5xx server errors | Container App | `Requests` dim `statusCodeCategory=5xx` (`Microsoft.App/containerApps`) | Total > 5 over 5m (Sev1) |
+| Replica restarts | Container App | `RestartCount` (`Microsoft.App/containerApps`) | Total > 3 over 15m (Sev2) |
+| CPU high | Postgres | `cpu_percent` (`Microsoft.DBforPostgreSQL/flexibleServers`) | Avg > 80% over 15m (Sev2) |
+| Storage high | Postgres | `storage_percent` (same) | Avg > 85% over 1h (Sev2) |
+| Active connections high | Postgres | `active_connections` (same) | Max > 50 over 15m (Sev2) |
+
+Thresholds/windows and their rationale are commented inline in `monitoring.tf`.
+
+**Not codified (deliberate follow-ups, not faked):**
+
+- **p95 latency** — Container Apps exposes no server-side latency/percentile
+  metric (`Microsoft.App/containerApps` has no `ResponseTime`). Alert on the app's
+  own `http_request_duration_ms` histogram (`/api/metrics`, see
+  [`docs/OBSERVABILITY.md`](../../docs/OBSERVABILITY.md)) or front the app with
+  Front Door / App Gateway, which do emit latency percentiles.
+- **Uptime / cert-expiry** — classic App Insights availability web tests are
+  retired and Standard web tests need an App Insights component this stack doesn't
+  provision. Use an external black-box checker on `/api/health` (UptimeRobot /
+  Grafana Synthetics — see [`docs/OBSERVABILITY.md`](../../docs/OBSERVABILITY.md) §3).
+
 ### Key Vault secrets — set out of band, NOT in Terraform state
 
 The Container App references these secrets by **versionless Key Vault URI**
