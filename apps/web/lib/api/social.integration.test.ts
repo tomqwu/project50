@@ -102,7 +102,7 @@ describe("feed", () => {
       data: { challengeId: carolChallenge.id, userId: carol.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
 
     // Only Bob's activities (not Carol's)
     const ids = result.map((a) => a.id);
@@ -126,7 +126,7 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     expect(result.map((a) => a.id)).toContain(activity.id);
   });
 
@@ -141,7 +141,7 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     expect(result.map((a) => a.id)).not.toContain(activity.id);
   });
 
@@ -154,13 +154,13 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: carol.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     expect(result.map((a) => a.id)).not.toContain(activity.id);
   });
 
   it("returns empty array when viewer follows nobody", async () => {
     const alice = await createUser({ handle: "alice" });
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     expect(result).toHaveLength(0);
   });
 
@@ -177,7 +177,7 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     expect(result.map((a) => a.id)).not.toContain(activity.id);
   });
 
@@ -198,7 +198,7 @@ describe("feed", () => {
     await prisma.reaction.create({ data: { activityId: activity.id, userId: fan.id, kind: "CHEER" } });
     await prisma.reaction.create({ data: { activityId: activity.id, userId: fan.id, kind: "COMMENT", text: "Nice" } });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     const found = result.find((a) => a.id === activity.id);
     expect(found).toBeDefined();
     expect(found!.cheerCount).toBe(2);
@@ -218,7 +218,7 @@ describe("feed", () => {
       data: { activityId: activity.id, objectKey: `media/${bob.id}/img.jpg`, width: 800, height: 600, order: 0 },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     const found = result.find((a) => a.id === activity.id);
     expect(found).toBeDefined();
     expect(found!.hasPhoto).toBe(true);
@@ -244,7 +244,7 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-10", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     const found = result.find((a) => a.id === activity.id);
     expect(found).toBeDefined();
     expect(found!.isProject50).toBe(true);
@@ -268,7 +268,7 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-05", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     const found = result.find((a) => a.id === activity.id);
     expect(found).toBeDefined();
     expect(found!.isProject50).toBe(false);
@@ -286,12 +286,124 @@ describe("feed", () => {
       data: { challengeId: challenge.id, userId: bob.id, dayKey: "2026-06-01", done: true },
     });
 
-    const result = await feed(alice.id);
+    const { items: result } = await feed(alice.id);
     const found = result.find((a) => a.id === activity.id);
     expect(found).toBeDefined();
     expect(found!.hasPhoto).toBe(false);
     expect(found!.media).toHaveLength(0);
     expect(found!.cheerCount).toBe(0);
+  });
+
+  // ─── Pagination ───────────────────────────────────────────────────────────
+
+  /**
+   * Seed `count` activities from bob (followed by alice) with strictly
+   * decreasing createdAt so the desc ordering is deterministic. Returns the
+   * activity ids in feed order (newest first).
+   */
+  async function seedFeed(
+    aliceId: string,
+    bobId: string,
+    count: number,
+  ): Promise<string[]> {
+    const challenge = await createChallenge(bobId, {
+      visibility: "PUBLIC",
+      goalType: "BINARY",
+      startDate: "2026-06-01",
+      lengthDays: 50,
+    });
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = await prisma.activity.create({
+        data: {
+          challengeId: challenge.id,
+          userId: bobId,
+          dayKey: "2026-06-01",
+          done: true,
+          // Newer rows get later timestamps; feed returns newest-first.
+          createdAt: new Date(Date.UTC(2026, 5, 1, 0, 0, i)),
+        },
+      });
+      ids.push(a.id);
+    }
+    // Newest-first order (matches the feed's desc ordering).
+    return ids.reverse();
+  }
+
+  it("applies the default page size (30) when no limit is given", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await follow(alice.id, bob.id);
+    const ordered = await seedFeed(alice.id, bob.id, 35);
+
+    const { items, nextCursor } = await feed(alice.id);
+    expect(items).toHaveLength(30);
+    // First page is the 30 newest, in order.
+    expect(items.map((a) => a.id)).toEqual(ordered.slice(0, 30));
+    // More remain, so nextCursor is the last returned id.
+    expect(nextCursor).toBe(ordered[29]);
+  });
+
+  it("clamps a requested limit above the cap (50)", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await follow(alice.id, bob.id);
+    await seedFeed(alice.id, bob.id, 60);
+
+    const { items } = await feed(alice.id, { limit: 999 });
+    expect(items).toHaveLength(50);
+  });
+
+  it("honors a requested limit below the default", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await follow(alice.id, bob.id);
+    await seedFeed(alice.id, bob.id, 10);
+
+    const { items, nextCursor } = await feed(alice.id, { limit: 5 });
+    expect(items).toHaveLength(5);
+    expect(nextCursor).not.toBeNull();
+  });
+
+  it("returns the next page via cursor with no overlap", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await follow(alice.id, bob.id);
+    const ordered = await seedFeed(alice.id, bob.id, 10);
+
+    const first = await feed(alice.id, { limit: 4 });
+    expect(first.items.map((a) => a.id)).toEqual(ordered.slice(0, 4));
+    expect(first.nextCursor).toBe(ordered[3]);
+
+    const second = await feed(alice.id, { limit: 4, cursor: first.nextCursor! });
+    expect(second.items.map((a) => a.id)).toEqual(ordered.slice(4, 8));
+
+    // No overlap between the two pages.
+    const firstIds = new Set(first.items.map((a) => a.id));
+    expect(second.items.some((a) => firstIds.has(a.id))).toBe(false);
+  });
+
+  it("returns nextCursor = null on the last page", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const bob = await createUser({ handle: "bob" });
+    await follow(alice.id, bob.id);
+    const ordered = await seedFeed(alice.id, bob.id, 6);
+
+    // First page of 4 leaves 2 remaining.
+    const first = await feed(alice.id, { limit: 4 });
+    expect(first.nextCursor).toBe(ordered[3]);
+
+    // Second page returns the final 2 with no further page.
+    const second = await feed(alice.id, { limit: 4, cursor: first.nextCursor! });
+    expect(second.items.map((a) => a.id)).toEqual(ordered.slice(4));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("returns an empty page with null cursor for an empty feed", async () => {
+    const alice = await createUser({ handle: "alice" });
+    const { items, nextCursor } = await feed(alice.id);
+    expect(items).toEqual([]);
+    expect(nextCursor).toBeNull();
   });
 });
 

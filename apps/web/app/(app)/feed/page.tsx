@@ -5,7 +5,9 @@ import type { FeedActivity } from "./_components/FeedView";
 
 export default async function FeedPage() {
   const uid = await requireUser();
-  const activities = await feed(uid);
+  // The feed is bounded + cursor-paginated; the first page is rendered here.
+  // (Infinite scroll via `nextCursor` is a follow-up; see issue #293.)
+  const { items: activities } = await feed(uid);
 
   const items: FeedActivity[] = activities.map((a) => ({
     id: a.id,
