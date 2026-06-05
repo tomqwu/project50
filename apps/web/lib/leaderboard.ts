@@ -1,5 +1,5 @@
 import { prisma } from "@project50/db";
-import { localDayKey, project50CurrentDay } from "@project50/core";
+import { localDayKey, addDays, project50CurrentDay, PROJECT50_LENGTH_DAYS } from "@project50/core";
 
 export type LeaderboardScope = "friends" | "global";
 
@@ -13,6 +13,8 @@ type Visibility = "PUBLIC" | "FOLLOWERS" | "PRIVATE";
 interface ChallengeWhere {
   kind: "PROJECT50";
   visibility?: Visibility;
+  status?: "ACTIVE";
+  startDate?: { gte: string };
   ownerId?: { in: string[] };
   OR?: Array<{
     ownerId?: string | { in: string[] };
@@ -47,20 +49,6 @@ export interface GetLeaderboardOptions {
 const TOP_N = 50;
 
 /**
- * Upper bound on candidate runs pulled from the DB for the *global* scope.
- *
- * Why this is safe: ranking is currentDay-primary, currentDay is itself bounded
- * at 50 (the program length), and currentDay grows monotonically with how early
- * a run started. So the 50 highest-currentDay runs are necessarily among the
- * earliest-started ones. Ordering candidates by `startDate asc` and taking this
- * many leaves ample headroom for the completedDays tie-break inside the
- * day-50 cohort, so the final top-{@link TOP_N} is exact without scanning the
- * whole (growing) challenge table. (The `friends` scope is already bounded by
- * the viewer's follow count, so the cap is only material for `global`.)
- */
-const GLOBAL_CANDIDATE_LIMIT = 500;
-
-/**
  * Ranked Project 50 leaderboard for `uid`.
  *
  * - `friends` — runs owned by { followees of uid } ∪ { uid }, honoring
@@ -76,6 +64,14 @@ const GLOBAL_CANDIDATE_LIMIT = 500;
  *
  * All data is fetched in bulk (one bounded challenge query, one DayStatus query,
  * one user-profile query) — never per user — to avoid N+1 round-trips.
+ *
+ * The *global* candidate set is bounded by a **time window** rather than a blind
+ * row cap: a run can only be a currently-active racer if it is ACTIVE and
+ * started within the program length (the last {@link PROJECT50_LENGTH_DAYS}
+ * days). Filtering on `startDate >= today-(N-1)` + `status: ACTIVE` keeps the
+ * scan bounded and indexed without ever dropping a genuinely-rankable run (a
+ * blind earliest-N cap could be filled by old day-0 stale runs and starve newer
+ * active racers). The `friends` scope is already bounded by the follow count.
  */
 export async function getLeaderboard(
   uid: string,
@@ -83,7 +79,6 @@ export async function getLeaderboard(
 ): Promise<LeaderboardEntry[]> {
   // Resolve the visibility-aware challenge filter for the scope.
   let where: ChallengeWhere;
-  let take: number | undefined;
   if (scope === "friends") {
     const follows = await prisma.follow.findMany({
       where: { followerId: uid },
@@ -102,18 +97,25 @@ export async function getLeaderboard(
       ],
     };
   } else {
-    where = { kind: "PROJECT50", visibility: "PUBLIC" };
-    take = GLOBAL_CANDIDATE_LIMIT;
+    // Only ACTIVE PUBLIC runs that started within the program window can be
+    // currently ranking. The cutoff uses a UTC day key — at most one zone-day of
+    // slack vs any run's local day, which is harmless (the per-run
+    // project50CurrentDay re-check using each run's own timezone is exact).
+    const cutoff = addDays(localDayKey(now, "UTC"), -(PROJECT50_LENGTH_DAYS - 1));
+    where = {
+      kind: "PROJECT50",
+      visibility: "PUBLIC",
+      status: "ACTIVE",
+      startDate: { gte: cutoff },
+    };
   }
 
   const challenges = await prisma.challenge.findMany({
     where,
     select: { id: true, ownerId: true, startDate: true, timezone: true, status: true },
-    // Earliest-started first: the highest-currentDay (top-ranked) runs are the
-    // earliest-started ones, so this ordering + `take` keeps the bounded global
-    // candidate set correct. Secondary id keeps the order stable.
+    // Stable ordering for deterministic results (the final ranking is computed
+    // in memory from currentDay/completedDays).
     orderBy: [{ startDate: "asc" }, { id: "asc" }],
-    ...(take !== undefined ? { take } : {}),
   });
 
   if (challenges.length === 0) return [];

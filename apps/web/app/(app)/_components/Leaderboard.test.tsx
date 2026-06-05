@@ -85,6 +85,20 @@ describe("Leaderboard", () => {
     );
   });
 
+  it("selected tab uses dark ink on the volt accent for contrast (not the undefined --accent-contrast)", () => {
+    render(<Leaderboard friends={friends} global={global} />);
+    const selected = screen.getByRole("tab", { name: /friends/i });
+    const unselected = screen.getByRole("tab", { name: /global/i });
+    // High-contrast pairing mirrors the primary Button: --bg ink on --accent.
+    expect(selected.style.background).toBe("var(--accent)");
+    expect(selected.style.color).toBe("var(--bg)");
+    // No reliance on the undefined --accent-contrast token.
+    expect(selected.getAttribute("style")).not.toContain("accent-contrast");
+    // Unselected tab stays transparent with normal text.
+    expect(unselected.style.background).toBe("transparent");
+    expect(unselected.style.color).toBe("var(--text)");
+  });
+
   it("can switch back to the friends scope", () => {
     render(<Leaderboard friends={friends} global={global} />);
     fireEvent.click(screen.getByRole("tab", { name: /global/i }));

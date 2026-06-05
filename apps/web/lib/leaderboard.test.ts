@@ -387,7 +387,7 @@ describe("getLeaderboard — projection & limits", () => {
     expect(mockUserFindMany).not.toHaveBeenCalled();
   });
 
-  it("caps the result at the top 50 and bounds the candidate query", async () => {
+  it("caps the result at the top 50", async () => {
     const challenges: ChallengeRow[] = [];
     const users: UserRow[] = [];
     const dayStatus: DayStatusRow[] = [];
@@ -406,20 +406,61 @@ describe("getLeaderboard — projection & limits", () => {
     expect(rows).toHaveLength(50);
     expect(rows[0]!.rank).toBe(1);
     expect(rows[49]!.rank).toBe(50);
-    // The candidate query is bounded with an indexed orderBy + take cap.
+  });
+
+  it("bounds the global candidate query by a 50-day startDate window + ACTIVE, not a blind row cap", async () => {
+    setup([challenge("ca", "ua", "2026-06-01")]);
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    await getLeaderboard("viewer", { scope: "global", now: NOW });
+
     const args = mockChallengeFindMany.mock.calls[0]![0];
-    expect(args.orderBy).toBeDefined();
-    expect(typeof args.take).toBe("number");
+    // No blind take cap — the window bounds the set instead.
+    expect(args.take).toBeUndefined();
+    // status restricted to ACTIVE and startDate floored to today-49.
+    expect(args.where.status).toBe("ACTIVE");
+    // 2026-06-10 minus 49 days = 2026-04-22.
+    expect(args.where.startDate).toEqual({ gte: "2026-04-22" });
+    expect(args.where.visibility).toBe("PUBLIC");
+  });
+
+  it("a brand-new active run started today is NOT excluded by older stale runs", async () => {
+    // Simulate the DB window filter: the query (gte today-49, ACTIVE) only
+    // returns the fresh run; 500+ stale runs started before the window never
+    // load. The fresh run must rank.
+    setup([challenge("fresh", "ua", TODAY, "ACTIVE")]);
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    expect(rows.map((r) => r.userId)).toEqual(["ua"]);
+    expect(rows[0]!.currentDay).toBe(1);
+  });
+
+  it("the friends scope is not startDate-window bounded (own/older runs still load)", async () => {
+    mockFollowFindMany.mockResolvedValue([]);
+    setup([challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PRIVATE")]);
+    mockUserFindMany.mockResolvedValue([user("viewer")]);
+
+    await getLeaderboard("viewer", { scope: "friends", now: NOW });
+
+    const args = mockChallengeFindMany.mock.calls[0]![0];
+    expect(args.where.startDate).toBeUndefined();
+    expect(args.where.status).toBeUndefined();
+    expect(args.take).toBeUndefined();
   });
 
   it("defaults `now` to the current time when omitted", async () => {
-    setup([challenge("ca", "ua", "2020-01-01")]); // far past → clamps to 50
+    // friends scope avoids the global window filter so the assertion is purely
+    // about `now` defaulting; a recent compliant run reports its day number.
+    mockFollowFindMany.mockResolvedValue([]);
+    const today = new Date().toISOString().slice(0, 10);
+    setup([challenge("cme", "viewer", today, "ACTIVE")]);
+    mockUserFindMany.mockResolvedValue([user("viewer")]);
 
-    mockUserFindMany.mockResolvedValue([user("ua")]);
+    const rows = await getLeaderboard("viewer", { scope: "friends" });
 
-    const rows = await getLeaderboard("viewer", { scope: "global" });
-
-    expect(rows[0]!.currentDay).toBe(50);
+    expect(rows[0]!.currentDay).toBe(1);
   });
 
   it("avoids N+1: one challenge query, one dayStatus query, one user query", async () => {

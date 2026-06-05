@@ -52,8 +52,11 @@ export function Leaderboard({ friends, global }: LeaderboardProps) {
                 padding: "10px 12px",
                 borderRadius: "12px",
                 border: "1px solid var(--hairline)",
-                background: selected ? "var(--accent, #111)" : "transparent",
-                color: selected ? "var(--accent-contrast, #fff)" : "var(--text)",
+                // Selected tab mirrors the primary Button: dark ink on the volt
+                // accent (high contrast). --accent-contrast is not a defined
+                // Momentum token, so --bg (near-black) is used directly.
+                background: selected ? "var(--accent)" : "transparent",
+                color: selected ? "var(--bg)" : "var(--text)",
                 fontFamily: "var(--font-body, system-ui)",
                 fontWeight: 600,
                 cursor: "pointer",
