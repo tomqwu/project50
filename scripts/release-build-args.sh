@@ -74,15 +74,42 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
 fi
 
 # --- TITLE + URL from the GitHub release (best effort) -----------------------
-# Default to the tag name / empty URL so a missing gh or release still works.
-TITLE="$TAG"
+# The commit subject is the honest fallback whenever the release name is missing
+# or carries no feature intro of its own (gh absent, release missing, or the name
+# is just the bare tag).
+SUBJECT="$(git log -1 --format=%s 2>/dev/null || true)"
+TITLE="${SUBJECT:-$TAG}"
 URL=""
 if command -v gh >/dev/null 2>&1; then
   # gh's own `-q` (jq expression) reads the fields without needing jq installed.
   REL_NAME="$(gh release view "$TAG" --json name -q .name 2>/dev/null || true)"
   REL_URL="$(gh release view "$TAG" --json url -q .url 2>/dev/null || true)"
-  [ -n "$REL_NAME" ] && TITLE="$REL_NAME"
   [ -n "$REL_URL" ] && URL="$REL_URL"
+
+  if [ -n "$REL_NAME" ]; then
+    # release.yml names releases "<TAG> — <subject>". The ReleaseBadge already
+    # renders the CalVer TAG before the title, so emitting the full name would
+    # show the tag TWICE. Strip a leading "<TAG>" + en-dash/hyphen separator so
+    # the badge shows just the feature intro.
+    STRIPPED="$REL_NAME"
+    case "$STRIPPED" in
+      "$TAG"*) STRIPPED="${STRIPPED#"$TAG"}" ;;
+    esac
+    # Drop a leading separator: " — " (en dash) or " - " (hyphen), any spacing.
+    STRIPPED="${STRIPPED#"${STRIPPED%%[![:space:]]*}"}"   # ltrim
+    case "$STRIPPED" in
+      "—"*) STRIPPED="${STRIPPED#—}" ;;
+      "-"*) STRIPPED="${STRIPPED#-}" ;;
+    esac
+    # Trim surrounding whitespace.
+    STRIPPED="${STRIPPED#"${STRIPPED%%[![:space:]]*}"}"   # ltrim
+    STRIPPED="${STRIPPED%"${STRIPPED##*[![:space:]]}"}"   # rtrim
+    # Use the stripped intro only if it's non-empty and not just the tag again;
+    # otherwise keep the commit-subject fallback.
+    if [ -n "$STRIPPED" ] && [ "$STRIPPED" != "$TAG" ]; then
+      TITLE="$STRIPPED"
+    fi
+  fi
 fi
 
 # --- Emit ---------------------------------------------------------------------
