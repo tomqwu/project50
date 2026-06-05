@@ -98,6 +98,10 @@ function buildRemotePatterns() {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Strip the `x-powered-by: Next.js` response header. It leaks the framework
+  // (fingerprinting) and adds nothing for clients — flagged by the live audit
+  // (#274, fixes #292).
+  poweredByHeader: false,
   // Emit a self-contained server bundle (.next/standalone) for the Docker image
   // so the runner stage needs only Node + the traced files, not the full
   // node_modules / pnpm store. See apps/web/Dockerfile.
