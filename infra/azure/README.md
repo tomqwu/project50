@@ -106,8 +106,14 @@ schema):
 image_tag` → roll revision.**
 
 ```bash
-# 0. Pick the release tag to deploy
-TAG=v2026.06.04.3            # the cut release
+# 0. Pick the release to deploy. Two DISTINCT identifiers — keep them straight:
+#    * IMAGE_SHA — the commit sha; this is the IMAGE tag and the `image_tag` var.
+#      Per repo convention (CLAUDE.md) we build AND deploy by commit sha, so the
+#      image you build is exactly the image terraform pulls.
+#    * TAG — the CalVer release tag; this is for the BADGE only and travels as a
+#      `--build-arg NEXT_PUBLIC_RELEASE_TAG`, never as the image tag.
+TAG=v2026.06.04.3                          # the cut CalVer release (badge only)
+IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == deploy image_tag
 ACR=acralztyhlgn6o.azurecr.io
 KV=kv-project50-dev-6z7n
 RG=rg-project50-dev-canadacentral
@@ -118,19 +124,21 @@ RG=rg-project50-dev-canadacentral
 #    it — that happens at the `terraform apply image_tag` in step 5, AFTER
 #    migrations.
 #
-#    The release-build-args.sh helper passes the real CalVer tag + GitHub release
-#    URL as `--build-arg NEXT_PUBLIC_RELEASE_*` values. THIS is what makes the
-#    deployed footer ReleaseBadge show the live tag (e.g. v2026.06.04.3) linking
-#    to its GitHub release notes — without it the ACR build context has NO git
-#    tags, so next.config.mjs's `git describe` fallback bakes in
-#    "dev / Local development build". The title can contain spaces, so the script
-#    emits shell-quoted flags and the line MUST be run through `eval`:
-eval "az acr build --registry acralztyhlgn6o --image project50-web:$TAG \
+#    IMAGE TAG = commit sha ($IMAGE_SHA); deploy pulls the SAME sha in step 5.
+#    The CalVer release TAG does NOT tag the image — it rides in as a
+#    `--build-arg NEXT_PUBLIC_RELEASE_*` (tag/title/url) emitted by
+#    release-build-args.sh. THAT build-arg is what makes the deployed footer
+#    ReleaseBadge show the live CalVer tag (e.g. v2026.06.04.3) linking to its
+#    GitHub release notes — without it the ACR build context has NO git tags, so
+#    next.config.mjs's `git describe` fallback bakes in "dev / Local development
+#    build". The title can contain spaces, so the script emits shell-quoted flags
+#    and the line MUST be run through `eval`:
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
   --platform linux/amd64 --file apps/web/Dockerfile \
   $(bash scripts/release-build-args.sh "$TAG") ."
 #    (Equivalently: `ACR_LINE=1 bash scripts/release-build-args.sh "$TAG"` prints
-#    a full, ready-to-eval `az acr build ...` line. The image is tagged with the
-#    CalVer "$TAG" — the same value step 5's `terraform apply image_tag=$TAG` rolls.)
+#    a full, ready-to-eval `az acr build ...` line — it tags the image with the
+#    commit sha too, matching `terraform apply -var image_tag=$IMAGE_SHA` below.)
 
 # 2. Ensure the KV secrets that must exist BEFORE the apply are present (NOT in
 #    TF state). The Container App reads all referenced secrets by versionless URI
@@ -174,12 +182,14 @@ DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
 #  here. To intentionally rotate the p50app credential, see "create / rotate".)
 
 # 5. NOW switch the Container App to the new image (schema is already migrated).
-#    No secret VALUES pass through Terraform. `plan` MUST show no destroy of the
-#    three KV-secret resources (it won't if the one-time `state rm` was done).
+#    image_tag is the COMMIT SHA — the exact image built+pushed in step 1
+#    (project50-web:$IMAGE_SHA), NOT the CalVer $TAG. No secret VALUES pass
+#    through Terraform. `plan` MUST show no destroy of the three KV-secret
+#    resources (it won't if the one-time `state rm` was done).
 cd infra/azure
 terraform init
-terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres; review for unexpected destroys
-terraform apply -var "image_tag=$TAG"
+terraform plan  -var "image_tag=$IMAGE_SHA"   # ~$13/mo Postgres; review for unexpected destroys
+terraform apply -var "image_tag=$IMAGE_SHA"
 
 # 6. Roll a fresh revision onto the new image, then remove the temp firewall rule.
 #    (No secret values changed on a routine deploy, so this is just the image roll.)
