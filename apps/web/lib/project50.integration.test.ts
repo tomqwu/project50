@@ -409,6 +409,33 @@ describe("Project 50 day media", () => {
     expect(await prisma.project50DayMedia.findUnique({ where: { id: rows[1]!.id } })).toBeNull();
   });
 
+  it("removeProject50DayMedia does not orphan the blob when two same-key rows are removed concurrently (TOCTOU)", async () => {
+    // Both rows share one objectKey. A count-then-delete order would let each
+    // removal see the other's row, both skip deleteObject, and orphan the blob.
+    // Delete-row-then-recheck guarantees whichever finishes last sees 0 refs and
+    // erases the blob, so concurrent removals still erase the user's media.
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/concurrent.jpg`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 1, height: 1 }, NOW);
+    await attachProject50DayMedia(
+      u.id,
+      { objectKey: key, width: 1, height: 1 },
+      new Date("2026-06-03T12:00:00Z"),
+    );
+    const rows = await prisma.project50DayMedia.findMany({ where: { challengeId: runId } });
+    expect(rows).toHaveLength(2);
+
+    await Promise.all([
+      removeProject50DayMedia(u.id, rows[0]!.id),
+      removeProject50DayMedia(u.id, rows[1]!.id),
+    ]);
+
+    // Both rows gone AND the blob was deleted — no orphan left behind.
+    expect(await prisma.project50DayMedia.count({ where: { objectKey: key } })).toBe(0);
+    expect(deleteObjectMock).toHaveBeenCalledWith(key);
+  });
+
   it("removeProject50DayMedia keeps the blob when an ActivityMedia row still references the same key", async () => {
     // The same media/<uid>/ blob can be shared with a general Activity photo.
     // Removing the Project 50 row must NOT delete the blob the activity still
