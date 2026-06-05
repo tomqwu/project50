@@ -17,6 +17,19 @@
 !**/.env.example
 **/test-results
 **/playwright-report
-**/.terraform
+# infra/ holds Terraform (tfvars, tfvars.json, auto.tfvars, tfstate, plans,
+# override.tf — all secret-bearing) and is NEVER needed by the web image build
+# context (the Dockerfile only copies package manifests, apps/, packages/). Exclude
+# it WHOLESALE so `az acr build .` can't upload any infra secret file — this kills
+# the entire class of "missed Terraform secret variant" at once.
+infra/
+**/infra/
+# Defense-in-depth: also exclude Terraform/secret artifacts anywhere else (harmless
+# overlap with infra/ above; catches stray files outside the infra tree).
+**/.terraform/
 **/*.tfstate*
+**/*.tfplan
+**/tfplan
+**/*.tfvars
+**/*.tfvars.json
 **/.DS_Store

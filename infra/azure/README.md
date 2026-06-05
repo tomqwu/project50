@@ -106,18 +106,47 @@ schema):
 image_tag` → roll revision.**
 
 ```bash
-# 0. Pick the release tag to deploy
-TAG=v2026.06.04.3            # the cut release
+# 0. Pick the release to deploy. Two DISTINCT identifiers — keep them straight:
+#    * IMAGE_SHA — the commit sha; this is the IMAGE tag and the `image_tag` var.
+#      Per repo convention (CLAUDE.md) we build AND deploy by commit sha, so the
+#      image you build is exactly the image terraform pulls.
+#    * TAG — the CalVer release tag; this is for the BADGE only and travels as a
+#      `--build-arg NEXT_PUBLIC_RELEASE_TAG`, never as the image tag.
+TAG=v2026.06.04.3                          # the cut CalVer release (badge only)
+IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == deploy image_tag
 ACR=acralztyhlgn6o.azurecr.io
 KV=kv-project50-dev-6z7n
 RG=rg-project50-dev-canadacentral
 
-# 1. Build the image (from repo root) and push to the platform ACR.
-#    (Building the image does NOT switch the app to it — that happens at the
-#    `terraform apply image_tag` in step 5, AFTER migrations.)
-az acr login -n acralztyhlgn6o
-docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
-docker push "$ACR/project50-web:$TAG"
+# 1. Build the image IN ACR (from repo root) and push to the platform ACR.
+#    Use `az acr build` (builds linux/amd64 natively; a local `docker build`
+#    under arm64 emulation fails). Building the image does NOT switch the app to
+#    it — that happens at the `terraform apply image_tag` in step 5, AFTER
+#    migrations.
+#
+#    IMAGE TAG = commit sha ($IMAGE_SHA); deploy pulls the SAME sha in step 5.
+#    The CalVer release TAG does NOT tag the image — it rides in as a
+#    `--build-arg NEXT_PUBLIC_RELEASE_*` (tag/title/url) emitted by
+#    release-build-args.sh. THAT build-arg is what makes the deployed footer
+#    ReleaseBadge show the live CalVer tag (e.g. v2026.06.04.3) linking to its
+#    GitHub release notes — without it the ACR build context has NO git tags, so
+#    next.config.mjs's `git describe` fallback bakes in "dev / Local development
+#    build". The title can contain spaces, so the script emits shell-quoted flags
+#    and the line MUST be run through `eval`.
+#
+#    CAPTURE the helper output FIRST and ABORT on failure: the helper exits
+#    non-zero when HEAD isn't at $TAG (or the tag is missing), and inside an
+#    inline `$(...)` that failure would otherwise be SWALLOWED — `az acr build`
+#    would still run and bake the Dockerfile's default "dev/local" badge,
+#    defeating the tag/HEAD gate. So gate on the capture, then `eval` only the
+#    already-captured args:
+BUILD_ARGS=$(bash scripts/release-build-args.sh "$TAG") \
+  || { echo "release-build-args failed (HEAD not at $TAG?)"; exit 1; }
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
+  --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
+#    (Equivalently: `ACR_LINE=1 bash scripts/release-build-args.sh "$TAG"` prints
+#    a full, ready-to-eval `az acr build ...` line — it tags the image with the
+#    commit sha too, matching `terraform apply -var image_tag=$IMAGE_SHA` below.)
 
 # 2. Ensure the KV secrets that must exist BEFORE the apply are present (NOT in
 #    TF state). The Container App reads all referenced secrets by versionless URI
@@ -161,12 +190,14 @@ DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
 #  here. To intentionally rotate the p50app credential, see "create / rotate".)
 
 # 5. NOW switch the Container App to the new image (schema is already migrated).
-#    No secret VALUES pass through Terraform. `plan` MUST show no destroy of the
-#    three KV-secret resources (it won't if the one-time `state rm` was done).
+#    image_tag is the COMMIT SHA — the exact image built+pushed in step 1
+#    (project50-web:$IMAGE_SHA), NOT the CalVer $TAG. No secret VALUES pass
+#    through Terraform. `plan` MUST show no destroy of the three KV-secret
+#    resources (it won't if the one-time `state rm` was done).
 cd infra/azure
 terraform init
-terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres; review for unexpected destroys
-terraform apply -var "image_tag=$TAG"
+terraform plan  -var "image_tag=$IMAGE_SHA"   # ~$13/mo Postgres; review for unexpected destroys
+terraform apply -var "image_tag=$IMAGE_SHA"
 
 # 6. Roll a fresh revision onto the new image, then remove the temp firewall rule.
 #    (No secret values changed on a routine deploy, so this is just the image roll.)
@@ -217,7 +248,24 @@ by the app — so it isn't required pre-apply, only before migrations.)
 
 ```bash
 KV=kv-project50-dev-6z7n
-TAG=v2026.06.04.3   # any pushed image; on first bootstrap this is the initial image
+# Same identifier split as the normal path: IMAGE_SHA = the IMAGE tag (== deploy
+# image_tag), TAG = the CalVer release for the BADGE only (a `--build-arg`).
+TAG=v2026.06.04.3                          # the cut CalVer release (badge only)
+IMAGE_SHA=$(git rev-parse --short=7 HEAD)  # the IMAGE tag == deploy image_tag
+
+# Build + push the initial image to ACR (from the repo root), tagged by COMMIT
+# SHA — the exact tag Stage 3's `terraform apply -var image_tag=$IMAGE_SHA` pulls.
+# The CalVer tag/title/url ride in as `--build-arg NEXT_PUBLIC_RELEASE_*` so the
+# footer ReleaseBadge shows the live release (see release-build-args.sh; the line
+# MUST be `eval`'d because the release title can contain spaces). As in the normal
+# path, CAPTURE the helper output FIRST and ABORT on failure — an inline `$(...)`
+# would swallow the helper's non-zero exit (HEAD not at $TAG) and build a default
+# "dev/local" badge anyway.
+BUILD_ARGS=$(bash scripts/release-build-args.sh "$TAG") \
+  || { echo "release-build-args failed (HEAD not at $TAG?)"; exit 1; }
+eval "az acr build --registry acralztyhlgn6o --image project50-web:$IMAGE_SHA \
+  --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
+
 cd infra/azure
 terraform init
 
@@ -269,11 +317,13 @@ done
 # ── Stage 3: full apply — now creates azurerm_container_app.web ──
 #    All five referenced secrets exist, so the Container App resolves them. This
 #    also creates the Postgres server + random_password.db_admin + the db_admin_*
-#    / postgres_fqdn outputs. On a fresh DB the app pointing at $TAG is fine:
-#    there's no live traffic / old schema yet, so image-before-migrate is safe
-#    here. (On an EXISTING deployment, do NOT use this path — use the normal path
-#    above, which reads the admin URL from KV and migrates before the image.)
-terraform apply -var "image_tag=$TAG"
+#    / postgres_fqdn outputs. image_tag is the COMMIT SHA built above
+#    (project50-web:$IMAGE_SHA) — the same image, NOT the CalVer $TAG. On a fresh
+#    DB the app pointing at this image is fine: there's no live traffic / old
+#    schema yet, so image-before-migrate is safe here. (On an EXISTING deployment,
+#    do NOT use this path — use the normal path above, which reads the admin URL
+#    from KV and migrates before the image.)
+terraform apply -var "image_tag=$IMAGE_SHA"
 
 # ── Stage 4: reconstruct database-url-admin from outputs, migrate, set real
 #             database-url, roll a revision ──
