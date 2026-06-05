@@ -45,4 +45,40 @@ describe("Project50Calendar", () => {
     expect(container.firstChild).toBeNull();
     expect(screen.queryByTestId(/^day-cell-/)).not.toBeInTheDocument();
   });
+
+  it("renders no per-day share controls without a shareId", () => {
+    render(<Project50Calendar days={makeDays()} />);
+    expect(screen.queryByTestId("share-day-button")).not.toBeInTheDocument();
+  });
+
+  it("renders a share control on each complete day when a shareId is given", () => {
+    const days: Project50HistoryDay[] = [
+      { dayNumber: 1, dayKey: "2026-06-01", status: "complete" },
+      { dayNumber: 2, dayKey: "2026-06-02", status: "incomplete" },
+      { dayNumber: 3, dayKey: "2026-06-03", status: "complete" },
+      { dayNumber: 4, dayKey: "2026-06-04", status: "today" },
+      { dayNumber: 5, dayKey: "2026-06-05", status: "future" },
+    ];
+    render(<Project50Calendar days={days} shareId="share-abc" />);
+    // Two complete days → two share buttons (today is 0/7 here, so not shown).
+    expect(screen.getAllByTestId("share-day-button")).toHaveLength(2);
+  });
+
+  it("shares the active day too once it is 7/7", () => {
+    const days: Project50HistoryDay[] = [
+      { dayNumber: 1, dayKey: "2026-06-01", status: "complete" },
+      { dayNumber: 2, dayKey: "2026-06-02", status: "today" },
+    ];
+    render(<Project50Calendar days={days} shareId="share-abc" todayCompletedCount={7} />);
+    // 1 complete + the active day at 7/7 = 2 share buttons.
+    expect(screen.getAllByTestId("share-day-button")).toHaveLength(2);
+  });
+
+  it("does NOT share the active day when it is below 7/7", () => {
+    const days: Project50HistoryDay[] = [
+      { dayNumber: 1, dayKey: "2026-06-01", status: "today" },
+    ];
+    render(<Project50Calendar days={days} shareId="share-abc" todayCompletedCount={6} />);
+    expect(screen.queryByTestId("share-day-button")).not.toBeInTheDocument();
+  });
 });

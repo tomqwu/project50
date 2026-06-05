@@ -17,8 +17,30 @@ jest.mock("../lib/apiClient", () => ({
 import { apiClient } from "../lib/apiClient";
 import { FeedScreen } from "./FeedScreen";
 
-const mockGetFeed = apiClient.getFeed as jest.Mock;
+const rawGetFeed = apiClient.getFeed as jest.Mock;
 const mockReact = apiClient.react as jest.Mock;
+
+/**
+ * getFeed now resolves a `{ items, nextCursor }` page. Tests still express the
+ * fixture as a bare items array, so wrap each queued resolution into a page
+ * (no further page) before handing it to the underlying jest mock. Items are
+ * intentionally loosely typed here: fixtures use `makeFeedItem(...)` whose
+ * inferred shape is wider than `FeedActivity` (e.g. `goalType: string`).
+ */
+const mockGetFeed = {
+  mockResolvedValueOnce(items: unknown[]) {
+    rawGetFeed.mockResolvedValueOnce({ items, nextCursor: null });
+    return this;
+  },
+  mockRejectedValueOnce(err: unknown) {
+    rawGetFeed.mockRejectedValueOnce(err);
+    return this;
+  },
+  mockReturnValueOnce(value: unknown) {
+    rawGetFeed.mockReturnValueOnce(value);
+    return this;
+  },
+};
 
 // ─── Test data ──────────────────────────────────────────────────────────────
 

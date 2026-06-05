@@ -44,6 +44,8 @@ export interface Project50History {
 export interface Project50State {
   status: "NONE" | "ACTIVE" | "FAILED" | "COMPLETED";
   runId?: string;
+  /** Public shareId of the active run, for building per-day share links. */
+  shareId?: string;
   today?: Project50Today;
   history?: Project50History;
   failedDayNumber?: number;
@@ -198,12 +200,24 @@ export async function getProject50State(
   const todayKey = localDayKey(now, run.timezone);
 
   // Hard reset: any elapsed past day (startDate .. yesterday) that is not 7/7 fails the run.
+  // Collapse the old per-day findUnique N+1 (up to ~49 serial round-trips on the
+  // dashboard's hottest path) into a SINGLE bulk read of completed days over the
+  // window (mirrors buildHistory), then find the first elapsed-incomplete day in
+  // memory. Semantics are identical: the run fails on the first elapsed past day
+  // (startDate..yesterday) whose DayStatus is not completed.
   const yesterdayKey = addDays(todayKey, -1);
+  const completedRows = await prisma.dayStatus.findMany({
+    where: {
+      challengeId: run.id,
+      completed: true,
+      dayKey: { gte: run.startDate, lte: yesterdayKey },
+    },
+    select: { dayKey: true },
+  });
+  const completedKeys = new Set(completedRows.map((r) => r.dayKey));
+
   for (let d = run.startDate; d <= yesterdayKey; d = addDays(d, 1)) {
-    const ds = await prisma.dayStatus.findUnique({
-      where: { challengeId_dayKey: { challengeId: run.id, dayKey: d } },
-    });
-    if (!ds?.completed) {
+    if (!completedKeys.has(d)) {
       await prisma.challenge.update({ where: { id: run.id }, data: { status: "FAILED" } });
       const doneRows = await prisma.ruleCheck.findMany({
         where: { challengeId: run.id, dayKey: d, done: true },
@@ -229,6 +243,11 @@ export async function getProject50State(
   return {
     status: "ACTIVE",
     runId: run.id,
+    // Only surface the shareId for a PUBLIC run. The public per-day page loads
+    // via getChallengeByShareId, which returns null for PRIVATE/FOLLOWERS — so
+    // exposing the id on a non-public run would render share buttons whose links
+    // 404. Omit it instead, and ShareDayButton won't render.
+    shareId: run.visibility === "PUBLIC" ? run.shareId : undefined,
     today: await buildToday(run.id, run.startDate, todayKey),
     history: await buildHistory(run.id, run.startDate, todayKey),
   };

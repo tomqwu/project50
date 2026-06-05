@@ -33,10 +33,10 @@ export function FeedScreen(): React.JSX.Element {
       try {
         setLoading(true);
         setError(null);
-        const feed = await apiClient.getFeed();
+        const { items: feedItems } = await apiClient.getFeed();
         /* istanbul ignore else — cancellation guard */
         if (!cancelled) {
-          setItems(feed);
+          setItems(feedItems);
           setLoading(false);
         }
       } catch (e) {
