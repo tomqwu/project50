@@ -37,6 +37,46 @@ export function isValidReferralCode(code: string): boolean {
   return VALID_CODE.test(code);
 }
 
+/** A parsed pending-referral cookie: the code + when it was captured. */
+export interface ParsedReferralCookie {
+  code: string;
+  capturedAt: Date;
+}
+
+/**
+ * Cookie encoding: `"<code>.<epochMillis>"`.
+ *
+ * The capture timestamp lets the claim path compare it to the account's
+ * `createdAt` — the authoritative "was the ref clicked BEFORE the account
+ * existed" signal. Codes are `[A-Za-z0-9]` so they never contain the `.`
+ * separator; we split on the LAST dot to recover the timestamp.
+ */
+export function encodeReferralCookie(code: string, capturedAtMs: number): string {
+  return `${code}.${capturedAtMs}`;
+}
+
+/**
+ * Parse a `"<code>.<epochMillis>"` cookie value back into `{ code, capturedAt }`,
+ * or `null` when it is absent, malformed, timestamp-less (legacy format), has an
+ * invalid code, or a non-positive/non-integer timestamp. Callers treat `null` as
+ * "no usable pending referral" and fail safe (do NOT record).
+ */
+export function parseReferralCookie(
+  value: string | undefined,
+): ParsedReferralCookie | null {
+  if (!value) return null;
+  const lastDot = value.lastIndexOf(".");
+  if (lastDot <= 0) return null; // no dot, or leading dot (empty code)
+  const code = value.slice(0, lastDot);
+  const tsPart = value.slice(lastDot + 1);
+  if (!isValidReferralCode(code)) return null;
+  // Strictly an integer string (no sign, no decimals, no whitespace).
+  if (!/^\d+$/.test(tsPart)) return null;
+  const ms = Number(tsPart);
+  if (!Number.isSafeInteger(ms) || ms <= 0) return null;
+  return { code, capturedAt: new Date(ms) };
+}
+
 /**
  * Whether the `p50_ref` cookie should carry the `Secure` flag.
  *
@@ -69,7 +109,7 @@ export function captureReferralFromRequest(
   const code = raw.trim();
   if (!isValidReferralCode(code)) return false;
 
-  response.cookies.set(REFERRAL_COOKIE, code, {
+  response.cookies.set(REFERRAL_COOKIE, encodeReferralCookie(code, Date.now()), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",

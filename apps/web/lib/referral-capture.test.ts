@@ -4,6 +4,7 @@ import {
   REFERRAL_COOKIE_MAX_AGE_SECONDS,
   isValidReferralCode,
   captureReferralFromRequest,
+  parseReferralCookie,
 } from "./referral-capture";
 
 describe("isValidReferralCode", () => {
@@ -27,6 +28,47 @@ describe("isValidReferralCode", () => {
     expect(isValidReferralCode("ABC/DEF")).toBe(false);
     expect(isValidReferralCode("ABC;DEF")).toBe(false);
     expect(isValidReferralCode("ABC=DEF")).toBe(false);
+  });
+});
+
+describe("parseReferralCookie", () => {
+  it("parses a `<code>.<epochMillis>` value into code + capturedAt", () => {
+    const parsed = parseReferralCookie("ABCD2345.1700000000000");
+    expect(parsed).toEqual({ code: "ABCD2345", capturedAt: new Date(1700000000000) });
+  });
+
+  it("returns null for undefined / empty", () => {
+    expect(parseReferralCookie(undefined)).toBeNull();
+    expect(parseReferralCookie("")).toBeNull();
+  });
+
+  it("returns null for a legacy timestamp-less value (no dot)", () => {
+    expect(parseReferralCookie("ABCD2345")).toBeNull();
+  });
+
+  it("returns null when the code part is invalid/garbage", () => {
+    expect(parseReferralCookie("../evil.1700000000000")).toBeNull();
+    expect(parseReferralCookie(".1700000000000")).toBeNull();
+  });
+
+  it("returns null when the timestamp part is non-numeric or empty", () => {
+    expect(parseReferralCookie("ABCD2345.notanumber")).toBeNull();
+    expect(parseReferralCookie("ABCD2345.")).toBeNull();
+    expect(parseReferralCookie("ABCD2345.-5")).toBeNull();
+  });
+
+  it("returns null for a zero timestamp (must be a positive epoch)", () => {
+    expect(parseReferralCookie("ABCD2345.0")).toBeNull();
+  });
+
+  it("returns null for an out-of-safe-range timestamp (overflow guard)", () => {
+    expect(parseReferralCookie("ABCD2345.99999999999999999999")).toBeNull();
+  });
+
+  it("tolerates extra dots only in the timestamp boundary (splits on the LAST dot)", () => {
+    // Codes are alnum so they never contain a dot; a stray dot makes the code
+    // part invalid → null (fail safe).
+    expect(parseReferralCookie("AB.CD.1700000000000")).toBeNull();
   });
 });
 
@@ -56,16 +98,22 @@ describe("captureReferralFromRequest", () => {
     res = fakeResponse();
   });
 
-  it("sets a short-lived httpOnly cookie when ?ref=<valid code> is present", () => {
+  it("sets a short-lived httpOnly cookie encoding the code AND a capture timestamp", () => {
+    const before = Date.now();
     const captured = captureReferralFromRequest(
       fakeRequest("https://app.test/?ref=ABCD2345"),
       res.response,
     );
+    const after = Date.now();
     expect(captured).toBe(true);
     expect(res.set).toHaveBeenCalledTimes(1);
     const [name, value, opts] = res.set.mock.calls[0]!;
     expect(name).toBe(REFERRAL_COOKIE);
-    expect(value).toBe("ABCD2345");
+    // Value is the `<code>.<epochMillis>` encoding — parse it back.
+    const parsed = parseReferralCookie(value);
+    expect(parsed?.code).toBe("ABCD2345");
+    expect(parsed!.capturedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(parsed!.capturedAt.getTime()).toBeLessThanOrEqual(after);
     expect(opts).toMatchObject({
       httpOnly: true,
       sameSite: "lax",
@@ -98,7 +146,7 @@ describe("captureReferralFromRequest", () => {
       res.response,
     );
     expect(captured).toBe(true);
-    expect(res.set.mock.calls[0]![1]).toBe("ABCD2345");
+    expect(parseReferralCookie(res.set.mock.calls[0]![1])?.code).toBe("ABCD2345");
   });
 
   it("has a max-age of about 30 minutes", () => {

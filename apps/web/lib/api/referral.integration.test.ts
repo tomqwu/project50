@@ -8,8 +8,7 @@ import {
   getOrCreateReferralCode,
   getReferralStats,
   recordReferral,
-  isNewlyCreatedUser,
-  REFERRAL_NEW_USER_WINDOW_MS,
+  getUserCreatedAt,
 } from "./referral";
 
 beforeEach(resetDb);
@@ -141,37 +140,24 @@ describe("getReferralStats", () => {
   });
 });
 
-describe("isNewlyCreatedUser", () => {
-  it("is true for a just-created account (createdAt within the window)", async () => {
-    const fresh = await createUser({ handle: "fresh" });
-    await expect(isNewlyCreatedUser(fresh.id)).resolves.toBe(true);
+describe("getUserCreatedAt", () => {
+  it("returns the account's createdAt for a known user", async () => {
+    const u = await createUser({ handle: "known" });
+    const stored = (await prisma.user.findUnique({ where: { id: u.id } }))!.createdAt;
+    const got = await getUserCreatedAt(u.id);
+    expect(got).toBeInstanceOf(Date);
+    expect(got!.getTime()).toBe(stored.getTime());
   });
 
-  it("is false for a returning account older than the window", async () => {
-    const old = await createUser({ handle: "old" });
-    // Age the account well beyond the window.
-    await prisma.user.update({
-      where: { id: old.id },
-      data: { createdAt: new Date(Date.now() - REFERRAL_NEW_USER_WINDOW_MS - 60_000) },
-    });
-    await expect(isNewlyCreatedUser(old.id)).resolves.toBe(false);
+  it("reflects an updated createdAt", async () => {
+    const u = await createUser({ handle: "aged" });
+    const when = new Date(Date.now() - 60 * 60 * 1000);
+    await prisma.user.update({ where: { id: u.id }, data: { createdAt: when } });
+    const got = await getUserCreatedAt(u.id);
+    expect(got!.getTime()).toBe(when.getTime());
   });
 
-  it("is false for an unknown user id", async () => {
-    await expect(isNewlyCreatedUser("does-not-exist")).resolves.toBe(false);
-  });
-
-  it("treats an account created exactly at the window boundary as new (inclusive)", async () => {
-    const edge = await createUser({ handle: "edge" });
-    const now = new Date();
-    await prisma.user.update({
-      where: { id: edge.id },
-      data: { createdAt: new Date(now.getTime() - REFERRAL_NEW_USER_WINDOW_MS) },
-    });
-    await expect(isNewlyCreatedUser(edge.id, now)).resolves.toBe(true);
-  });
-
-  it("uses ~30 minutes as the new-user window (matches the referral cookie TTL)", () => {
-    expect(REFERRAL_NEW_USER_WINDOW_MS).toBe(30 * 60 * 1000);
+  it("returns null for an unknown user id", async () => {
+    await expect(getUserCreatedAt("does-not-exist")).resolves.toBeNull();
   });
 });

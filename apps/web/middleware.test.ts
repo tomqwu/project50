@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { middleware } from "./middleware";
-import { REFERRAL_COOKIE } from "./lib/referral-capture";
+import { REFERRAL_COOKIE, parseReferralCookie } from "./lib/referral-capture";
 import type { NextRequest } from "next/server";
 
 /** Build a minimal NextRequest-like object exposing only `nextUrl`. */
@@ -126,7 +126,8 @@ describe("security headers middleware — referral capture (#266)", () => {
   it("captures ?ref=<code> into the p50_ref cookie (survives the auth redirect)", () => {
     const res = middleware(reqFor("https://app.test/?ref=ABCD2345"));
     const cookie = res.cookies.get(REFERRAL_COOKIE);
-    expect(cookie?.value).toBe("ABCD2345");
+    // Value is the `<code>.<epochMillis>` encoding — parse out the code.
+    expect(parseReferralCookie(cookie?.value)?.code).toBe("ABCD2345");
     expect(cookie?.httpOnly).toBe(true);
     // Still emits the security headers on the same response.
     expect(res.headers.get("content-security-policy")).toContain("default-src 'self'");

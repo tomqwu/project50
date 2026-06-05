@@ -77,37 +77,24 @@ export async function getReferralStats(uid: string): Promise<ReferralStats> {
 }
 
 /**
- * How recently an account must have been created to count as a "new user" for
- * COOKIE-based referral attribution. Matches the `p50_ref` cookie's 30-minute
- * TTL: a genuinely-new invitee's account is created during the signup flow that
- * set the cookie, so its `createdAt` falls inside this window; a RETURNING user
- * who merely clicked an invite link has an account older than the cookie and is
- * therefore excluded. (Explicit body-code claims are not gated by this.)
- */
-export const REFERRAL_NEW_USER_WINDOW_MS = 30 * 60 * 1000;
-
-/**
- * True when `uid` names a user whose account was created within
- * `REFERRAL_NEW_USER_WINDOW_MS` of `now` (inclusive of the exact boundary).
+ * Return a user's account-creation time, or `null` for an unknown user id.
  *
- * Chosen signal: `User.createdAt`. The cookie-claim happens via a decoupled
- * client POST after sign-in, so the Auth.js `createUser`/`signIn` event's
- * "is new" flag is not available at this point — account-age recency is the
- * most reliable signal we DO have here, and is robust because a returning
- * account is always older than the short-lived cookie that triggered the claim.
- * Returns false for an unknown user id.
+ * Used by COOKIE-based referral attribution: the claim path compares the
+ * referral's CAPTURE time (stored in the `p50_ref` cookie) to this `createdAt`.
+ * A genuine referral means the invite link was clicked at or before the account
+ * was created (`capturedAt <= createdAt`); a returning account, or an organic
+ * signup that later clicked the link, has `createdAt < capturedAt` and is
+ * excluded. This capture-vs-signup comparison is the authoritative signal
+ * (explicit body-code claims are not gated by it). Chosen because the cookie
+ * claim is a decoupled client POST after sign-in, so the Auth.js `createUser`
+ * "is new" flag isn't available at that point — `User.createdAt` is.
  */
-export async function isNewlyCreatedUser(
-  uid: string,
-  now: Date = new Date(),
-  windowMs: number = REFERRAL_NEW_USER_WINDOW_MS,
-): Promise<boolean> {
+export async function getUserCreatedAt(uid: string): Promise<Date | null> {
   const user = await prisma.user.findUnique({
     where: { id: uid },
     select: { createdAt: true },
   });
-  if (!user) return false;
-  return user.createdAt.getTime() >= now.getTime() - windowMs;
+  return user?.createdAt ?? null;
 }
 
 /**
