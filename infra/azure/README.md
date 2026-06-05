@@ -44,6 +44,46 @@ unavoidably in state. It is *not* stored as a Key Vault secret here.
 > Per project policy: deploy only after the app is CI-green, merged to `main`,
 > and a release tag is cut. Always `plan` and review cost before `apply`.
 
+> ## ⚠️ ONE-TIME MIGRATION — do this BEFORE the first `terraform apply`, or you will DELETE the live secrets
+>
+> This release stopped declaring the `database-url`, `database-url-admin`, and
+> `auth-secret` `azurerm_key_vault_secret` resources. On the **existing**
+> deployment, the **very first** `terraform apply` with this code will see those
+> three resources are gone and **plan their DESTRUCTION — deleting them from Key
+> Vault**, which takes down the running app's DB + Auth.
+>
+> So on an existing deployment, **before any `terraform apply`/`plan` with this
+> code**, you MUST (a) make sure the secret VALUES already exist in Key Vault
+> (set out of band — see [Key Vault secrets — create / rotate](#key-vault-secrets--create--rotate-out-of-band))
+> so the app keeps resolving them, then (b) drop them from Terraform's state so
+> the apply no longer plans to delete them:
+>
+> ```bash
+> cd infra/azure
+> terraform init
+> # (a) verify the values exist in KV (each prints a value, not an error):
+> for n in database-url database-url-admin auth-secret; do
+>   az keyvault secret show --vault-name kv-project50-dev-6z7n --name "$n" --query name -o tsv
+> done
+> # (b) stop Terraform tracking them (state rm does NOT delete the KV secret):
+> terraform state rm azurerm_key_vault_secret.database_url
+> terraform state rm azurerm_key_vault_secret.database_url_admin
+> terraform state rm azurerm_key_vault_secret.auth_secret
+> # Now `terraform plan` must show NO destroy for these three secrets before you apply.
+> ```
+>
+> Skip this block ONLY on a brand-new green-field bootstrap where these resources
+> were never in state. See also
+> [One-time migration](#one-time-migration-stop-terraform-tracking-these-secret-values)
+> (state-history scrub + rotate-once) below.
+
+End-to-end order (each step depends on the previous; **migrations run BEFORE the
+image switch** so live traffic never hits the new revision against the old
+schema):
+
+**[one-time `state rm` migration above] → set/verify KV secrets → `prisma
+migrate deploy` → `terraform apply image_tag` → roll revision.**
+
 ```bash
 # 0. Pick the release tag to deploy
 TAG=v2026.06.04.3            # the cut release
@@ -51,64 +91,66 @@ ACR=acralztyhlgn6o.azurecr.io
 KV=kv-project50-dev-6z7n
 RG=rg-project50-dev-canadacentral
 
-# 1. Build the image (from repo root) and push to the platform ACR
+# 1. Build the image (from repo root) and push to the platform ACR.
+#    (Building the image does NOT switch the app to it — that happens at the
+#    `terraform apply image_tag` in step 6, AFTER migrations.)
 az acr login -n acralztyhlgn6o
 docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
 docker push "$ACR/project50-web:$TAG"
 
-# 2. Apply the infra FIRST. This creates the Postgres server and the generated
-#    server admin password (random_password.db_admin). No secret VALUES pass
-#    through Terraform — the DB connection strings are set out of band below.
+# 2. Ensure the Postgres server + admin password exist. On an EXISTING deployment
+#    they already do — read the admin password from TF outputs (Azure never
+#    reveals an existing Flexible Server admin password; see the db_admin_password
+#    note in outputs.tf). On a green-field bootstrap, run a one-time
+#    `terraform apply -var image_tag=$TAG` FIRST to create the server (this also
+#    creates the Container App pointing at $TAG — that's fine on a fresh DB since
+#    there's no live traffic / old schema yet), then continue here.
 cd infra/azure
 terraform init
-terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres
-terraform apply -var "image_tag=$TAG"
-
-# 3. Read the server coordinates + admin password from TF outputs, and build +
-#    store the ADMIN connection string out of band. The admin password is only
-#    retrievable via this output (Azure never reveals an existing Flexible Server
-#    admin password) — see the db_admin_password note in outputs.tf.
 PG_HOST="$(terraform output -raw postgres_fqdn)"
 ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
 ADMIN_PW="$(terraform output -raw db_admin_password)"
 ADMIN_URL="postgresql://${ADMIN_LOGIN}:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$ADMIN_PW")@${PG_HOST}:5432/project50?sslmode=require"
-az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
 cd -
+
+# 3. Set/verify the DB connection-string KV secrets out of band (NOT in TF state).
+#    Admin URL was assembled in step 2; the app (p50app) URL is set in step 5
+#    after the role password is generated. The Container App reads both by
+#    versionless URI.
+az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
 
 # 4. Open the Postgres firewall to your IP for the migrate + role bootstrap
 MYIP=$(curl -s https://api.ipify.org)
 az postgres flexible-server firewall-rule create -g "$RG" \
   --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
 
-# 5. Migrate as ADMIN, then create/refresh the least-privilege p50app role.
-#    The app connects as p50app (NOT admin); migrations + role bootstrap use admin.
+# 5. MIGRATE FIRST (as ADMIN), BEFORE switching the image — so the new revision
+#    never serves traffic against the old schema. Then create/refresh the
+#    least-privilege p50app role and store the app connection string out of band.
 APP_DB_PW="p50app_$(openssl rand -hex 12)"
 DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
 docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
   -f infra/azure/sql/app-role.sql
-
-# 6. Set the APP connection string out of band (NOT in TF state). The Container
-#    App reads this by versionless URI; force a new revision (step 7) to pick up
-#    a changed value.
 az keyvault secret set --vault-name "$KV" --name database-url \
   --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
 
-# 7. Restart the revision so it picks up the DB credentials, then remove the temp rule
+# 6. NOW switch the Container App to the new image (schema is already migrated).
+#    No secret VALUES pass through Terraform. `plan` MUST show no destroy of the
+#    three KV-secret resources (it won't if the one-time `state rm` was done).
+cd infra/azure
+terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres; review for unexpected destroys
+terraform apply -var "image_tag=$TAG"
+
+# 7. Roll a fresh revision so it picks up the (possibly just-changed) DB
+#    credentials immediately, then remove the temp firewall rule.
 az containerapp revision restart -g "$RG" -n ca-project50-web-dev \
   --revision "$(az containerapp show -g "$RG" -n ca-project50-web-dev --query 'properties.latestRevisionName' -o tsv)"
 az postgres flexible-server firewall-rule delete -g "$RG" \
   --server-name <psql-name> --name temp-deploy --yes
 
 # 8. App URL
-cd infra/azure && terraform output -raw app_url
+terraform output -raw app_url
 ```
-
-> **Bootstrap order matters.** `terraform apply` (step 2) must run **before** the
-> DB secret-sets, because it creates the server and the `random_password.db_admin`
-> value the admin URL is built from. So: **apply → read outputs → set
-> `database-url-admin` + `database-url` → app picks them up** (on the next
-> revision). On a fresh bootstrap or after the state scrub below, this is the only
-> way to reconstruct `database-url-admin`.
 
 ### Key Vault secrets — create / rotate (out of band)
 
@@ -168,19 +210,17 @@ az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev
 
 Terraform previously managed `database-url`, `database-url-admin`, and
 `auth-secret` as `azurerm_key_vault_secret` resources, so their plaintext was in
-TF state. This config no longer declares those resources. On the **existing**
-deployment, the operator must run these **once** so Terraform stops tracking the
-values (the secrets stay in Key Vault — `state rm` only drops Terraform's
-bookkeeping, it does NOT delete the Key Vault secret):
+TF state. This config no longer declares those resources.
 
-```bash
-cd infra/azure
-terraform init
-terraform state rm azurerm_key_vault_secret.database_url
-terraform state rm azurerm_key_vault_secret.database_url_admin
-terraform state rm azurerm_key_vault_secret.auth_secret
-# A subsequent `terraform plan` should now show NO changes for these secrets.
-```
+**The `state rm` step is mandatory and must run BEFORE the first `terraform
+apply` with this code** — otherwise that apply plans to DESTROY the three KV
+secrets and takes down the live app. It is documented as the prominent
+[⚠️ ONE-TIME MIGRATION](#deploy-runbook-run-locally-with-az-login) callout at the
+top of the deploy runbook; do that first. `state rm` only drops Terraform's
+bookkeeping — the secrets stay in Key Vault. After it, `terraform plan` must show
+no destroy for these three secrets.
+
+The remaining one-time concern is the leaked plaintext in state history:
 
 > **Scrub the old plaintext from state history.** The values these resources held
 > already exist in **prior versions** of the remote state blob
