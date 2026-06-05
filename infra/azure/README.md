@@ -61,16 +61,26 @@ unavoidably in state. It is *not* stored as a Key Vault secret here.
 > ```bash
 > cd infra/azure
 > terraform init
-> # (a) verify the values exist in KV (each prints a value, not an error):
-> for n in database-url database-url-admin auth-secret; do
+> # (a) verify EVERY secret the Container App references exists in KV before the
+> #     apply — a missing one makes `terraform apply` FAIL resolving the secret
+> #     block (this includes metrics-token, which is NEW in this release):
+> for n in database-url database-url-admin auth-secret \
+>          facebook-client-id facebook-client-secret metrics-token; do
 >   az keyvault secret show --vault-name kv-project50-dev-6z7n --name "$n" --query name -o tsv
 > done
-> # (b) stop Terraform tracking them (state rm does NOT delete the KV secret):
+> # (b) stop Terraform tracking the three it used to manage (state rm does NOT
+> #     delete the KV secret):
 > terraform state rm azurerm_key_vault_secret.database_url
 > terraform state rm azurerm_key_vault_secret.database_url_admin
 > terraform state rm azurerm_key_vault_secret.auth_secret
 > # Now `terraform plan` must show NO destroy for these three secrets before you apply.
 > ```
+>
+> **Secrets that MUST exist in Key Vault before the first `terraform apply`** (the
+> Container App references each by versionless URI; a missing one fails the
+> apply): `database-url`, `database-url-admin`, `auth-secret` (already in KV from
+> the prior deployment), `facebook-client-id`, `facebook-client-secret` (already
+> in KV), and **`metrics-token`** (NEW in this release — set it in step 3 below).
 >
 > Skip this block ONLY on a brand-new green-field bootstrap where these resources
 > were never in state. See also
@@ -113,11 +123,19 @@ ADMIN_PW="$(terraform output -raw db_admin_password)"
 ADMIN_URL="postgresql://${ADMIN_LOGIN}:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$ADMIN_PW")@${PG_HOST}:5432/project50?sslmode=require"
 cd -
 
-# 3. Set/verify the DB connection-string KV secrets out of band (NOT in TF state).
+# 3. Set/verify the KV secrets that must exist BEFORE the apply (NOT in TF state).
 #    Admin URL was assembled in step 2; the app (p50app) URL is set in step 5
-#    after the role password is generated. The Container App reads both by
-#    versionless URI.
+#    after the role password is generated. The Container App reads all of these
+#    by versionless URI — any one missing fails `terraform apply` (step 6).
 az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
+# metrics-token is NEW in this release: it must exist before the apply that wires
+# the secret ref, OR the apply fails resolving it. Any value works; setting it
+# also ACTIVATES the /api/metrics bearer-auth lock (the intended outcome — an
+# unset token leaves the endpoint open). Skip only if it already exists in KV.
+az keyvault secret set --vault-name "$KV" --name metrics-token \
+  --value "$(openssl rand -base64 32)" >/dev/null
+# (auth-secret + facebook-client-id/secret are assumed already in KV from the
+#  prior deployment — verify with the loop in the ⚠️ callout above.)
 
 # 4. Open the Postgres firewall to your IP for the migrate + role bootstrap
 MYIP=$(curl -s https://api.ipify.org)
