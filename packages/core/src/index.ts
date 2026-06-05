@@ -26,5 +26,7 @@ export {
   PROJECT50_RULES,
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
+  project50CurrentDay,
   type Project50Rule,
+  type Project50CurrentDayInput,
 } from "./project50";
