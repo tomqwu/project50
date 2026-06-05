@@ -7,10 +7,12 @@ import {
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
-import { presignGet } from "@/lib/storage";
+import { presignGet, deleteObject, userMediaPrefix } from "@/lib/storage";
 
 /** One photo attached to a Project 50 day, with a signed view URL for display. */
 export interface Project50DayMediaItem {
+  /** Stable row id, used to remove this specific photo. */
+  id: string;
   objectKey: string;
   width: number;
   height: number;
@@ -131,7 +133,7 @@ export async function listProject50DayMedia(
   const rows = await prisma.project50DayMedia.findMany({
     where: { challengeId: runId, dayKey },
     orderBy: { createdAt: "asc" },
-    select: { objectKey: true, width: true, height: true },
+    select: { id: true, objectKey: true, width: true, height: true },
   });
   return Promise.all(rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })));
 }
@@ -309,4 +311,101 @@ export async function attachProject50DayMedia(
       height: media.height,
     },
   });
+}
+
+/**
+ * Remove one photo (by media id) from the user's Project 50 run.
+ *
+ * SECURITY: the row is loaded JOINED to its challenge and we verify the
+ * challenge's `ownerId === uid` before touching anything. A user may only ever
+ * delete THEIR OWN media — a mismatch (or an unknown id) is a safe no-op, so no
+ * cross-user deletion is possible.
+ *
+ * ORDER — delete-row, THEN recheck refs, THEN delete-blob (avoids a TOCTOU
+ * orphan): we delete the DB row FIRST, then count remaining references to its
+ * objectKey, then delete the blob only if none remain. Doing the ref-count
+ * before the row delete would let two concurrent removals of rows sharing one
+ * objectKey each see the other's row, both decide "still referenced," both
+ * delete their row, and leave the blob orphaned forever. Deleting the row first
+ * means whichever removal checks last sees 0 references and erases the blob — so
+ * "remove photo" actually erases the user's media (GDPR intent), no orphan.
+ *
+ * SECURITY (defense-in-depth): the stored objectKey is whatever the client
+ * supplied at attach time, so a user could attach a row on THEIR OWN run whose
+ * objectKey points at someone else's blob. Mirroring account deletion, we only
+ * ever call deleteObject for keys under THIS user's own `media/<uid>/` prefix —
+ * a row whose key is out-of-prefix has its DB row removed but no blob deleted.
+ *
+ * SHARED BLOBS: the same `media/<uid>/` blob can be referenced by MORE than the
+ * one row being removed — another Project 50 day's photo (the same image
+ * attached to multiple days), a general Activity photo (ActivityMedia), or a
+ * rendered recap video (Recap) can all point at the same objectKey. We only
+ * delete the blob when NO reference remains across ALL of those media tables
+ * (checked AFTER this row is deleted); otherwise we'd orphan a still-live
+ * thumbnail/video.
+ *
+ * BIAS: when in doubt we RETAIN the blob. A wrongly-deleted blob breaks a live
+ * image; a wrongly-retained one is merely orphaned, and the GDPR account-
+ * deletion prefix sweep (deleteUserMedia) removes orphans under `media/<uid>/`.
+ * deleteObject is idempotent on a missing blob, so if two concurrent removals
+ * both see 0 refs and both call it, the second is a harmless no-op.
+ */
+export async function removeProject50DayMedia(
+  uid: string,
+  mediaId: string,
+): Promise<void> {
+  const row = await prisma.project50DayMedia.findUnique({
+    where: { id: mediaId },
+    select: { id: true, objectKey: true, challenge: { select: { ownerId: true } } },
+  });
+  // Unknown id, or a row whose challenge is owned by someone else → no-op.
+  // OWNERSHIP CHECK stays BEFORE any delete — no cross-user deletion is possible.
+  if (!row || row.challenge.ownerId !== uid) return;
+  const { objectKey } = row;
+
+  // 1) Delete the DB row FIRST (idempotent: deleteMany no-ops if a concurrent
+  //    removal already deleted it, instead of a P2025 throw).
+  await prisma.project50DayMedia.deleteMany({ where: { id: row.id } });
+
+  // 2) THEN count remaining references to this objectKey across every table that
+  //    stores one (Project 50 day photos, activity photos, recaps). The row is
+  //    already gone, so no exclusion is needed — any remaining reference means
+  //    another view still shows this blob and it must NOT be deleted.
+  //
+  //    OWNER-SCOPED: only THIS user's references count toward retention (mirrors
+  //    account.ts collectUserMediaKeys ownership joins — Project50DayMedia &
+  //    Recap via challenge.ownerId, ActivityMedia via activity.userId). Combined
+  //    with the media/<uid>/ prefix guard below — which already ensures we only
+  //    ever delete keys under the user's OWN prefix — a foreign user's same-key
+  //    row is irrelevant to (and cannot block) erasing this user's own blob.
+  const [dayMediaRefs, activityRefs, recapRefs] = await Promise.all([
+    prisma.project50DayMedia.count({
+      where: { objectKey, challenge: { ownerId: uid } },
+    }),
+    prisma.activityMedia.count({
+      where: { objectKey, activity: { userId: uid } },
+    }),
+    prisma.recap.count({
+      where: { objectKey, challenge: { ownerId: uid } },
+    }),
+  ]);
+  const stillReferenced = dayMediaRefs + activityRefs + recapRefs > 0;
+
+  // 3) Delete the blob only if nothing references it anymore AND it is under the
+  //    user's own media prefix (never touch another user's / an arbitrary key).
+  if (stillReferenced) {
+    // Keep the blob: another row still uses it.
+  } else if (objectKey.startsWith(userMediaPrefix(uid))) {
+    try {
+      await deleteObject(objectKey);
+    } catch (err) {
+      // Log and continue: the blob may be orphaned, but the DB row is already
+      // gone so the user's "Today's photo" strip reflects the deletion.
+      console.error(`removeProject50DayMedia: failed to delete blob ${objectKey}`, err);
+    }
+  } else {
+    console.warn(
+      `removeProject50DayMedia: skipping out-of-prefix media key ${objectKey} for ${uid}`,
+    );
+  }
 }

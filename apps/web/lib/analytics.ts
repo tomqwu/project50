@@ -29,6 +29,7 @@ export type AnalyticsEvent =
   | "project50_started"
   | "rule_toggled"
   | "project50_photo_added"
+  | "project50_photo_removed"
   | "project50_journal_saved"
   | "upgrade_clicked";
 

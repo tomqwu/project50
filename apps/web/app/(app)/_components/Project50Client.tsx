@@ -7,6 +7,7 @@ import {
   startProject50Action,
   toggleRuleAction,
   attachProject50MediaAction,
+  removeProject50MediaAction,
 } from "../_actions/project50";
 import { saveJournalAction } from "../_actions/journal";
 import { track } from "@/lib/analytics";
@@ -33,6 +34,10 @@ export function Project50Client({ state }: { state: Project50State }) {
       onAttachMedia={(objectKey, width, height) => {
         track("project50_photo_added", {});
         startTransition(() => void attachProject50MediaAction(objectKey, width, height));
+      }}
+      onRemoveMedia={(mediaId) => {
+        track("project50_photo_removed", {});
+        startTransition(() => void removeProject50MediaAction(mediaId));
       }}
       onSaveJournal={(wins, lessons, dayKey) => {
         track("project50_journal_saved", {});
