@@ -140,6 +140,13 @@ export interface FeedActivity {
   project50Day?: number;
 }
 
+/** A bounded, cursor-paginated page of feed activities. */
+export interface FeedPage {
+  items: FeedActivity[];
+  /** Pass back as `?cursor=` to fetch the next page; null on the last page. */
+  nextCursor: string | null;
+}
+
 export interface Reaction {
   id: string;
   activityId: string;
@@ -322,8 +329,16 @@ export class ApiClient {
 
   // ─── Feed ─────────────────────────────────────────────────────────────────
 
-  async getFeed(): Promise<FeedActivity[]> {
-    return this.request<FeedActivity[]>("GET", "/api/feed");
+  /**
+   * Fetch a page of the activity feed. The feed is bounded and cursor-paginated;
+   * pass `cursor` (a prior page's `nextCursor`) and/or `limit` to page through it.
+   */
+  async getFeed(opts: { cursor?: string; limit?: number } = {}): Promise<FeedPage> {
+    const qs = new URLSearchParams();
+    if (opts.cursor) qs.set("cursor", opts.cursor);
+    if (opts.limit != null) qs.set("limit", String(opts.limit));
+    const query = qs.toString();
+    return this.request<FeedPage>("GET", `/api/feed${query ? `?${query}` : ""}`);
   }
 
   // ─── Reactions ────────────────────────────────────────────────────────────
