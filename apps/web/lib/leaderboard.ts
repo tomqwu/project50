@@ -22,6 +22,40 @@ interface ChallengeWhere {
   }>;
 }
 
+/** The owner + visibility portion of a challenge filter, shared by both queries. */
+type VisibilityWhere = Pick<ChallengeWhere, "visibility" | "ownerId" | "OR">;
+
+/**
+ * Build the owner/visibility `where` fragment a viewer is allowed to see in a
+ * scope, restricted to `ownerIds`. This is the SINGLE source of the visibility
+ * rule, used by BOTH the candidate query and the cross-run completedDays
+ * aggregate so they can never drift (a private run hidden from one must be
+ * hidden from the other):
+ *
+ * - `global`  — PUBLIC runs only.
+ * - `friends` — the viewer's OWN runs (any visibility) plus followees' runs that
+ *   are PUBLIC or FOLLOWERS. (`followeeIds` is empty for global.)
+ */
+function visibilityWhere(
+  scope: LeaderboardScope,
+  uid: string,
+  followeeIds: string[],
+  ownerIds: string[],
+): VisibilityWhere {
+  if (scope === "global") {
+    return { visibility: "PUBLIC", ownerId: { in: ownerIds } };
+  }
+  return {
+    ownerId: { in: ownerIds },
+    OR: [
+      // The viewer's own runs, regardless of visibility.
+      { ownerId: uid },
+      // Followees' runs visible to a follower: PUBLIC or FOLLOWERS.
+      { ownerId: { in: followeeIds }, visibility: { in: ["PUBLIC", "FOLLOWERS"] } },
+    ],
+  };
+}
+
 export interface LeaderboardEntry {
   /** 1-based position after sorting (currentDay desc, then completedDays desc). */
   rank: number;
@@ -82,25 +116,22 @@ export async function getLeaderboard(
   uid: string,
   { scope, now = new Date() }: GetLeaderboardOptions,
 ): Promise<LeaderboardEntry[]> {
-  // Resolve the visibility-aware challenge filter for the scope.
-  let where: ChallengeWhere;
+  // Resolve the set of followees once (empty for global) so the same visibility
+  // rule can be applied to both the candidate and the aggregate queries.
+  let followeeIds: string[] = [];
   if (scope === "friends") {
     const follows = await prisma.follow.findMany({
       where: { followerId: uid },
       select: { followeeId: true },
     });
-    const followeeIds = follows.map((f) => f.followeeId);
+    followeeIds = follows.map((f) => f.followeeId);
+  }
+
+  // Candidate query: the runs that can currently rank.
+  let where: ChallengeWhere;
+  if (scope === "friends") {
     const ownerIds = [...new Set<string>([uid, ...followeeIds])];
-    where = {
-      kind: "PROJECT50",
-      ownerId: { in: ownerIds },
-      OR: [
-        // The viewer's own runs, regardless of visibility.
-        { ownerId: uid },
-        // Followees' runs visible to a follower: PUBLIC or FOLLOWERS.
-        { ownerId: { in: followeeIds }, visibility: { in: ["PUBLIC", "FOLLOWERS"] } },
-      ],
-    };
+    where = { kind: "PROJECT50", ...visibilityWhere("friends", uid, followeeIds, ownerIds) };
   } else {
     // Only ACTIVE PUBLIC runs that started within the program window can be
     // currently ranking. The cutoff uses a UTC day key, widened by one extra day
@@ -109,6 +140,8 @@ export async function getLeaderboard(
     // have a startDate one day before a UTC today-(N-1) cutoff. The extra day of
     // slack keeps it in the set; the per-run project50CurrentDay re-check (using
     // each run's own timezone) stays exact and discards any non-rankable extras.
+    // ownerId is unrestricted at this stage (any public owner); the aggregate
+    // query below re-applies the same PUBLIC filter to the candidate owners.
     const cutoff = addDays(localDayKey(now, "UTC"), -PROJECT50_LENGTH_DAYS);
     where = {
       kind: "PROJECT50",
@@ -130,12 +163,17 @@ export async function getLeaderboard(
 
   const candidateOwnerIds = [...new Set(challenges.map((c) => c.ownerId))];
 
-  // Pull ALL of the candidate owners' PROJECT50 runs (not just the active
-  // candidates). This lets `completedDays` — the tie-break — count days from a
-  // user's prior FAILED/COMPLETED runs too, instead of only their live run.
-  // Bounded by the candidate owner set, so still no per-user N+1.
+  // Pull the candidate owners' PROJECT50 runs the viewer is allowed to see in
+  // this scope (NOT all their runs). This lets `completedDays` — the tie-break —
+  // count days from a user's prior FAILED/COMPLETED runs too, while applying the
+  // SAME visibility rule as the candidate query so hidden progress never leaks
+  // (e.g. a PRIVATE prior run never counts on the global board). Bounded by the
+  // candidate owner set, so still no per-user N+1.
   const ownerChallenges = await prisma.challenge.findMany({
-    where: { kind: "PROJECT50", ownerId: { in: candidateOwnerIds } },
+    where: {
+      kind: "PROJECT50",
+      ...visibilityWhere(scope, uid, followeeIds, candidateOwnerIds),
+    },
     select: { id: true, ownerId: true },
   });
   const ownerByChallengeId = new Map(ownerChallenges.map((c) => [c.id, c.ownerId]));

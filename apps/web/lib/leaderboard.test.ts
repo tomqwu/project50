@@ -97,33 +97,32 @@ function user(id: string, handle = id, displayName = id.toUpperCase()): UserRow 
 
 /**
  * Wire the challenge + dayStatus mocks together to mirror the implementation's
- * two distinct `challenge.findMany` calls:
+ * two distinct, ordered `challenge.findMany` calls:
  *   1. the candidate query (global: status ACTIVE + startDate window; friends:
  *      OR visibility clause) — returns `candidates`.
- *   2. the owner-aggregate query (all PROJECT50 runs for the candidate owners,
- *      no status/window filter) — returns `allChallenges`, used to total
- *      `completedDays` across a user's historical runs.
+ *   2. the owner-aggregate query (the candidate owners' PROJECT50 runs the
+ *      viewer is allowed to see in this scope) — returns `allChallenges`, used
+ *      to total `completedDays` across a user's historical runs.
  *
  * `dayStatus` rows feed both the per-candidate compliance check and the
  * cross-run completed-day totals. By default they are auto-derived as compliant
  * days for every challenge passed.
  *
- * The two challenge calls are told apart structurally: the candidate query has
- * `where.status` (global) or `where.OR` (friends); the owner-aggregate query has
- * neither.
+ * The two challenge calls are told apart by ORDER (candidate first, aggregate
+ * second) — both now carry visibility filters, so structural discrimination is
+ * no longer reliable.
  */
 function setup(
   candidates: ChallengeRow[],
   opts?: { dayStatus?: DayStatusRow[]; allChallenges?: ChallengeRow[] },
 ) {
   const allChallenges = opts?.allChallenges ?? candidates;
-  mockChallengeFindMany.mockImplementation(
-    (args: { where?: { status?: unknown; OR?: unknown } }) => {
-      const w = args?.where ?? {};
-      const isCandidateQuery = w.status !== undefined || w.OR !== undefined;
-      return Promise.resolve(isCandidateQuery ? candidates : allChallenges);
-    },
-  );
+  let challengeCall = 0;
+  mockChallengeFindMany.mockImplementation(() => {
+    const result = challengeCall === 0 ? candidates : allChallenges;
+    challengeCall += 1;
+    return Promise.resolve(result);
+  });
   const everyChallenge = [
     ...allChallenges,
     ...candidates.filter((c) => !allChallenges.some((a) => a.id === c.id)),
@@ -364,6 +363,75 @@ describe("getLeaderboard — metric & ranking", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.completedDays).toBe(13);
     expect(rows[0]!.currentDay).toBe(2);
+  });
+
+  it("global completedDays does NOT leak a user's PRIVATE prior run (visibility-gated aggregate)", async () => {
+    // c1 active PUBLIC (the candidate). c2 is a prior PRIVATE completed run —
+    // the visibility-gated aggregate query must NOT return it, so its days don't
+    // inflate completedDays on the public board.
+    setup(
+      [challenge("c1", "ua", "2026-06-09", "ACTIVE", "PUBLIC")], // day 2
+      {
+        // The aggregate query is visibility-filtered, so only the PUBLIC run is
+        // returned (c2 PRIVATE is dropped by the DB filter).
+        allChallenges: [challenge("c1", "ua", "2026-06-09", "ACTIVE", "PUBLIC")],
+        dayStatus: [{ challengeId: "c1", dayKey: "2026-06-09" }],
+      },
+    );
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    expect(rows[0]!.completedDays).toBe(1); // only the public run's day
+    // The aggregate (2nd) challenge query gates visibility to PUBLIC.
+    const aggArgs = mockChallengeFindMany.mock.calls[1]![0];
+    expect(aggArgs.where.visibility).toBe("PUBLIC");
+    expect(aggArgs.where.ownerId).toEqual({ in: ["ua"] });
+  });
+
+  it("friends completedDays gates the aggregate with the same OR visibility rule", async () => {
+    mockFollowFindMany.mockResolvedValue([{ followeeId: "fr" }]);
+    setup(
+      [
+        challenge("me-active", "viewer", "2026-06-09", "ACTIVE", "PRIVATE"),
+        challenge("fr-active", "fr", "2026-06-09", "ACTIVE", "FOLLOWERS"),
+      ],
+      {
+        // Aggregate the viewer is allowed to see: own runs (any visibility) +
+        // followee PUBLIC/FOLLOWERS. A followee PRIVATE run is excluded.
+        allChallenges: [
+          challenge("me-active", "viewer", "2026-06-09", "ACTIVE", "PRIVATE"),
+          challenge("me-old", "viewer", "2026-01-01", "COMPLETED", "PRIVATE"),
+          challenge("fr-active", "fr", "2026-06-09", "ACTIVE", "FOLLOWERS"),
+        ],
+        dayStatus: [
+          { challengeId: "me-active", dayKey: "2026-06-09" },
+          ...Array.from({ length: 50 }, (_, i) => ({
+            challengeId: "me-old",
+            dayKey: addUtcDays("2026-01-01", i),
+          })),
+          { challengeId: "fr-active", dayKey: "2026-06-09" },
+        ],
+      },
+    );
+    mockUserFindMany.mockResolvedValue([user("viewer"), user("fr")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
+
+    // The aggregate (2nd) challenge query uses the OR visibility rule.
+    const aggArgs = mockChallengeFindMany.mock.calls[1]![0];
+    expect(aggArgs.where.OR).toEqual([
+      { ownerId: "viewer" },
+      { ownerId: { in: ["fr"] }, visibility: { in: ["PUBLIC", "FOLLOWERS"] } },
+    ]);
+    expect(aggArgs.where.ownerId).toEqual({ in: ["viewer", "fr"] });
+
+    // Own PRIVATE historical run counts for the viewer (51 = 1 active + 50 old).
+    const me = rows.find((r) => r.userId === "viewer")!;
+    expect(me.completedDays).toBe(51);
+    // The followee's visible FOLLOWERS run counts (1).
+    const fr = rows.find((r) => r.userId === "fr")!;
+    expect(fr.completedDays).toBe(1);
   });
 
   it("prefers the most recently started ACTIVE run when a user has several", async () => {
