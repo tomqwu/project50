@@ -92,20 +92,27 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 # footer badge links to the release notes — see scripts/release-build-args.sh and
 # infra/azure/README.md. ARGs must precede `next build`; ENV makes them visible to
 # next.config.mjs. Defaults mirror the local "dev" fallback when args are omitted.
-# NEXT_PUBLIC_RELEASE_TITLE_B64 is the feature intro base64-encoded: the title has
-# spaces + parens (e.g. "fix(deploy): ... (#300)") that break `az acr build`, which
-# runs the remote `docker build --build-arg ...` via /bin/sh WITHOUT quoting the
-# value. base64 keeps it a single shell-safe token; next.config.mjs decodes it back
-# into NEXT_PUBLIC_RELEASE_TITLE. See scripts/release-build-args.sh.
+# Title is accepted two ways, matching the resolver precedence in
+# lib/release-title.ts / next.config.mjs: B64 (sentinel-validated) → legacy raw →
+# git/dev default. NEXT_PUBLIC_RELEASE_TITLE_B64 is the feature intro base64-encoded
+# (with a sentinel): the raw title has spaces + parens (e.g. "fix(deploy): ...
+# (#300)") that break `az acr build`, which runs the remote `docker build
+# --build-arg ...` via /bin/sh WITHOUT quoting the value — base64 keeps it a single
+# shell-safe token (see scripts/release-build-args.sh). The legacy raw
+# NEXT_PUBLIC_RELEASE_TITLE ARG is kept so existing/external build invocations that
+# pass the unencoded title (in a context that quotes it safely) still work and feed
+# the resolver's documented raw fallback. Both are declared before `next build`.
 ARG NEXT_PUBLIC_RELEASE_TAG=dev
 ARG NEXT_PUBLIC_RELEASE_SHA=local
 ARG NEXT_PUBLIC_RELEASE_TIME=
 ARG NEXT_PUBLIC_RELEASE_TITLE_B64=
+ARG NEXT_PUBLIC_RELEASE_TITLE=
 ARG NEXT_PUBLIC_RELEASE_URL=
 ENV NEXT_PUBLIC_RELEASE_TAG=$NEXT_PUBLIC_RELEASE_TAG \
     NEXT_PUBLIC_RELEASE_SHA=$NEXT_PUBLIC_RELEASE_SHA \
     NEXT_PUBLIC_RELEASE_TIME=$NEXT_PUBLIC_RELEASE_TIME \
     NEXT_PUBLIC_RELEASE_TITLE_B64=$NEXT_PUBLIC_RELEASE_TITLE_B64 \
+    NEXT_PUBLIC_RELEASE_TITLE=$NEXT_PUBLIC_RELEASE_TITLE \
     NEXT_PUBLIC_RELEASE_URL=$NEXT_PUBLIC_RELEASE_URL
 RUN pnpm --filter @project50/web build
 
