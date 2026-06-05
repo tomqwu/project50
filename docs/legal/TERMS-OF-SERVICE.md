@@ -35,7 +35,7 @@ returns at sign-in.
 1.3 **Account security.** You are responsible for activity that occurs
 under your account and for maintaining the security of the third-party
 account you use to sign in. Notify us promptly at
-**support@project50.app** if you believe your account has been
+**support@project50.fit** if you believe your account has been
 compromised.
 
 1.4 **One person, accurate information.** You agree to provide accurate
@@ -248,5 +248,5 @@ take effect constitutes acceptance.
 
 ## 14. Contact
 
-Questions about these Terms: **support@project50.app**
+Questions about these Terms: **support@project50.fit**
 TODO _(insert legal entity name and registered postal address)._
