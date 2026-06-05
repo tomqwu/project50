@@ -113,8 +113,8 @@ and uptime monitoring.
 
 | Variable | Purpose | Environments | Where stored | Notes |
 | --- | --- | --- | --- | --- |
-| `AUTH_E2E` | Enables the gated demo/test-login path. `apps/web/auth.ts` activates it **only** when `AUTH_E2E === "1"`. | dev, CI (e2e) **only** | `.env` (dev), Playwright web-server env (CI). | **NEVER set in prod.** This is the primary gate that exposes a passwordless test login. |
-| `AUTH_E2E_ALLOW_PROD` | Secondary override letting the e2e login work when the e2e server runs `next start` with `NODE_ENV=production` over http. `apps/web/auth.ts`: the path also requires `NODE_ENV !== "production" || AUTH_E2E_ALLOW_PROD === "1"`. | CI (e2e) **only** | Playwright web-server env. | **NEVER set in prod.** With `AUTH_E2E` unset (gate 1), this is moot, but do not set it regardless. |
+| `AUTH_E2E` | Enables the gated demo/test-login path. `shouldRegisterE2eProvider()` (`apps/web/lib/auth-config.ts`, used by `auth.ts`) activates it **only** when `AUTH_E2E === "1"`. | dev, CI (e2e) **only** | `.env` (dev), Playwright web-server env (CI). | **NEVER set in prod.** This is the primary gate that exposes a passwordless test login. |
+| `AUTH_E2E_ALLOW_PROD` | Single documented escape hatch re-enabling the e2e login when the e2e server runs `next start` with `NODE_ENV=production` over http. **Production safety guard (#277):** in production the test login registers **only** when `AUTH_E2E_ALLOW_PROD === "1"` exactly; unset/blank → silently refused even if `AUTH_E2E=1` leaks; any **other** value (e.g. `"true"`, `"yes"`) → the app **throws a startup error** rather than guess intent. | CI (e2e) **only** | Playwright web-server env. | **NEVER set in prod.** With `AUTH_E2E` unset (gate 1), this is moot, but do not set it regardless. |
 | `RECAP_FAKE` | Dev/CI flag to stub recap MP4 rendering. | dev, CI | `.env`, CI env. | Not a secret; do not set in prod. |
 
 ### Non-secret runtime config (for completeness)
