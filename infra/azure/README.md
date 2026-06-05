@@ -119,14 +119,18 @@ az acr login -n acralztyhlgn6o
 docker build -f apps/web/Dockerfile -t "$ACR/project50-web:$TAG" .
 docker push "$ACR/project50-web:$TAG"
 
-# 2. Set/verify the KV secrets that must exist BEFORE the apply (NOT in TF state).
-#    The Container App reads all referenced secrets by versionless URI — any one
-#    missing fails `terraform apply` (step 5). metrics-token is NEW in this
-#    release: any value works; setting it also ACTIVATES the /api/metrics
-#    bearer-auth lock (an unset token leaves the endpoint open). Skip the set if
-#    it already exists in KV.
-az keyvault secret set --vault-name "$KV" --name metrics-token \
-  --value "$(openssl rand -base64 32)" >/dev/null
+# 2. Ensure the KV secrets that must exist BEFORE the apply are present (NOT in
+#    TF state). The Container App reads all referenced secrets by versionless URI
+#    — any one missing fails `terraform apply` (step 5). metrics-token is NEW in
+#    this release: SHOW-OR-CREATE it (never unconditionally `set` on a routine
+#    deploy — that would rotate the token and 401 any configured Prometheus/caller
+#    until its bearer is rotated in lockstep). Creating it the first time also
+#    ACTIVATES the /api/metrics bearer-auth lock (an unset token leaves the
+#    endpoint open). Intentional rotation of the scrape credential is a SEPARATE,
+#    deliberate step (see "create / rotate" below), never part of a routine deploy.
+az keyvault secret show --vault-name "$KV" --name metrics-token >/dev/null 2>&1 \
+  || az keyvault secret set --vault-name "$KV" --name metrics-token \
+       --value "$(openssl rand -base64 32)" >/dev/null
 # (database-url-admin, database-url, auth-secret, facebook-client-id/secret are
 #  already in KV from the prior deployment — verify with the loop in the ⚠️
 #  callout above. database-url is refreshed in step 4 after the role bootstrap.)
@@ -172,11 +176,23 @@ terraform output -raw app_url
 ### Bootstrap / secret recovery
 
 Use this path only on a **green-field bootstrap** (no server yet) or to
-**recreate `database-url-admin`** after the state-history scrub. It is the ONLY
-way to obtain the server admin password, which comes from the `db_admin_password`
-Terraform output — and **that output does not exist in state until AFTER a
-successful `terraform apply`**. So here the apply runs FIRST, then the outputs are
-read:
+**recreate `database-url-admin`** after the state-history scrub. The server admin
+password comes from the `db_admin_password` Terraform output, and **that output
+does not exist in state until AFTER a successful `terraform apply`** — so the
+apply runs FIRST, then the outputs are read.
+
+**Root cause to design around:** the Container App resolves **every** KV secret
+reference at create time, so **all** referenced secrets must already exist in Key
+Vault before its first `terraform apply` — otherwise creating
+`azurerm_container_app.web` fails. The real `database-url` (and the
+deployer-only `database-url-admin`) can't be built until the server exists, so we
+**seed placeholders** for everything first, apply, then overwrite the real DB
+values once the server + outputs exist.
+
+The Container App references these five secrets (must exist before apply):
+`database-url`, `auth-secret`, `metrics-token`, `facebook-client-id`,
+`facebook-client-secret`. (`database-url-admin` is deployer-only — NOT referenced
+by the app — so it isn't required pre-apply, only before migrations.)
 
 ```bash
 KV=kv-project50-dev-6z7n
@@ -184,17 +200,27 @@ TAG=v2026.06.04.3   # any pushed image; on first bootstrap this is the initial i
 cd infra/azure
 terraform init
 
-# 1. APPLY FIRST — creates the Postgres server + the random_password.db_admin
-#    value + the db_admin_* / postgres_fqdn outputs. On a fresh DB the Container
-#    App pointing at $TAG is fine: there's no live traffic / old schema yet, so
-#    image-before-migrate is safe here. (On an existing deployment, do NOT use
-#    this path — use the normal path above, which reads the admin URL from KV.)
-#    Pre-create metrics-token first so the secret ref resolves (see normal path).
-az keyvault secret set --vault-name "$KV" --name metrics-token \
-  --value "$(openssl rand -base64 32)" >/dev/null
+# 1. SEED every referenced secret so the first apply can resolve them. Use
+#    show-or-create so re-running never clobbers a real value. database-url gets
+#    a throwaway placeholder (overwritten in step 4 once the server exists);
+#    auth-secret/metrics-token get real generated values; facebook-* need REAL
+#    OAuth credentials (use the actual app id/secret, or a placeholder if Facebook
+#    login isn't wired yet — login just won't work until set).
+for s in database-url auth-secret metrics-token facebook-client-id facebook-client-secret; do
+  az keyvault secret show --vault-name "$KV" --name "$s" >/dev/null 2>&1 \
+    || az keyvault secret set --vault-name "$KV" --name "$s" \
+         --value "placeholder-$(openssl rand -hex 8)" >/dev/null
+done
+
+# 2. APPLY FIRST — creates the Postgres server + the random_password.db_admin
+#    value + the db_admin_* / postgres_fqdn outputs (+ the Container App, which
+#    now resolves all five seeded secrets). On a fresh DB the app pointing at $TAG
+#    is fine: there's no live traffic / old schema yet, so image-before-migrate is
+#    safe here. (On an EXISTING deployment, do NOT use this path — use the normal
+#    path above, which reads the admin URL from KV and migrates before the image.)
 terraform apply -var "image_tag=$TAG"
 
-# 2. Reconstruct database-url-admin from the now-existing outputs (Azure never
+# 3. Reconstruct database-url-admin from the now-existing outputs (Azure never
 #    reveals an existing admin password; the output is the only source — see the
 #    db_admin_password note in outputs.tf).
 PG_HOST="$(terraform output -raw postgres_fqdn)"
@@ -204,10 +230,12 @@ ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[
 ADMIN_URL="postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
 az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
 
-# 3. Now migrate + bootstrap the p50app role + set database-url + set auth-secret,
-#    then re-apply with the real release image_tag and roll a revision — i.e.
-#    continue from step 3 of the normal deploy path above (open firewall →
-#    migrate → set database-url → terraform apply -var image_tag=$TAG → restart).
+# 4. Migrate + bootstrap the p50app role, then OVERWRITE the placeholder
+#    database-url with the real p50app connection string, set real auth-secret /
+#    facebook-* values if you seeded placeholders, then roll a fresh revision so
+#    the app stops serving the placeholders — i.e. continue from step 3 of the
+#    normal deploy path above (open firewall → migrate → set REAL database-url →
+#    `az containerapp update --revision-suffix ...` to pick up the new values).
 ```
 
 ### Key Vault secrets — create / rotate (out of band)
