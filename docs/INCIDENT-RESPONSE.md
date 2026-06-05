@@ -2,7 +2,9 @@
 
 How we detect, respond to, and learn from production incidents for Project 50.
 Pairs with the per-failure [`RUNBOOKS.md`](./RUNBOOKS.md) (what to *do*) and
-[`DEPLOY.md`](./DEPLOY.md) (deploy/rollback mechanics).
+[`DEPLOY.md`](./DEPLOY.md) (deploy/rollback mechanics). The app runs on **Azure
+Container Apps** (`ca-project50-web-dev`); the full deploy + Key Vault + scaling
+runbook is [`infra/azure/README.md`](../infra/azure/README.md).
 
 > Items that depend on **your** org/cloud setup (paging tool, comms channel,
 > status page, on-call rotation) are marked **TODO** — fill them in once the
@@ -48,11 +50,14 @@ etc.) and link them here.
 ## Response lifecycle
 
 ### 1. Detect
-- Sources: host healthcheck failing, **Sentry** alert (if `SENTRY_DSN` set), a
-  spike of `"level":"error"` JSON logs, a failed **Deploy** workflow, or user
-  reports.
-- **TODO:** wire alerting (host healthcheck → pager; Sentry → pager/Slack) so
-  detection isn't purely manual.
+- Sources: an **Azure Monitor** metric alert (the 5xx / replica-restart /
+  Postgres CPU-storage-connections alerts in `infra/azure/monitoring.tf`, when
+  `alert_email` is enabled), the Container App `/api/health` probe failing, a
+  **Sentry** alert (if `SENTRY_DSN` set), a spike of `"level":"error"` JSON logs,
+  or user reports.
+- **TODO:** wire alerting (set `alert_email` to enable the Azure Monitor action
+  group; `/api/health` external check + Sentry → pager/Slack) so detection isn't
+  purely manual.
 
 ### 2. Triage
 - **Declare** the incident and assign an **IC**.
@@ -66,10 +71,20 @@ etc.) and link them here.
 
 ### 3. Mitigate (stop the bleeding — before root-causing)
 - **Restore service first.** The fastest, safest lever here is usually a
-  **rollback**: promote the last known-good deployment (instant, DB-safe — see
-  `RUNBOOKS.md` → *Bad deploy / rollback* and `DEPLOY.md` → *Rollback*).
-- If it's a dependency (DB / storage / OAuth provider), follow that dependency's
-  runbook.
+  **rollback**: shift ingress traffic to the last known-good **Container App
+  revision** (`az containerapp ingress traffic set` / re-activate a previous
+  revision via `az containerapp revision activate`) — instant and DB-safe. See
+  `RUNBOOKS.md` → *Bad deploy / rollback* and `DEPLOY.md` → *Rollback*.
+- If it's a dependency, follow that dependency's runbook:
+  - **DB / storage** — run `curl -sS https://www.project50.fit/api/ready | jq` to
+    see which is down (`database` / `storage` breakdown), then the matching
+    runbook. Storage is **Azure Blob via managed identity**; DB is **Azure
+    Postgres Flexible Server** `psql-project50-dev-zv34o5`.
+  - **Secret / Key Vault** (e.g. a rotated/missing `database-url`, `auth-secret`,
+    `metrics-token`) — set the value out of band and **roll a fresh revision** to
+    clear the ~30-min versionless-ref cache, per
+    [`infra/azure/README.md`](../infra/azure/README.md) § Key Vault.
+  - **OAuth provider** — auth runbook in `RUNBOOKS.md`.
 - Apply the matching runbook in `RUNBOOKS.md`. Record every action + timestamp
   (scribe).
 - Communicate: post that you're investigating, then that you've mitigated.
@@ -146,9 +161,9 @@ Anything to fold back into `RUNBOOKS.md`, alerting, or this process.
 ## Pre-incident checklist (do these before you need them)
 
 - [ ] On-call rotation + paging tool configured — **TODO**
-- [ ] Alerting wired: host healthcheck (`/api/health`) and Sentry → pager/Slack — **TODO**
+- [ ] Azure Monitor alerts enabled (`alert_email` set — `infra/azure/monitoring.tf`) + an external `/api/health` check, Sentry → pager/Slack — **TODO**
 - [ ] `SENTRY_DSN` set in production so errors are captured — see `RUNBOOKS.md`
 - [ ] Incident comms channel + status page set up — **TODO**
-- [ ] Team has practiced a **rollback** (promote last-good) once — see `DEPLOY.md`
-- [ ] Production env (host) has access to its deployment dashboard / logs — **TODO**
+- [ ] Team has practiced a **Container App revision rollback** (`az containerapp ingress traffic set` to the last-good revision) once — see `DEPLOY.md` / `RUNBOOKS.md`
+- [ ] Responders can `az login` to the subscription and reach the Container App revisions / logs (`az containerapp logs show`) and Key Vault `kv-project50-dev-6z7n`
 - [ ] Responders have read `RUNBOOKS.md`

@@ -2,26 +2,42 @@
 
 Operational runbooks for diagnosing and recovering from common Project 50
 failures. These are grounded in **this** app's actual architecture — read
-alongside [`DEPLOY.md`](./DEPLOY.md) (CD pipeline) and
+alongside [`DEPLOY.md`](./DEPLOY.md) (deploy/rollback model) and
 [`INCIDENT-RESPONSE.md`](./INCIDENT-RESPONSE.md) (process, severities, comms).
+The full Azure deploy + Key Vault + scaling runbook is
+[`infra/azure/README.md`](../infra/azure/README.md).
 
-> Anything that depends on **your** cloud setup (hosting dashboard, paging tool,
-> log drain, status page) is marked **TODO** below — fill these in once the
-> infra is provisioned. The runbooks themselves are accurate to the code in this
-> repo today.
+> Anything that depends on org-level setup (paging tool, status page, on-call
+> rotation) is marked **TODO** below — fill these in once it exists. The host
+> facts below are real (Azure Container Apps), and the runbooks are accurate to
+> the code in this repo today.
 
 ## System at a glance
 
+The app runs on **Azure** (Canada Central), deployed **locally** via `az login`
+(no GitHub OIDC CD — see `DEPLOY.md`). Resource names: RG
+`rg-project50-dev-canadacentral`, Container App `ca-project50-web-dev`, ACR
+`acralztyhlgn6o`, Key Vault `kv-project50-dev-6z7n`, Postgres
+`psql-project50-dev-zv34o5`.
+
 | Component | What it is | Where |
 | --- | --- | --- |
-| **Web app** | Next.js app (App Router), the only deployed service | `apps/web`, default host **Vercel** (see `DEPLOY.md`) |
-| **Database** | PostgreSQL 16, accessed via **Prisma** | `packages/db` (`schema.prisma`, migrations); conn string `DATABASE_URL` |
-| **Object storage** | S3-compatible (MinIO in dev/CI, S3/compatible in prod) | `apps/web/lib/storage.ts`; env `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` |
+| **Web app** | Next.js app (App Router), the only deployed service | `apps/web` → **Azure Container Apps** `ca-project50-web-dev` (image pulled from ACR `acralztyhlgn6o`) |
+| **Database** | **Azure Database for PostgreSQL Flexible Server** (B1ms) `psql-project50-dev-zv34o5`, accessed via **Prisma** as least-priv role `p50app` | `packages/db` (`schema.prisma`, migrations); app conn string in KV `database-url`, admin in KV `database-url-admin` |
+| **Object storage** | **Azure Blob** (`media` container) via the app's **managed identity** (`uami-project50-dev`), SAS URLs — no account key | `apps/web/lib/storage.ts`; env `AZURE_STORAGE_ACCOUNT` / `AZURE_STORAGE_CONTAINER` (falls back to S3/MinIO locally) |
+| **Secrets** | **Azure Key Vault** `kv-project50-dev-6z7n`, referenced by versionless URI; values set out of band | `infra/azure/README.md` § Key Vault |
 | **Auth** | Auth.js (NextAuth v5): Google + Facebook OAuth, JWT sessions | `apps/web/auth.ts`, `apps/web/lib/auth-config.ts` |
 | **Recap render** | Server-generated MP4s uploaded to object storage | `apps/web/lib/api/recap.ts` (+ `@project50/recap`) |
-| **Logs** | Structured **JSON-per-line** to stdout/stderr | `apps/web/lib/logger.ts` |
+| **Logs** | Structured **JSON-per-line** to stdout/stderr → Container Apps Log Analytics workspace | `apps/web/lib/logger.ts` |
 | **Error tracking** | Sentry, **opt-in** via `SENTRY_DSN` | `apps/web/sentry.*.config.ts`, `instrumentation.ts` |
-| **CI / CD** | GitHub Actions: `ci.yml`, `deploy.yml`, `preview.yml` | `.github/workflows/` |
+| **CI** | GitHub Actions `ci.yml` (gate) + `release.yml` (CalVer tag per merge). `deploy.yml`/`preview.yml` are an **inert Vercel scaffold** — unused (see `DEPLOY.md`). | `.github/workflows/` |
+
+> **Scaling is warm.** The Container App keeps **`min_replicas = 1`** (one
+> replica always warm) and scales out to **`max_replicas = 4`** under HTTP
+> concurrency — so there is **no cold start** on the first request after idle.
+> Don't attribute a slow first request to cold start. (Details + the
+> scale-to-zero opt-out: [`infra/azure/README.md`](../infra/azure/README.md)
+> § Scaling.)
 
 ### Health & readiness endpoints (these EXIST — use them first)
 
@@ -49,14 +65,20 @@ curl -sS https://<your-domain>/api/ready | jq
   `authorization`, `cookie`, `*_token`, `client_secret`) are auto-redacted, so
   they are safe to read/share. Filter by `level` (`debug|info|warn|error`).
   Controlled by `LOG_LEVEL` (default `info`).
-  - **TODO:** record your log destination here (Vercel: Project → Logs / a
-    configured Log Drain; otherwise your container/log-aggregator).
+  - Log destination: the Container Apps **Log Analytics workspace** (stdout/stderr
+    of `ca-project50-web-dev`). Query with
+    `az containerapp logs show -g rg-project50-dev-canadacentral -n ca-project50-web-dev --follow`
+    or `ContainerAppConsoleLogs_CL` in the LAW.
 - **Errors:** Sentry, **only if `SENTRY_DSN` is set**. With no DSN the SDK never
   initializes (no events). If you have no Sentry events, first confirm the DSN
-  is configured in the host's env.
+  is configured (KV / Container App env).
   - **TODO:** Sentry org/project URL.
-- **Deploys:** GitHub Actions **Deploy** workflow + your host's deployment list.
-  - **TODO:** host dashboard URL (Vercel: Project → Deployments).
+- **Deploys:** there is **no CI/CD deploy** — deploys are run locally (`az login`)
+  per `DEPLOY.md`. Inspect revisions:
+  `az containerapp revision list -g rg-project50-dev-canadacentral -n ca-project50-web-dev -o table`
+  (each deploy is a new revision; the active image carries the deployed commit
+  sha as its tag). The in-app footer `ReleaseBadge` shows the live CalVer
+  tag/sha/time.
 - **Paging / on-call rotation:** **TODO** — wire up your pager (PagerDuty/Opsgenie/etc.).
 
 ### Useful local commands
@@ -93,19 +115,23 @@ is broken" reports.
    `checks.storage:false` → **Object storage unreachable** runbook.
    Both true but app still erroring → **Elevated error rate** runbook.
 
-3. **Check for a recent deploy.** Look at GitHub Actions **Deploy** and the host's
-   deployment list. If the outage started right after a deploy → **Bad deploy /
+3. **Check for a recent deploy.** Deploys are local + revision-based — list the
+   Container App revisions
+   (`az containerapp revision list -g rg-project50-dev-canadacentral -n ca-project50-web-dev -o table`).
+   If the outage started right after a new revision went live → **Bad deploy /
    rollback** runbook (fastest path back to green).
 
-4. **Read the logs** (JSON lines). Look for `"level":"error"` near the incident
-   start, repeated stack traces, or boot errors (e.g. a missing required env var
-   such as `DATABASE_URL`, `AUTH_SECRET`, or `S3_*`). A process that crash-loops
-   on boot usually means bad/missing env config on the host.
+4. **Read the logs** (JSON lines via `az containerapp logs show ... --follow`).
+   Look for `"level":"error"` near the incident start, repeated stack traces, or
+   boot errors (e.g. a missing required env / KV secret such as the KV
+   `database-url`, `auth-secret`, or the `AZURE_STORAGE_*` refs). A replica that
+   crash-loops on boot usually means a bad/missing Key Vault secret or env.
 
 5. **Check Sentry** (if `SENTRY_DSN` set) for a spike and the top exception.
 
 6. **Mitigate:**
-   - Outage began after a deploy → **roll back** (promote last-good — see below).
+   - Outage began after a deploy → **roll back** (shift traffic to the last-good
+     Container App revision — see *Bad deploy / rollback* below).
    - A dependency is down → follow that dependency's runbook.
    - Boot failure on missing env → fix the host env var, redeploy.
 
@@ -118,19 +144,28 @@ and not recovered within the SEV1 target.
 
 **Symptoms:** `/api/ready` shows `database:false`; routes that read/write data
 fail; logs show Prisma connection errors (e.g. `P1001` can't reach DB,
-`P1002` timeout); the `migrate` job failing in CD.
+`P1002` timeout); a migration failing during a local deploy.
 
 ### A) Database unreachable at runtime
 
 1. Confirm with readiness: `curl -sS https://<domain>/api/ready | jq` →
    `checks.database:false`.
-2. **Check the database itself** (managed Postgres dashboard / provider status):
-   is it up, at connection-limit, out of disk, or in maintenance? **TODO:** your
-   DB provider + dashboard link.
-3. **Check `DATABASE_URL`** on the host — rotated password, wrong host, network
-   rules (Postgres listens on 5432). Note the app reads `DATABASE_URL` at the
-   *host/runtime* env, configured separately from GitHub Actions secrets (see
-   `DEPLOY.md`).
+2. **Check the database itself** — **Azure Postgres Flexible Server**
+   `psql-project50-dev-zv34o5` (RG `rg-project50-dev-canadacentral`): is it up,
+   at connection-limit (~35 on B1ms), out of disk, or in maintenance?
+   ```bash
+   az postgres flexible-server show -g rg-project50-dev-canadacentral \
+     -n psql-project50-dev-zv34o5 --query '{state:state, version:version}'
+   ```
+   (Active-connections / CPU / storage alerts on this server are codified in
+   `infra/azure/monitoring.tf` when `alert_email` is enabled.)
+3. **Check the app connection string.** The running app reads its conn string
+   from the **Key Vault** secret `database-url` (least-priv `p50app` role),
+   referenced by the Container App by versionless URI — NOT from a host env var
+   you set by hand. A rotated password, firewall rule, or stale (cached) secret
+   ref is the usual cause; Container Apps caches versionless refs ~30 min, so
+   roll a fresh revision after rotating (`infra/azure/README.md` § Key Vault).
+   Postgres listens on 5432, SSL required.
 4. **Connectivity test** from an environment with the prod creds:
    ```bash
    DATABASE_URL=<prod-url> pnpm --filter @project50/db exec prisma migrate status
@@ -142,18 +177,18 @@ fail; logs show Prisma connection errors (e.g. `P1001` can't reach DB,
    outage coincided with a deploy that added load/connections, consider a
    rollback while you investigate.
 
-### B) Migration failed in CD
+### B) Migration failed during deploy
 
-The `migrate` job runs `prisma migrate deploy` **before** the app is promoted
-(see `DEPLOY.md`). If a migration fails:
+The deploy runs `prisma migrate deploy` (as the DB admin, admin URL read from
+Key Vault) **before** the `terraform apply` switches the Container App image
+(see `DEPLOY.md` and `infra/azure/README.md`). If a migration fails:
 
-- The `migrate` job **fails** and the `deploy` job is **skipped** — bad code
-  never reaches production. The currently-live app keeps running on the old
-  schema.
-- **Recover:** identify the failing migration from the job logs, author a
-  **corrected forward migration** (or fix the SQL), and re-run the Deploy
-  workflow. `migrate deploy` is **forward-only** and idempotent — already-applied
-  migrations are skipped.
+- You **stop the deploy** before the image switch — bad code never reaches
+  production, and the currently-live revision keeps running on the old schema.
+- **Recover:** identify the failing migration from the local `prisma migrate
+  deploy` output, author a **corrected forward migration** (or fix the SQL), cut
+  a new release, and re-run the deploy. `migrate deploy` is **forward-only** and
+  idempotent — already-applied migrations are skipped.
 - **Partially-applied migration** (failed mid-way, schema left inconsistent):
   this needs a human. Inspect with `prisma migrate status`, resolve the partial
   state, and ship a forward migration that brings the schema to a consistent
@@ -161,8 +196,9 @@ The `migrate` job runs `prisma migrate deploy` **before** the app is promoted
   hand-edit `_prisma_migrations`; prefer a new forward migration.
 
 > Write migrations **backward-compatible** (expand → migrate → contract) so the
-> previous app version keeps working in the window between `migrate` and
-> `deploy`, and so the app can always be rolled back without a DB rollback.
+> previous app version keeps working in the window between the migrate and the
+> image switch, and so the app can always be rolled back (revision rollback)
+> without a DB rollback.
 
 ---
 
@@ -180,16 +216,19 @@ How storage is used:
 - **Readiness** — `checkStorage()` does a `HeadBucket` on `S3_BUCKET`.
 
 1. Confirm with readiness: `checks.storage:false`.
-2. **Check the storage backend** (S3 / MinIO / compatible): is the endpoint up,
-   the bucket present, and creds valid? **TODO:** your storage provider +
-   dashboard/console link.
-3. **Check storage env** on the host: `S3_ENDPOINT`, `S3_ACCESS_KEY`,
-   `S3_SECRET_KEY`, `S3_BUCKET`. A rotated key or wrong endpoint is the most
-   common cause.
-4. **Bucket missing?** The app self-heals: `ensureBucket()` (called by the
-   presign route and `putObject`) creates `S3_BUCKET` if absent. If creates are
-   failing, the credentials likely lack `CreateBucket`/`HeadBucket` permission —
-   fix the IAM policy or pre-create the bucket manually.
+2. **Check the storage backend.** In prod this is **Azure Blob** — the `media`
+   container on the project's storage account, accessed by the app's **managed
+   identity** (`uami-project50-dev`), no account key. Is the account up and the
+   identity's role assignment intact? `apps/web/lib/storage.ts` selects Azure
+   Blob when `AZURE_STORAGE_ACCOUNT` / `AZURE_STORAGE_CONTAINER` are set (wired
+   from Key Vault); otherwise it falls back to S3/MinIO (local/CI).
+3. **Check storage config** on the Container App: `AZURE_STORAGE_ACCOUNT`,
+   `AZURE_STORAGE_CONTAINER`, and the managed-identity role assignment
+   (Storage Blob Data Contributor). A revoked role or wrong account name is the
+   most common cause. (See `infra/azure/README.md` § Object storage.)
+4. **Container/bucket missing?** The app self-heals: it ensures the container
+   exists on first use. If that fails, the identity likely lacks the data-plane
+   role — fix the role assignment or pre-create the container.
 5. **Presigned URL errors** (clients get 403 on upload/view): presigned URLs
    expire after **5 minutes** (`PRESIGN_EXPIRY`). Persistent 403s usually mean
    wrong creds or clock skew between app and storage, not expiry. A stale page
@@ -216,9 +255,11 @@ failures, but `/api/health` and often `/api/ready` are still green.
    (slow DB, intermittent storage 5xx, OAuth provider flakiness) can drive errors
    without flipping readiness. Run `/api/ready` a few times.
 4. **Rate limiting note:** the in-memory limiter (`apps/web/lib/rate-limit.ts`)
-   is **per-instance** — counters reset on cold start and the effective limit
-   scales with instance count. A burst of `429`s after a scale-up/cold-start is
-   expected behavior, not necessarily an incident.
+   is **per-replica** — counters reset when a replica restarts and the effective
+   limit scales with replica count. The Container App runs a warm baseline
+   (`min_replicas=1`) and scales out to 4 under load, so a burst of `429`s right
+   after a **scale-out** (more replicas → counters not shared) is expected
+   behavior, not necessarily an incident.
 5. **Mitigate:** roll back a bad deploy; or, if it's a dependency, follow that
    dependency's runbook; or hotfix forward if the cause is a clear, contained
    code bug.
@@ -227,42 +268,66 @@ failures, but `/api/health` and often `/api/ready` are still green.
 
 ## Runbook: Bad deploy / rollback
 
-**Symptoms:** errors/outage began immediately after a production deploy.
+**Symptoms:** errors/outage began immediately after a deploy.
 
-**Fastest recovery is almost always to roll the app back, then investigate.**
+**Fastest recovery is almost always to roll the app back to the previous good
+Container App revision, then investigate.**
 
-### App rollback (instant, does not touch the DB)
+### App rollback = Container App revision rollback (instant, does not touch the DB)
 
-- **Vercel (default host):** Project → **Deployments** → last known-good
-  production deployment → **Promote to Production** (or `vercel rollback`). This
-  is instant and does **not** run or revert migrations.
-  - **TODO:** if you self-host, document your host's promote/rollback command.
-- Confirm recovery: `curl -fsS https://<domain>/api/health` and watch the error
-  rate / Sentry settle.
+Every deploy creates a **new Container App revision**; the previous good revision
+still exists. The rollback lever is to shift ingress traffic back to it (or
+re-activate it) — there is **no Vercel "Promote"**, and no `terraform apply` is
+needed to roll back.
+
+```bash
+RG=rg-project50-dev-canadacentral; APP=ca-project50-web-dev
+
+# 1. List revisions, newest first; pick the last KNOWN-GOOD revision name.
+az containerapp revision list -g "$RG" -n "$APP" \
+  --query "reverse(sort_by([].{name:name, active:properties.active, created:properties.createdTime, image:properties.template.containers[0].image}, &created))" -o table
+
+# 2. Shift 100% of ingress traffic to that revision (instant cutover).
+az containerapp ingress traffic set -g "$RG" -n "$APP" \
+  --revision-weight <last-good-revision>=100
+
+# 3. If the good revision was scaled-in/deactivated, re-activate it first:
+az containerapp revision activate  -g "$RG" -n "$APP" --revision <last-good-revision>
+# (and, if needed, deactivate the bad one:)
+az containerapp revision deactivate -g "$RG" -n "$APP" --revision <bad-revision>
+```
+
+- Confirm recovery: `curl -fsS https://www.project50.fit/api/health` and watch
+  the error rate / Sentry settle.
+- This does **not** run or revert migrations.
+- Full revision/Key-Vault mechanics: [`infra/azure/README.md`](../infra/azure/README.md).
 
 ### Why rollback is safe here (forward-only migrations)
 
-- CD runs `prisma migrate deploy` **before** promoting the app, and migrations
-  are **forward-only** (no auto down-migration). Because migrations are written
-  **backward-compatible** (expand → migrate → contract), the previous app version
-  still runs against the newer schema — so promoting the last-good deployment is
-  safe even though the schema moved forward.
+- The deploy runs `prisma migrate deploy` **before** switching the Container App
+  image, and migrations are **forward-only** (no auto down-migration). Because
+  migrations are written **backward-compatible** (expand → migrate → contract),
+  the previous revision still runs against the newer schema — so re-pointing
+  traffic to the last-good revision is safe even though the schema moved forward.
 - **Do not** attempt to "roll back" the database to match an old app version.
-  Roll the **app** back; leave the schema as-is. If a schema change itself is the
-  problem, fix it with a **new forward migration** shipped through the normal
-  pipeline (see Database runbook).
+  Roll the **revision** back; leave the schema as-is. If a schema change itself is
+  the problem, fix it with a **new forward migration** shipped through the normal
+  deploy (see Database runbook).
 
 ### Bad migration during deploy
 
-- If the migration failed, the `deploy` job was skipped and prod is still on the
-  old code/schema (no rollback needed). Fix the migration forward and re-run
-  Deploy — see **Database → B) Migration failed in CD**.
+- If the migration failed, you stopped before switching the image — prod is still
+  on the old revision/schema (no rollback needed). Fix the migration forward, cut
+  a new release, and re-deploy — see **Database → B) Migration failed during
+  deploy**.
 
 ### After rollback
 
 1. Open an incident if not already (see `INCIDENT-RESPONSE.md`).
-2. Identify the offending change (compare deploy SHAs).
-3. Fix forward on a branch, let CI (`ci.yml`) go green, then redeploy.
+2. Identify the offending change (compare the revisions' image sha tags / deploy
+   SHAs).
+3. Fix forward on a branch, let CI (`ci.yml`) go green, merge + cut a release,
+   then redeploy (see `DEPLOY.md`).
 4. Postmortem if SEV1/SEV2.
 
 ---
@@ -327,7 +392,7 @@ then fix forward.
 Reports of breakage
    │
    ├─ curl /api/health  ──► no 200 ──► process/host down ──► check recent deploy ──► ROLLBACK if deploy-caused
-   │                                                          else check logs/env (missing DATABASE_URL/AUTH_SECRET/S3_*)
+   │                                                          else check logs/env (missing AUTH_SECRET / KV database-url / AZURE_STORAGE_* refs)
    │
    └─ 200 OK ──► curl /api/ready
                     ├─ database:false ──► Database runbook
