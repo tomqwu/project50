@@ -252,6 +252,15 @@ resource "azurerm_container_app" "web" {
     key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/auth-secret"
     identity            = module.onboard.identity_id
   }
+  # Bearer token guarding GET /api/metrics. The route enforces auth ONLY when
+  # METRICS_TOKEN is set, so leaving it unset leaves the endpoint OPEN on the
+  # public ingress — setting this secret out of band is the lock. Same
+  # out-of-band + versionless-URI pattern.
+  secret {
+    name                = "metrics-token"
+    key_vault_secret_id = "${module.onboard.key_vault_uri}secrets/metrics-token"
+    identity            = module.onboard.identity_id
+  }
   # OAuth provider credentials — same out-of-band + versionless-URI pattern.
   secret {
     name                = "facebook-client-id"
@@ -291,6 +300,13 @@ resource "azurerm_container_app" "web" {
       env {
         name        = "AUTH_SECRET"
         secret_name = "auth-secret"
+      }
+      # Locks GET /api/metrics behind a bearer token. Sourced from the
+      # out-of-band metrics-token KV secret; the route only enforces auth when
+      # this is non-empty (see apps/web/app/api/metrics/route.ts).
+      env {
+        name        = "METRICS_TOKEN"
+        secret_name = "metrics-token"
       }
       # No AZURE_STORAGE_KEY — managed-identity mode. AZURE_CLIENT_ID tells
       # DefaultAzureCredential which user-assigned identity to use.

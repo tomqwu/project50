@@ -30,6 +30,7 @@ with `az keyvault secret set` (see the runbook below). Vault:
 | `database-url` | App connection string (least-priv `p50app` role). | `az keyvault secret set` (out of band) |
 | `database-url-admin` | Admin connection string — deployer-only (`prisma migrate deploy` + role bootstrap), never the running app. | `az keyvault secret set` (out of band) |
 | `auth-secret` | Auth.js JWT signing key (`openssl rand -base64 32`). | `az keyvault secret set` (out of band) |
+| `metrics-token` | Bearer token guarding `GET /api/metrics`. **Until set, the route falls open** — see below. | `az keyvault secret set` (out of band) |
 | `facebook-client-id` / `facebook-client-secret` | Facebook OAuth credentials. | `az keyvault secret set` (out of band) |
 
 The only generated secret still in TF state is the Postgres server
@@ -115,6 +116,10 @@ az keyvault secret set --vault-name "$KV" --name database-url-admin \
 # Auth.js JWT signing key
 az keyvault secret set --vault-name "$KV" --name auth-secret \
   --value "$(openssl rand -base64 32)"
+
+# Bearer token that LOCKS GET /api/metrics (see security note below)
+az keyvault secret set --vault-name "$KV" --name metrics-token \
+  --value "$(openssl rand -base64 32)"
 ```
 
 After changing any value, force a new Container App revision so it stops serving
@@ -127,6 +132,16 @@ az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev
 
 > `AUTH_SECRET` supports comma-separated zero-downtime rotation — see
 > [`docs/SECRETS.md`](../../docs/SECRETS.md#auth_secret-zero-downtime-rotation).
+
+> **SECURITY — `metrics-token` locks `/api/metrics`.** The route
+> (`apps/web/app/api/metrics/route.ts`) enforces `Authorization: Bearer
+> <token>` **only when `METRICS_TOKEN` is non-empty**; with the secret unset the
+> auth check falls open and the metrics endpoint is **publicly reachable** on the
+> prod ingress. Setting `metrics-token` out of band (above) + rolling a new
+> revision is what closes it — until both happen, `/api/metrics` stays open. The
+> Prometheus scrape config (and any other caller) must then send the same token
+> as `Authorization: Bearer <token>`; rotate the scrape credential together with
+> this secret. See [`docs/SECRETS.md`](../../docs/SECRETS.md) (`METRICS_TOKEN`).
 
 ### One-time migration: stop Terraform tracking these secret values
 
