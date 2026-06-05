@@ -121,15 +121,19 @@ fi
 echo "[drill] dump: ${DUMP}"
 
 # --- stand up / target a scratch database ------------------------------------
+# Each branch defines two helpers used by the rest of the script:
+#   PSQL <psql-args...>            run psql against the scratch DB
+#   RESTORE                        stream the (maybe-gz) dump into pg_restore
+# The LOCAL path runs both via `docker exec` INTO the scratch container — no
+# published port and no `--network host`, so it works on Docker Desktop/macOS
+# (where host networking is unavailable) and on Linux runners alike.
 if [ -z "$SCRATCH_URL" ]; then
-  # Local docker Postgres — fully self-contained, no cloud access.
+  # Local docker Postgres — fully self-contained, no cloud access, no ports.
   echo "[drill] starting throwaway Postgres container ${CONTAINER_NAME}"
   docker run -d --name "$CONTAINER_NAME" \
     -e POSTGRES_PASSWORD=drill -e POSTGRES_DB="$SCRATCH_DB" \
-    -p 0:5432 "$PG_IMAGE" >/dev/null
+    "$PG_IMAGE" >/dev/null
   STARTED_DOCKER="1"
-  PORT="$(docker port "$CONTAINER_NAME" 5432/tcp | head -1 | sed 's/.*://')"
-  SCRATCH_URL="postgresql://postgres:drill@127.0.0.1:${PORT}/${SCRATCH_DB}"
   # Wait for readiness.
   echo "[drill] waiting for Postgres to accept connections..."
   for _ in $(seq 1 30); do
@@ -138,7 +142,17 @@ if [ -z "$SCRATCH_URL" ]; then
     fi
     sleep 1
   done
-  PSQL() { docker run --rm --network host "$PG_IMAGE" psql "$@"; }
+  # In-container connection: localhost inside the scratch container itself.
+  IN_URL="postgresql://postgres:drill@127.0.0.1:5432/${SCRATCH_DB}"
+  PSQL() { docker exec -i "$CONTAINER_NAME" psql "$IN_URL" "$@"; }
+  RESTORE() {
+    case "$DUMP" in
+      *.gz) gunzip -c "$DUMP" | docker exec -i "$CONTAINER_NAME" \
+              pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$IN_URL" ;;
+      *)    docker exec -i "$CONTAINER_NAME" \
+              pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$IN_URL" < "$DUMP" ;;
+    esac
+  }
 else
   # External scratch server: guard against accidentally targeting the source.
   SCRATCH_ID="$(printf '%s' "$SCRATCH_URL" | sed -E 's#^[a-zA-Z]+://[^@]*@##')"
@@ -153,29 +167,21 @@ else
     -c "DROP DATABASE IF EXISTS ${SCRATCH_DB} WITH (FORCE);" \
     -c "CREATE DATABASE ${SCRATCH_DB};"
   SCRATCH_URL="$(printf '%s' "$SCRATCH_URL" | sed -E "s#/[^/?]+(\?|\$)#/${SCRATCH_DB}\1#")"
-  PSQL() { docker run --rm "$PG_IMAGE" psql "$@"; }
+  PSQL() { docker run --rm "$PG_IMAGE" psql "$SCRATCH_URL" "$@"; }
+  RESTORE() {
+    case "$DUMP" in
+      *.gz) gunzip -c "$DUMP" | docker run --rm -i "$PG_IMAGE" \
+              pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$SCRATCH_URL" ;;
+      *)    docker run --rm -i "$PG_IMAGE" \
+              pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$SCRATCH_URL" < "$DUMP" ;;
+    esac
+  }
 fi
 
 # --- restore (timed) ----------------------------------------------------------
 echo "[drill] restoring into scratch DB (timing for RTO)..."
 START="$(date +%s)"
-# Stream-decompress a .gz into pg_restore inside the image (which has it). For
-# the local-docker scratch we add `--network host` so the container can reach the
-# mapped port on 127.0.0.1; the external path connects over the public host.
-NET_ARGS=""
-[ "$STARTED_DOCKER" = "1" ] && NET_ARGS="--network host"
-case "$DUMP" in
-  *.gz)
-    # shellcheck disable=SC2086  # NET_ARGS is intentionally word-split (may be empty)
-    gunzip -c "$DUMP" | docker run --rm -i $NET_ARGS "$PG_IMAGE" \
-      pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$SCRATCH_URL"
-    ;;
-  *)
-    # shellcheck disable=SC2086
-    docker run --rm -i $NET_ARGS "$PG_IMAGE" \
-      pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$SCRATCH_URL" < "$DUMP"
-    ;;
-esac
+RESTORE
 END="$(date +%s)"
 ELAPSED="$(( END - START ))"
 echo "[drill] restore wall-clock: ${ELAPSED}s (compare to the RTO target in docs/BACKUPS.md)"
@@ -186,7 +192,7 @@ FAIL="0"
 
 # 1) The Prisma migration ledger must exist and be non-empty — proves the schema
 #    restored and was at a known migration head.
-MIGRATIONS="$(PSQL "$SCRATCH_URL" -Atc \
+MIGRATIONS="$(PSQL -Atc \
   "SELECT count(*) FROM _prisma_migrations;" 2>/dev/null || echo "ERR")"
 if [ "$MIGRATIONS" = "ERR" ] || [ "$MIGRATIONS" = "0" ]; then
   echo "[drill] FAIL: _prisma_migrations missing or empty (got '${MIGRATIONS}')"
@@ -201,7 +207,7 @@ fi
 EXPECTED_TABLES="${EXPECTED_TABLES:-User}"
 # shellcheck disable=SC2086  # intentional word-splitting: space-separated list
 for tbl in $EXPECTED_TABLES; do
-  EXISTS="$(PSQL "$SCRATCH_URL" -Atc \
+  EXISTS="$(PSQL -Atc \
     "SELECT to_regclass('public.\"${tbl}\"') IS NOT NULL;" 2>/dev/null || echo "f")"
   if [ "$EXISTS" = "t" ]; then
     echo "[drill] ok: table \"${tbl}\" exists"
@@ -214,7 +220,7 @@ done
 # 3) Report row counts across all public tables (informational — look for an
 #    unexpectedly empty restore).
 echo "[drill] row counts (public schema):"
-PSQL "$SCRATCH_URL" -Atc \
+PSQL -Atc \
   "SELECT relname || '=' || n_live_tup FROM pg_stat_user_tables ORDER BY relname;" \
   2>/dev/null | sed 's/^/[drill]   /' || true
 

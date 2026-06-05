@@ -133,16 +133,26 @@ DATABASE_URL="...admin..." ./scripts/pg-backup.sh   # writes ./backups/*.dump.gz
 
 Daily + on demand from the Actions tab. **Inert until secrets are set** (like
 `deploy.yml`): a `preflight` job gates the backup, so on a fork / before setup it
-is **skipped, not failed**, and CI stays green. Required secrets — provide a
-connection path AND a blob target:
+is **skipped, not failed**, and CI stays green.
+
+> **CI requires Azure login.** The Blob upload runs `az storage blob upload
+> --auth-mode login`, which needs an authenticated `az` on the runner — so the
+> workflow **always** uses `azure/login` (federated OIDC) and the gate **requires
+> the OIDC creds + the storage account**. A `DATABASE_URL` secret alone is **not
+> sufficient for CI** (it can't authenticate the upload); the direct-`DATABASE_URL`
+> path is only for an **operator running `scripts/pg-backup.sh` locally** who
+> already has `az login`.
+
+Required secrets (ALL of these — the gate requires the full Azure-login set plus
+the storage account, else the job stays inert/skipped):
 
 | Secret | Purpose |
 | --- | --- |
-| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — preferred. The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n` and **Storage Blob Data Contributor** on the backup container. |
-| `DATABASE_URL` | *Alternative* to Azure login: a direct admin conn string. |
-| `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`). |
+| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — **required**. The Blob upload authenticates via it, and the script reads `database-url-admin` from Key Vault. The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n` and **Storage Blob Data Contributor** on the backup container. |
+| `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`) — **required**. |
 | `BACKUP_CONTAINER` | (optional) container name; default `db-backups`. |
 | `KEY_VAULT_NAME` | (optional) override; default `kv-project50-dev-6z7n`. |
+| `DATABASE_URL` | (optional) admin conn string that overrides the Key Vault read. Azure login is still required regardless. |
 | `BACKUP_RETENTION_DAYS` | (optional) daily dumps to keep; default `14`. |
 
 > **Least privilege:** the backup identity needs only **read** on the Key Vault

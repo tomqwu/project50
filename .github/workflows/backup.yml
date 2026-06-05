@@ -14,25 +14,27 @@
 # secrets exist the job is SKIPPED (not failed), so CI stays green and nothing
 # runs — we never claim a backup ran that didn't.
 #
-# Two ways to provide the connection, checked in order by scripts/pg-backup.sh:
-#   1. AZURE login (preferred) — `azure/login` with the federated OIDC secrets
-#      below, then the script reads `database-url-admin` straight from Key Vault.
-#   2. DATABASE_URL repo secret — a direct admin conn string (no Azure login).
+# The Blob upload uses `az storage blob upload --auth-mode login`, which REQUIRES
+# an Azure login on the runner. So the CI workflow ALWAYS uses `azure/login`
+# (federated OIDC) — the OIDC creds are mandatory, not optional. A `DATABASE_URL`
+# secret alone is NOT enough for CI (it can't authenticate the Blob upload); the
+# direct-`DATABASE_URL` path exists only for an operator running
+# scripts/pg-backup.sh LOCALLY who already has `az login`.
 #
-# Required repository secrets (a connection path + the blob target):
-#   Connection, EITHER:
-#     AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
+# Required repository secrets (ALL of these — the workflow stays inert otherwise):
+#   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
 #                         Federated-credential login (OIDC, no client secret).
 #                         The app registration needs: Key Vault Secrets User on
 #                         kv-project50-dev-6z7n AND Storage Blob Data Contributor
-#                         on the backup container.
-#     KEY_VAULT_NAME      (optional) override; default kv-project50-dev-6z7n.
-#   OR:
-#     DATABASE_URL        Admin Postgres conn string (sslmode=require).
-#   Blob target:
-#     BACKUP_STORAGE_ACCOUNT  Storage account for dumps (e.g. stp50backupszv34o5).
-#     BACKUP_CONTAINER        (optional) container; default db-backups.
-#     BACKUP_RETENTION_DAYS   (optional) daily dumps to keep; default 14.
+#                         on the backup container. The script reads the admin
+#                         conn string from `database-url-admin` in Key Vault.
+#   BACKUP_STORAGE_ACCOUNT  Storage account for dumps (e.g. stp50backupszv34o5).
+# Optional:
+#   KEY_VAULT_NAME          override; default kv-project50-dev-6z7n.
+#   DATABASE_URL            admin conn string — overrides the Key Vault read.
+#                           (Optional even in CI; Azure login is still required.)
+#   BACKUP_CONTAINER        container; default db-backups.
+#   BACKUP_RETENTION_DAYS   daily dumps to keep; default 14.
 #
 # See docs/BACKUPS.md and infra/azure/README.md for setup + the restore drill.
 
@@ -58,39 +60,33 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # Gate: resolve whether enough secrets are present to take a backup, as a
-  # boolean output. Need a connection path (Azure login OR DATABASE_URL) AND a
-  # blob target. Downstream reads this so the pipeline is inert without secrets.
+  # boolean output. The Blob upload needs `az login`, so CI REQUIRES the Azure
+  # federated (OIDC) creds AND the storage account. Without all of them the
+  # pipeline is inert (skipped, not failed). DATABASE_URL alone is intentionally
+  # NOT sufficient — it can't authenticate the Blob upload on a clean runner.
   # ---------------------------------------------------------------------------
   preflight:
     name: Preflight (secret gate)
     runs-on: ubuntu-latest
     outputs:
       has_backup: ${{ steps.check.outputs.has_backup }}
-      use_azure_login: ${{ steps.check.outputs.use_azure_login }}
     steps:
       - id: check
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BACKUP_STORAGE_ACCOUNT: ${{ secrets.BACKUP_STORAGE_ACCOUNT }}
         run: |
-          use_azure="false"
-          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_SUBSCRIPTION_ID" ]; then
-            use_azure="true"
-          fi
-          has_conn="false"
-          if [ "$use_azure" = "true" ] || [ -n "$DATABASE_URL" ]; then
-            has_conn="true"
-          fi
-          if [ "$has_conn" = "true" ] && [ -n "$BACKUP_STORAGE_ACCOUNT" ]; then
+          # Require the full Azure-login set (Blob upload authenticates via it)
+          # AND the storage account. Anything missing => inert/skipped.
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_TENANT_ID" ] \
+             && [ -n "$AZURE_SUBSCRIPTION_ID" ] && [ -n "$BACKUP_STORAGE_ACCOUNT" ]; then
             echo "has_backup=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_backup=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Backup secrets not set (need an Azure-login OR DATABASE_URL connection, plus BACKUP_STORAGE_ACCOUNT) — pg-backup will be skipped."
+            echo "::notice::Backup secrets not set (need AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID for azure/login — the Blob upload authenticates via it — plus BACKUP_STORAGE_ACCOUNT) — pg-backup will be skipped."
           fi
-          echo "use_azure_login=${use_azure}" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # #272 — Postgres logical backup -> Azure Blob. Inert without secrets.
@@ -108,11 +104,11 @@ jobs:
       BACKUP_RETENTION_DAYS: ${{ secrets.BACKUP_RETENTION_DAYS }}
     steps:
       - uses: actions/checkout@v6
-      # Azure login (federated OIDC) so the script can read the admin conn string
-      # from Key Vault and upload to Blob with --auth-mode login. Skipped when the
-      # operator instead supplies a DATABASE_URL secret directly.
+      # Azure login (federated OIDC) — REQUIRED: the script reads the admin conn
+      # string from Key Vault and uploads to Blob with --auth-mode login, both of
+      # which need an authenticated `az`. The preflight gate guarantees these
+      # creds are present before this job runs.
       - name: Azure login (federated)
-        if: needs.preflight.outputs.use_azure_login == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}

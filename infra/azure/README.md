@@ -587,8 +587,12 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
   uploads with `--auth-mode login` (no account key).
 - **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
   runs it **daily 03:17 UTC**, INERT until secrets are set (mirrors `deploy.yml`'s
-  preflight gate). Or run locally with `az login`. Azure Flexible Server's own
-  **PITR** (provider window) is a separate, complementary layer.
+  preflight gate). The Blob upload uses `--auth-mode login`, so **CI requires the
+  Azure federated (OIDC) creds** (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`)
+  plus `BACKUP_STORAGE_ACCOUNT`; a bare `DATABASE_URL` is **not** enough for CI
+  (it can't authenticate the upload — that path is for a local operator with `az
+  login`). Azure Flexible Server's own **PITR** (provider window) is a separate,
+  complementary layer.
 - **Tested restore drill** — [`scripts/pg-restore-drill.sh`](../../scripts/pg-restore-drill.sh)
   restores the latest backup into a **throwaway** DB (`project50_restore_test`,
   local docker by default), sanity-checks it (migration ledger + core tables +
@@ -604,7 +608,8 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
 2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`)
    and **Storage Blob Data Contributor** (on the backup container).
 3. Add the repo secrets (`AZURE_CLIENT_ID`/`TENANT`/`SUBSCRIPTION` for federated
-   login, or `DATABASE_URL`; plus `BACKUP_STORAGE_ACCOUNT`) — see `docs/BACKUPS.md`.
+   login — **required for CI** — plus `BACKUP_STORAGE_ACCOUNT`) — see
+   `docs/BACKUPS.md`.
 4. Run the **first backup** and the **restore drill** by hand to confirm.
 5. (Hardening) add a Blob **lifecycle policy** / **immutability** so the backup
    identity can't erase recent history.
