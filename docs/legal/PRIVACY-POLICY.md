@@ -205,7 +205,7 @@ consent** where processing relies on it.
   requests manually. Either build a GDPR export feature or describe the
   manual request process here, including identity verification and the
   statutory response deadline — generally 1 month under GDPR/UK GDPR.)_
-- **Exercise other rights:** contact **support@project50.app**.
+- **Exercise other rights:** contact **support@project50.fit**.
 
 You may also lodge a complaint with your local data-protection authority.
 TODO _(name the relevant authority/authorities for your markets.)_
@@ -232,7 +232,7 @@ your incident-response/breach-notification process and access controls.)_
 The Service is not directed to children under 13 (or the higher minimum
 age in your jurisdiction). We do not knowingly collect personal data from
 children below that age. If you believe a child has provided us personal
-data, contact **support@project50.app** and we will delete it. TODO
+data, contact **support@project50.fit** and we will delete it. TODO
 _(confirm your minimum age and any parental-consent requirements for your
 target markets.)_
 
@@ -249,6 +249,6 @@ constitutes acceptance where permitted by law.
 
 ## 11. Contact
 
-Privacy questions or rights requests: **support@project50.app**
+Privacy questions or rights requests: **support@project50.fit**
 TODO _(insert legal entity name, registered address, and — if
 applicable — EU/UK representative and DPO contact details.)_
