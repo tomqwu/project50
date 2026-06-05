@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { prisma, resetDb } from "@/test/db";
 import { addDays, PROJECT50_LENGTH_DAYS } from "@project50/core";
 import {
@@ -341,5 +341,89 @@ describe("Project 50 day media", () => {
     await startProject50(u.id, "UTC", NOW);
     const state = await getProject50State(u.id, NOW);
     expect(state.today?.media).toEqual([]);
+  });
+});
+
+describe("hard-reset query count (#294 N+1)", () => {
+  // Capture the real Prisma delegate methods ONCE so we can spy + call through
+  // without losing them (vi.restoreAllMocks can strip lazily-defined delegate
+  // properties). Re-spying each test counts calls while preserving DB behavior.
+  const realFindMany = prisma.dayStatus.findMany.bind(prisma.dayStatus);
+  const realFindUnique = prisma.dayStatus.findUnique.bind(prisma.dayStatus);
+
+  function spyDayStatus() {
+    const findMany = vi
+      .spyOn(prisma.dayStatus, "findMany")
+      .mockImplementation((args) => realFindMany(args));
+    const findUnique = vi
+      .spyOn(prisma.dayStatus, "findUnique")
+      .mockImplementation((args) => realFindUnique(args));
+    return { findMany, findUnique };
+  }
+
+  afterEach(() => {
+    // Restore the captured originals explicitly (robust against delegate getters).
+    prisma.dayStatus.findMany = realFindMany;
+    prisma.dayStatus.findUnique = realFindUnique;
+    vi.restoreAllMocks();
+  });
+
+  // Deep into a run with a missed Day 1: the hard reset must short-circuit to
+  // FAILED using a SINGLE bulk dayStatus.findMany over startDate..yesterday, and
+  // must NOT call dayStatus.findUnique once per elapsed day (the old N+1).
+  it("uses ONE bulk dayStatus.findMany and ZERO per-day findUnique calls when failing deep in a run", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // Day 1 only 6/7 → it is the first elapsed-incomplete day.
+    for (let ruleId = 1; ruleId <= 6; ruleId++) await toggleRule(u.id, ruleId, true, NOW);
+
+    // Spy but call through to the real Prisma delegate (preserve behavior).
+    const { findMany, findUnique } = spyDayStatus();
+
+    // View 40 days later — old code would issue ~39 serial findUnique calls.
+    const DAY40 = new Date("2026-07-11T12:00:00Z");
+    const state = await getProject50State(u.id, DAY40);
+
+    expect(state.status).toBe("FAILED");
+    expect(state.failedDayNumber).toBe(1);
+    expect(state.failedRuleId).toBe(7);
+
+    // Exactly one bulk query for the compliance window, and never a per-day lookup.
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findUnique).not.toHaveBeenCalled();
+
+    // The single query must cover startDate..yesterday (mirrors buildHistory).
+    const arg = findMany.mock.calls[0]?.[0];
+    expect(arg?.where).toMatchObject({
+      challengeId: expect.any(String),
+      dayKey: { gte: "2026-06-02", lte: "2026-07-10" },
+    });
+  });
+
+  // A fully-compliant ACTIVE run: the dashboard path runs the hard-reset window
+  // AND buildHistory. Both are bulk findMany; still ZERO per-day findUnique, and
+  // the count does not scale with how many days have elapsed.
+  it("stays O(1) in dayStatus queries for a long compliant ACTIVE run", async () => {
+    const u = await makeUser();
+    await startProject50(u.id, "UTC", NOW); // Day 1 = 2026-06-02
+    // Complete days 1..29 fully (7/7).
+    let key = "2026-06-02";
+    for (let i = 0; i < 29; i++) {
+      const at = new Date(`${key}T12:00:00Z`);
+      for (let ruleId = 1; ruleId <= 7; ruleId++) await toggleRule(u.id, ruleId, true, at);
+      key = addDays(key, 1);
+    }
+
+    const { findMany, findUnique } = spyDayStatus();
+
+    // View on Day 30 — every elapsed day 1..29 is 7/7 → still ACTIVE.
+    const DAY30 = new Date("2026-07-01T12:00:00Z");
+    const state = await getProject50State(u.id, DAY30);
+
+    expect(state.status).toBe("ACTIVE");
+    expect(state.today?.dayNumber).toBe(30);
+    // Hard-reset window + buildHistory = 2 bulk reads; no per-day findUnique.
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(findUnique).not.toHaveBeenCalled();
   });
 });
