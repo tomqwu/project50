@@ -132,7 +132,6 @@ function Avatar({ entry }: { entry: LeaderboardEntry }) {
   const size = 32;
   if (entry.avatarUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={entry.avatarUrl}
         alt={entry.displayName}

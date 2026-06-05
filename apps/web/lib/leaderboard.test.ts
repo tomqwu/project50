@@ -4,12 +4,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockFollowFindMany,
   mockChallengeFindMany,
-  mockDayStatusGroupBy,
+  mockDayStatusFindMany,
   mockUserFindMany,
 } = vi.hoisted(() => ({
   mockFollowFindMany: vi.fn(),
   mockChallengeFindMany: vi.fn(),
-  mockDayStatusGroupBy: vi.fn(),
+  mockDayStatusFindMany: vi.fn(),
   mockUserFindMany: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock("@project50/db", () => ({
   prisma: {
     follow: { findMany: mockFollowFindMany },
     challenge: { findMany: mockChallengeFindMany },
-    dayStatus: { groupBy: mockDayStatusGroupBy },
+    dayStatus: { findMany: mockDayStatusFindMany },
     user: { findMany: mockUserFindMany },
   },
 }));
@@ -29,6 +29,9 @@ import { getLeaderboard } from "./leaderboard";
  * key resolves deterministically to 2026-06-10.
  */
 const NOW = new Date("2026-06-10T12:00:00.000Z");
+const TODAY = "2026-06-10";
+
+type Visibility = "PUBLIC" | "FOLLOWERS" | "PRIVATE";
 
 type ChallengeRow = {
   id: string;
@@ -36,6 +39,7 @@ type ChallengeRow = {
   startDate: string;
   timezone: string;
   status: "ACTIVE" | "FAILED" | "COMPLETED";
+  visibility: Visibility;
 };
 
 type UserRow = {
@@ -45,12 +49,34 @@ type UserRow = {
   avatarUrl: string | null;
 };
 
+type DayStatusRow = { challengeId: string; dayKey: string };
+
+function addUtcDays(key: string, n: number): string {
+  const d = new Date(`${key}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Compliant completed-day rows for a challenge: every elapsed past day
+ * (startDate .. yesterday) marked completed, so project50CurrentDay keeps the
+ * run alive. Used so the harness's default runs are "alive" unless a test
+ * deliberately omits a day.
+ */
+function compliantDays(challengeId: string, startDate: string): DayStatusRow[] {
+  const rows: DayStatusRow[] = [];
+  for (let d = startDate; d < TODAY; d = addUtcDays(d, 1)) {
+    rows.push({ challengeId, dayKey: d });
+  }
+  return rows;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Sensible empty defaults; individual tests override.
   mockFollowFindMany.mockResolvedValue([]);
   mockChallengeFindMany.mockResolvedValue([]);
-  mockDayStatusGroupBy.mockResolvedValue([]);
+  mockDayStatusFindMany.mockResolvedValue([]);
   mockUserFindMany.mockResolvedValue([]);
 });
 
@@ -59,18 +85,33 @@ function challenge(
   ownerId: string,
   startDate: string,
   status: ChallengeRow["status"] = "ACTIVE",
+  visibility: Visibility = "PUBLIC",
   timezone = "UTC",
 ): ChallengeRow {
-  return { id, ownerId, startDate, timezone, status };
+  return { id, ownerId, startDate, timezone, status, visibility };
 }
 
 function user(id: string, handle = id, displayName = id.toUpperCase()): UserRow {
   return { id, handle, displayName, avatarUrl: null };
 }
 
-describe("getLeaderboard — scope resolution", () => {
-  it("global scope: every user with a PROJECT50 run, sorted by currentDay desc", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+/**
+ * Wire the challenge + (auto-compliant) dayStatus mocks together. Pass explicit
+ * dayStatus rows to override compliance for a specific run.
+ */
+function setup(challenges: ChallengeRow[], dayStatus?: DayStatusRow[]) {
+  mockChallengeFindMany.mockResolvedValue(challenges);
+  const rows =
+    dayStatus ??
+    challenges.flatMap((c) =>
+      c.status === "ACTIVE" ? compliantDays(c.id, c.startDate) : [],
+    );
+  mockDayStatusFindMany.mockResolvedValue(rows);
+}
+
+describe("getLeaderboard — scope resolution & visibility", () => {
+  it("global scope: PUBLIC PROJECT50 runs, sorted by currentDay desc", async () => {
+    setup([
       challenge("ca", "ua", "2026-06-08"), // day 3
       challenge("cb", "ub", "2026-06-06"), // day 5
       challenge("cc", "uc", "2026-06-09"), // day 2
@@ -84,27 +125,38 @@ describe("getLeaderboard — scope resolution", () => {
     expect(rows.map((r) => r.currentDay)).toEqual([5, 3, 2]);
     // global query is NOT filtered to the viewer's follow set.
     expect(mockFollowFindMany).not.toHaveBeenCalled();
+    // global query gates visibility to PUBLIC at the DB layer.
+    const challengeArgs = mockChallengeFindMany.mock.calls[0]![0];
+    expect(challengeArgs.where.visibility).toBe("PUBLIC");
   });
 
-  it("friends scope: followees ∪ self only", async () => {
+  it("global scope NEVER includes a PRIVATE run", async () => {
+    // The DB query filters PUBLIC only; simulate that by returning just the
+    // PUBLIC row (Prisma would not return the private one).
+    setup([challenge("ca", "ua", "2026-06-08", "ACTIVE", "PUBLIC")]);
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    expect(rows.map((r) => r.userId)).toEqual(["ua"]);
+    // The where clause must restrict to PUBLIC so private rows never load.
+    expect(mockChallengeFindMany.mock.calls[0]![0].where.visibility).toBe("PUBLIC");
+  });
+
+  it("friends scope: includes PUBLIC and FOLLOWERS runs of followees", async () => {
     mockFollowFindMany.mockResolvedValue([
       { followeeId: "ua" },
       { followeeId: "ub" },
     ]);
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("cme", "viewer", "2026-06-09"), // day 2
-      challenge("ca", "ua", "2026-06-06"), // day 5
-      challenge("cb", "ub", "2026-06-08"), // day 3
+    setup([
+      challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PRIVATE"), // own, day 2
+      challenge("ca", "ua", "2026-06-06", "ACTIVE", "PUBLIC"), // day 5
+      challenge("cb", "ub", "2026-06-08", "ACTIVE", "FOLLOWERS"), // day 3
     ]);
-    mockUserFindMany.mockResolvedValue([
-      user("viewer"),
-      user("ua"),
-      user("ub"),
-    ]);
+    mockUserFindMany.mockResolvedValue([user("viewer"), user("ua"), user("ub")]);
 
     const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
 
-    // followers query scoped to viewer
     expect(mockFollowFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { followerId: "viewer" } }),
     );
@@ -116,11 +168,56 @@ describe("getLeaderboard — scope resolution", () => {
     expect(rows.map((r) => r.userId)).toEqual(["ua", "ub", "viewer"]);
   });
 
+  it("friends scope: a FOLLOWERS run shows for a follower but is absent from global", async () => {
+    mockFollowFindMany.mockResolvedValue([{ followeeId: "ua" }]);
+    setup([
+      challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PUBLIC"),
+      challenge("ca", "ua", "2026-06-06", "ACTIVE", "FOLLOWERS"),
+    ]);
+    mockUserFindMany.mockResolvedValue([user("viewer"), user("ua")]);
+
+    const friends = await getLeaderboard("viewer", { scope: "friends", now: NOW });
+    expect(friends.map((r) => r.userId)).toContain("ua");
+
+    // Global: ua's FOLLOWERS run must NOT appear (DB returns only PUBLIC rows).
+    vi.clearAllMocks();
+    mockFollowFindMany.mockResolvedValue([]);
+    setup([challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PUBLIC")]);
+    mockUserFindMany.mockResolvedValue([user("viewer")]);
+
+    const global = await getLeaderboard("viewer", { scope: "global", now: NOW });
+    expect(global.map((r) => r.userId)).not.toContain("ua");
+  });
+
+  it("friends scope: the viewer's OWN PRIVATE run still appears as isMe", async () => {
+    mockFollowFindMany.mockResolvedValue([]);
+    setup([challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PRIVATE")]);
+    mockUserFindMany.mockResolvedValue([user("viewer")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.userId).toBe("viewer");
+    expect(rows[0]!.isMe).toBe(true);
+    // The friends DB filter must allow own-PRIVATE plus followee PUBLIC/FOLLOWERS.
+    const where = mockChallengeFindMany.mock.calls[0]![0].where;
+    expect(JSON.stringify(where)).toContain("viewer");
+  });
+
+  it("friends scope: a followee's PRIVATE run is excluded", async () => {
+    mockFollowFindMany.mockResolvedValue([{ followeeId: "ua" }]);
+    // The DB-level OR filter drops ua's PRIVATE run; only the viewer's run loads.
+    setup([challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PUBLIC")]);
+    mockUserFindMany.mockResolvedValue([user("viewer")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
+
+    expect(rows.map((r) => r.userId)).toEqual(["viewer"]);
+  });
+
   it("friends scope with no follows still includes self", async () => {
     mockFollowFindMany.mockResolvedValue([]);
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("cme", "viewer", "2026-06-09"),
-    ]);
+    setup([challenge("cme", "viewer", "2026-06-09")]);
     mockUserFindMany.mockResolvedValue([user("viewer")]);
 
     const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
@@ -129,33 +226,34 @@ describe("getLeaderboard — scope resolution", () => {
     expect(challengeArgs.where.ownerId.in).toEqual(["viewer"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.userId).toBe("viewer");
-    expect(rows[0]!.isMe).toBe(true);
   });
 });
 
 describe("getLeaderboard — metric & ranking", () => {
   it("ties on currentDay break by completedDays desc", async () => {
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("ca", "ua", "2026-06-08"), // day 3
-      challenge("cb", "ub", "2026-06-08"), // day 3
+    setup([
+      challenge("ca", "ua", "2026-06-08"), // day 3 → 2 compliant past days
+      challenge("cb", "ub", "2026-06-08"), // day 3 → 2 compliant past days
     ]);
-    mockDayStatusGroupBy.mockResolvedValue([
-      { challengeId: "ca", _count: { _all: 2 } },
-      { challengeId: "cb", _count: { _all: 9 } },
+    // Override ub's completed days to be higher (extra completed today).
+    mockDayStatusFindMany.mockResolvedValue([
+      ...compliantDays("ca", "2026-06-08"),
+      ...compliantDays("cb", "2026-06-08"),
+      { challengeId: "cb", dayKey: TODAY }, // ub also completed today → 3 total
     ]);
     mockUserFindMany.mockResolvedValue([user("ua"), user("ub")]);
 
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
 
     expect(rows.map((r) => r.userId)).toEqual(["ub", "ua"]);
-    expect(rows.map((r) => r.completedDays)).toEqual([9, 2]);
+    expect(rows.map((r) => r.completedDays)).toEqual([3, 2]);
   });
 
-  it("clamps currentDay into 1..50 for the active run", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+  it("clamps currentDay into 1..50 for a compliant active run", async () => {
+    setup([
       challenge("ca", "ua", "2026-06-10"), // day 1 exactly
-      challenge("cb", "ub", "2026-06-11"), // dayNumber 0 → clamp to 1
-      challenge("cc", "uc", "2026-01-01"), // far past → clamp to 50
+      challenge("cb", "ub", "2026-06-11"), // dayNumber 0 → not started → 0
+      challenge("cc", "uc", "2026-01-01"), // far past, compliant → clamp to 50
     ]);
     mockUserFindMany.mockResolvedValue([user("ua"), user("ub"), user("uc")]);
 
@@ -163,13 +261,38 @@ describe("getLeaderboard — metric & ranking", () => {
 
     const byId = Object.fromEntries(rows.map((r) => [r.userId, r.currentDay]));
     expect(byId.ua).toBe(1);
-    expect(byId.ub).toBe(1);
+    expect(byId.ub).toBe(0); // start in the future → not active
     expect(byId.uc).toBe(50);
   });
 
+  it("a run that missed an elapsed day does NOT outrank a compliant run", async () => {
+    setup(
+      [
+        challenge("stale", "ua", "2026-06-01"), // would be day 10
+        challenge("fresh", "ub", "2026-06-08"), // day 3, compliant
+      ],
+      [
+        // ua started 06-01 but only completed the first two days → missed days
+        // afterward, so the run should have hard-reset (currentDay 0).
+        { challengeId: "stale", dayKey: "2026-06-01" },
+        { challengeId: "stale", dayKey: "2026-06-02" },
+        // ub is fully compliant.
+        ...compliantDays("fresh", "2026-06-08"),
+      ],
+    );
+    mockUserFindMany.mockResolvedValue([user("ua"), user("ub")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    const byId = Object.fromEntries(rows.map((r) => [r.userId, r.currentDay]));
+    expect(byId.ua).toBe(0); // stale/failed-but-not-flipped run is not active
+    expect(byId.ub).toBe(3);
+    expect(rows[0]!.userId).toBe("ub"); // the compliant run ranks first
+  });
+
   it("currentDay is 0 when the user has no ACTIVE run (only failed/completed)", async () => {
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("ca", "ua", "2026-06-08", "ACTIVE"), // day 3
+    setup([
+      challenge("ca", "ua", "2026-06-08", "ACTIVE"), // day 3, compliant
       challenge("cb", "ub", "2026-05-01", "COMPLETED"),
       challenge("cc", "uc", "2026-05-20", "FAILED"),
     ]);
@@ -181,19 +304,24 @@ describe("getLeaderboard — metric & ranking", () => {
     expect(byId.ua).toBe(3);
     expect(byId.ub).toBe(0);
     expect(byId.uc).toBe(0);
-    // ua (active, day 3) ranks above the two 0-day users.
     expect(rows[0]!.userId).toBe("ua");
   });
 
   it("completedDays sums DayStatus.completed across ALL of a user's PROJECT50 runs", async () => {
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("c1", "ua", "2026-06-09", "ACTIVE"), // day 2
-      challenge("c2", "ua", "2026-04-01", "FAILED"), // a prior failed run
-    ]);
-    mockDayStatusGroupBy.mockResolvedValue([
-      { challengeId: "c1", _count: { _all: 1 } },
-      { challengeId: "c2", _count: { _all: 12 } },
-    ]);
+    setup(
+      [
+        challenge("c1", "ua", "2026-06-09", "ACTIVE"), // day 2
+        challenge("c2", "ua", "2026-04-01", "FAILED"), // a prior failed run
+      ],
+      [
+        { challengeId: "c1", dayKey: "2026-06-09" }, // 1 completed (active, compliant)
+        // 12 completed days from the prior failed run
+        ...Array.from({ length: 12 }, (_, i) => ({
+          challengeId: "c2",
+          dayKey: addUtcDays("2026-04-01", i),
+        })),
+      ],
+    );
     mockUserFindMany.mockResolvedValue([user("ua")]);
 
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
@@ -204,7 +332,7 @@ describe("getLeaderboard — metric & ranking", () => {
   });
 
   it("prefers the most recently started ACTIVE run when a user has several", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+    setup([
       challenge("old", "ua", "2026-05-01", "ACTIVE"), // day 41
       challenge("new", "ua", "2026-06-08", "ACTIVE"), // day 3
     ]);
@@ -218,7 +346,7 @@ describe("getLeaderboard — metric & ranking", () => {
 
 describe("getLeaderboard — projection & limits", () => {
   it("projects handle/displayName/avatarUrl/isMe and uses null avatar passthrough", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+    setup([
       challenge("ca", "viewer", "2026-06-08"),
       challenge("cb", "ub", "2026-06-06"),
     ]);
@@ -242,11 +370,10 @@ describe("getLeaderboard — projection & limits", () => {
   });
 
   it("skips a challenge owner with no matching user profile row", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+    setup([
       challenge("ca", "ua", "2026-06-08"),
       challenge("ghost", "missing", "2026-06-06"),
     ]);
-    // `missing` owns a run but has no user row (e.g. FK lag / deleted profile).
     mockUserFindMany.mockResolvedValue([user("ua")]);
 
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
@@ -257,26 +384,21 @@ describe("getLeaderboard — projection & limits", () => {
   it("returns an empty array when no users have a PROJECT50 run", async () => {
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
     expect(rows).toEqual([]);
-    // no profile fetch when there are no challenge owners
     expect(mockUserFindMany).not.toHaveBeenCalled();
   });
 
-  it("caps the result at the top 50", async () => {
+  it("caps the result at the top 50 and bounds the candidate query", async () => {
     const challenges: ChallengeRow[] = [];
     const users: UserRow[] = [];
+    const dayStatus: DayStatusRow[] = [];
     for (let i = 0; i < 60; i++) {
       const id = `u${String(i).padStart(2, "0")}`;
-      // Larger i → earlier startDate → higher currentDay → higher rank.
-      const day = i + 1; // 1..60 days elapsed → currentDay clamps but stays distinct enough
-      const start = new Date(NOW);
-      start.setUTCDate(start.getUTCDate() - i);
-      challenges.push(
-        challenge(id, id, start.toISOString().slice(0, 10), "ACTIVE"),
-      );
+      const start = addUtcDays(TODAY, -i); // larger i → earlier start → higher day
+      challenges.push(challenge(id, id, start, "ACTIVE"));
       users.push(user(id));
-      void day;
+      dayStatus.push(...compliantDays(id, start));
     }
-    mockChallengeFindMany.mockResolvedValue(challenges);
+    setup(challenges, dayStatus);
     mockUserFindMany.mockResolvedValue(users);
 
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
@@ -284,12 +406,15 @@ describe("getLeaderboard — projection & limits", () => {
     expect(rows).toHaveLength(50);
     expect(rows[0]!.rank).toBe(1);
     expect(rows[49]!.rank).toBe(50);
+    // The candidate query is bounded with an indexed orderBy + take cap.
+    const args = mockChallengeFindMany.mock.calls[0]![0];
+    expect(args.orderBy).toBeDefined();
+    expect(typeof args.take).toBe("number");
   });
 
   it("defaults `now` to the current time when omitted", async () => {
-    mockChallengeFindMany.mockResolvedValue([
-      challenge("ca", "ua", "2020-01-01"), // far past → clamps to 50 regardless of real now
-    ]);
+    setup([challenge("ca", "ua", "2020-01-01")]); // far past → clamps to 50
+
     mockUserFindMany.mockResolvedValue([user("ua")]);
 
     const rows = await getLeaderboard("viewer", { scope: "global" });
@@ -297,8 +422,8 @@ describe("getLeaderboard — projection & limits", () => {
     expect(rows[0]!.currentDay).toBe(50);
   });
 
-  it("avoids N+1: one challenge query, one groupBy, one user query", async () => {
-    mockChallengeFindMany.mockResolvedValue([
+  it("avoids N+1: one challenge query, one dayStatus query, one user query", async () => {
+    setup([
       challenge("ca", "ua", "2026-06-08"),
       challenge("cb", "ub", "2026-06-06"),
       challenge("cc", "uc", "2026-06-09"),
@@ -308,7 +433,7 @@ describe("getLeaderboard — projection & limits", () => {
     await getLeaderboard("viewer", { scope: "global", now: NOW });
 
     expect(mockChallengeFindMany).toHaveBeenCalledTimes(1);
-    expect(mockDayStatusGroupBy).toHaveBeenCalledTimes(1);
+    expect(mockDayStatusFindMany).toHaveBeenCalledTimes(1);
     expect(mockUserFindMany).toHaveBeenCalledTimes(1);
   });
 });
