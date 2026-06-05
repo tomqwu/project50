@@ -261,8 +261,9 @@ describe("putObject", () => {
     expect(putCmd.Key).toBe("media/u1/recap-DAY-abc.mp4");
     expect(putCmd.Body).toBe(body);
     expect(putCmd.ContentType).toBe("video/mp4");
-    // Media keys are content-addressed/immutable → cache aggressively forever.
-    expect(putCmd.CacheControl).toBe("public, max-age=31536000, immutable");
+    // Media keys are content-addressed/immutable → browser-cache forever, but
+    // `private` so shared/CDN caches can't replay signed-URL bytes cross-user.
+    expect(putCmd.CacheControl).toBe("private, max-age=31536000, immutable");
   });
 
   it("creates the bucket when missing, then uploads (fresh-storage scenario)", async () => {
@@ -777,8 +778,9 @@ describe("Azure Blob backend", () => {
       expect(azureUpload).toHaveBeenCalledWith(body, body.length, {
         blobHTTPHeaders: {
           blobContentType: "video/mp4",
-          // Immutable content-addressed media → cache aggressively forever.
-          blobCacheControl: "public, max-age=31536000, immutable",
+          // Immutable content-addressed media → browser-cache forever, but
+          // `private` so shared/CDN caches can't replay signed-URL bytes.
+          blobCacheControl: "private, max-age=31536000, immutable",
         },
       });
       // S3 path untouched
@@ -1094,8 +1096,9 @@ describe("Azure managed-identity backend (user-delegation SAS)", () => {
       expect(azureUpload).toHaveBeenCalledWith(body, body.length, {
         blobHTTPHeaders: {
           blobContentType: "video/mp4",
-          // Immutable content-addressed media → cache aggressively forever.
-          blobCacheControl: "public, max-age=31536000, immutable",
+          // Immutable content-addressed media → browser-cache forever, but
+          // `private` so shared/CDN caches can't replay signed-URL bytes.
+          blobCacheControl: "private, max-age=31536000, immutable",
         },
       });
       const { DefaultAzureCredential } = await import("@azure/identity");

@@ -43,7 +43,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import PublicSharePage, { revalidate } from "./page";
+import PublicSharePage, { dynamic } from "./page";
 
 afterEach(() => {
   cleanup();
@@ -199,9 +199,9 @@ describe("PublicSharePage", () => {
     expect(screen.getByText("2")).toBeInTheDocument(); // days completed
   });
 
-  it("opts into ISR with a 5-minute revalidate (matches the OG routes)", () => {
-    // This unauthenticated, low-volatility public page is a good ISR candidate;
-    // Next.js only honors a LITERAL route-segment `revalidate` export.
-    expect(revalidate).toBe(300);
+  it("renders dynamically (no ISR) so the visibility gate runs per-request", () => {
+    // Caching this page would leak a now-private/deleted challenge to anonymous
+    // visitors until the cache expired, since PATCH/DELETE don't revalidate it.
+    expect(dynamic).toBe("force-dynamic");
   });
 });

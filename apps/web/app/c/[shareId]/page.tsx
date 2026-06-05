@@ -5,11 +5,12 @@ import { CelebrateView } from "@/app/(app)/challenges/[id]/celebrate/CelebrateVi
 import type { MilestoneKind } from "@/app/(app)/challenges/[id]/celebrate/CelebrateView";
 import { dayNumber, localDayKey } from "@project50/core";
 
-// Unauthenticated, low-volatility public share page — serve it via ISR and
-// revalidate every 5 minutes instead of re-querying the DB on every hit. Must be
-// a LITERAL export: Next.js only honors literal route-segment config. Matches the
-// 300s revalidate on this route's OG/Twitter image routes.
-export const revalidate = 300;
+// Render dynamically on every request — do NOT cache/ISR this page. The
+// visibility gate (getChallengeByShareId returns null unless the challenge is
+// PUBLIC) must run per-request: if the owner flips the challenge to
+// PRIVATE/FOLLOWERS or deletes it, PATCH/DELETE do not invalidate /c/<shareId>,
+// so a cached render would keep leaking a now-private page to anonymous visitors.
+export const dynamic = "force-dynamic";
 
 export default async function PublicSharePage({
   params,
