@@ -20,6 +20,23 @@ export function dayShareUrl(origin: string, shareId: string, dayNumber: number):
 }
 
 /**
+ * Public URL for a single day's rendered share-card IMAGE (the per-day
+ * opengraph-image route):
+ *   `${origin}/c/${shareId}/day/${dayNumber}/opengraph-image`
+ *
+ * This is the image asset Instagram needs: IG has no web "share a link" dialog,
+ * so the only compliant in-browser path is an IMAGE-based native share (the OS
+ * share sheet / "Share to Story" deep link with a file). Callers fetch this URL
+ * into a `File` and hand it to `navigator.share({ files })`.
+ *
+ * `origin` is a bare scheme+host with NO trailing slash (e.g.
+ * "https://www.project50.fit"), matching `dayShareUrl`.
+ */
+export function dayImageUrl(origin: string, shareId: string, dayNumber: number): string {
+  return `${origin}/c/${shareId}/day/${dayNumber}/opengraph-image`;
+}
+
+/**
  * Facebook sharer endpoint for an arbitrary target URL. The target is
  * query-encoded so reserved characters survive the round-trip.
  */

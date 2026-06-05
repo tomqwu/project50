@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dayShareUrl, facebookSharerUrl, referralUrl } from "./share-links";
+import { dayShareUrl, dayImageUrl, facebookSharerUrl, referralUrl } from "./share-links";
 
 describe("dayShareUrl", () => {
   it("builds the public per-day URL from origin, shareId, and day number", () => {
@@ -15,6 +15,26 @@ describe("dayShareUrl", () => {
   it("preserves a custom origin path/port verbatim", () => {
     expect(dayShareUrl("http://localhost:3000", "share-xyz", 50)).toBe(
       "http://localhost:3000/c/share-xyz/day/50",
+    );
+  });
+});
+
+describe("dayImageUrl", () => {
+  it("builds the per-day opengraph-image URL from origin, shareId, and day number", () => {
+    expect(dayImageUrl("https://www.project50.fit", "abc123", 7)).toBe(
+      "https://www.project50.fit/c/abc123/day/7/opengraph-image",
+    );
+  });
+
+  it("does not duplicate or drop the slash when origin has no trailing slash", () => {
+    expect(dayImageUrl("https://example.com", "s", 1)).toBe(
+      "https://example.com/c/s/day/1/opengraph-image",
+    );
+  });
+
+  it("preserves a custom origin path/port verbatim", () => {
+    expect(dayImageUrl("http://localhost:3000", "share-xyz", 50)).toBe(
+      "http://localhost:3000/c/share-xyz/day/50/opengraph-image",
     );
   });
 });
