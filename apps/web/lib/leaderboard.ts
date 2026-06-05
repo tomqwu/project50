@@ -62,16 +62,21 @@ const TOP_N = 50;
  * day completed) — see {@link project50CurrentDay} — so a stale ACTIVE run that
  * already missed a day cannot keep climbing before its status is flipped.
  *
- * All data is fetched in bulk (one bounded challenge query, one DayStatus query,
- * one user-profile query) — never per user — to avoid N+1 round-trips.
+ * All data is fetched in bulk (a candidate challenge query, an owner-aggregate
+ * challenge query, one DayStatus query, one user-profile query) — every query
+ * bounded by the candidate owner set, never per user — to avoid N+1 round-trips.
+ * The owner-aggregate query exists so `completedDays` (the tie-break) totals a
+ * user's days across ALL their PROJECT50 runs, including prior FAILED/COMPLETED
+ * ones, not just the live candidate run.
  *
  * The *global* candidate set is bounded by a **time window** rather than a blind
  * row cap: a run can only be a currently-active racer if it is ACTIVE and
  * started within the program length (the last {@link PROJECT50_LENGTH_DAYS}
- * days). Filtering on `startDate >= today-(N-1)` + `status: ACTIVE` keeps the
- * scan bounded and indexed without ever dropping a genuinely-rankable run (a
- * blind earliest-N cap could be filled by old day-0 stale runs and starve newer
- * active racers). The `friends` scope is already bounded by the follow count.
+ * days, plus a day of timezone slack). Filtering on `startDate >= today-N` +
+ * `status: ACTIVE` keeps the scan bounded and indexed without ever dropping a
+ * genuinely-rankable run (a blind earliest-N cap could be filled by old day-0
+ * stale runs and starve newer active racers). The `friends` scope is already
+ * bounded by the follow count.
  */
 export async function getLeaderboard(
   uid: string,
@@ -98,10 +103,13 @@ export async function getLeaderboard(
     };
   } else {
     // Only ACTIVE PUBLIC runs that started within the program window can be
-    // currently ranking. The cutoff uses a UTC day key — at most one zone-day of
-    // slack vs any run's local day, which is harmless (the per-run
-    // project50CurrentDay re-check using each run's own timezone is exact).
-    const cutoff = addDays(localDayKey(now, "UTC"), -(PROJECT50_LENGTH_DAYS - 1));
+    // currently ranking. The cutoff uses a UTC day key, widened by one extra day
+    // (today - N, not today - (N-1)): a runner west of UTC early in the UTC day
+    // is still on their local "yesterday", so a genuinely-active Day-50 run can
+    // have a startDate one day before a UTC today-(N-1) cutoff. The extra day of
+    // slack keeps it in the set; the per-run project50CurrentDay re-check (using
+    // each run's own timezone) stays exact and discards any non-rankable extras.
+    const cutoff = addDays(localDayKey(now, "UTC"), -PROJECT50_LENGTH_DAYS);
     where = {
       kind: "PROJECT50",
       visibility: "PUBLIC",
@@ -120,42 +128,52 @@ export async function getLeaderboard(
 
   if (challenges.length === 0) return [];
 
-  // Bulk-fetch all completed DayStatus rows for these runs (one query). The rows
-  // serve double duty: their count is `completedDays`, and their day keys feed
-  // the per-run hard-reset compliance check.
+  const candidateOwnerIds = [...new Set(challenges.map((c) => c.ownerId))];
+
+  // Pull ALL of the candidate owners' PROJECT50 runs (not just the active
+  // candidates). This lets `completedDays` — the tie-break — count days from a
+  // user's prior FAILED/COMPLETED runs too, instead of only their live run.
+  // Bounded by the candidate owner set, so still no per-user N+1.
+  const ownerChallenges = await prisma.challenge.findMany({
+    where: { kind: "PROJECT50", ownerId: { in: candidateOwnerIds } },
+    select: { id: true, ownerId: true },
+  });
+  const ownerByChallengeId = new Map(ownerChallenges.map((c) => [c.id, c.ownerId]));
+
+  // One DayStatus query over every one of those runs. The rows serve double
+  // duty: grouped by challenge they give the per-candidate compliance keys, and
+  // grouped by owner they give the cross-run completedDays total.
   const dayRows = await prisma.dayStatus.findMany({
-    where: { completed: true, challengeId: { in: challenges.map((c) => c.id) } },
+    where: { completed: true, challengeId: { in: ownerChallenges.map((c) => c.id) } },
     select: { challengeId: true, dayKey: true },
   });
   const completedKeysByChallenge = new Map<string, string[]>();
+  const completedDaysByOwner = new Map<string, number>();
   for (const r of dayRows) {
-    const list = completedKeysByChallenge.get(r.challengeId);
-    if (list) list.push(r.dayKey);
+    const keys = completedKeysByChallenge.get(r.challengeId);
+    if (keys) keys.push(r.dayKey);
     else completedKeysByChallenge.set(r.challengeId, [r.dayKey]);
+    const owner = ownerByChallengeId.get(r.challengeId);
+    if (owner) completedDaysByOwner.set(owner, (completedDaysByOwner.get(owner) ?? 0) + 1);
   }
 
   // Bulk-fetch the owner profiles (one query).
-  const ownerIds = [...new Set(challenges.map((c) => c.ownerId))];
   const users = await prisma.user.findMany({
-    where: { id: { in: ownerIds } },
+    where: { id: { in: candidateOwnerIds } },
     select: { id: true, handle: true, displayName: true, avatarUrl: true },
   });
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  // Aggregate per owner: their newest *still-alive* active run's day number plus
-  // total completed days across all of their runs.
+  // Aggregate per owner: their newest *still-alive* active candidate run's day
+  // number. completedDays comes from the cross-run owner total above.
   interface Agg {
     currentDay: number;
     /** startDate of the active run that set currentDay; "" when none yet. */
     activeStart: string;
-    completedDays: number;
   }
   const aggByOwner = new Map<string, Agg>();
   for (const c of challenges) {
-    const agg =
-      aggByOwner.get(c.ownerId) ?? { currentDay: 0, activeStart: "", completedDays: 0 };
-    const completedKeys = completedKeysByChallenge.get(c.id) ?? [];
-    agg.completedDays += completedKeys.length;
+    const agg = aggByOwner.get(c.ownerId) ?? { currentDay: 0, activeStart: "" };
     // Only an ACTIVE run can contribute a current day, and only if it is still
     // alive under the hard-reset rule. When a user has several active runs, the
     // most recently started living one wins (highest startDate).
@@ -164,7 +182,7 @@ export async function getLeaderboard(
       const day = project50CurrentDay({
         startDate: c.startDate,
         todayKey,
-        completedDayKeys: completedKeys,
+        completedDayKeys: completedKeysByChallenge.get(c.id) ?? [],
       });
       if (day > 0) {
         agg.currentDay = day;
@@ -185,7 +203,7 @@ export async function getLeaderboard(
       displayName: u.displayName,
       avatarUrl: u.avatarUrl,
       currentDay: agg.currentDay,
-      completedDays: agg.completedDays,
+      completedDays: completedDaysByOwner.get(ownerId) ?? 0,
       isMe: ownerId === uid,
     });
   }

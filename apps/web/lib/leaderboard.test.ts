@@ -96,14 +96,41 @@ function user(id: string, handle = id, displayName = id.toUpperCase()): UserRow 
 }
 
 /**
- * Wire the challenge + (auto-compliant) dayStatus mocks together. Pass explicit
- * dayStatus rows to override compliance for a specific run.
+ * Wire the challenge + dayStatus mocks together to mirror the implementation's
+ * two distinct `challenge.findMany` calls:
+ *   1. the candidate query (global: status ACTIVE + startDate window; friends:
+ *      OR visibility clause) — returns `candidates`.
+ *   2. the owner-aggregate query (all PROJECT50 runs for the candidate owners,
+ *      no status/window filter) — returns `allChallenges`, used to total
+ *      `completedDays` across a user's historical runs.
+ *
+ * `dayStatus` rows feed both the per-candidate compliance check and the
+ * cross-run completed-day totals. By default they are auto-derived as compliant
+ * days for every challenge passed.
+ *
+ * The two challenge calls are told apart structurally: the candidate query has
+ * `where.status` (global) or `where.OR` (friends); the owner-aggregate query has
+ * neither.
  */
-function setup(challenges: ChallengeRow[], dayStatus?: DayStatusRow[]) {
-  mockChallengeFindMany.mockResolvedValue(challenges);
+function setup(
+  candidates: ChallengeRow[],
+  opts?: { dayStatus?: DayStatusRow[]; allChallenges?: ChallengeRow[] },
+) {
+  const allChallenges = opts?.allChallenges ?? candidates;
+  mockChallengeFindMany.mockImplementation(
+    (args: { where?: { status?: unknown; OR?: unknown } }) => {
+      const w = args?.where ?? {};
+      const isCandidateQuery = w.status !== undefined || w.OR !== undefined;
+      return Promise.resolve(isCandidateQuery ? candidates : allChallenges);
+    },
+  );
+  const everyChallenge = [
+    ...allChallenges,
+    ...candidates.filter((c) => !allChallenges.some((a) => a.id === c.id)),
+  ];
   const rows =
-    dayStatus ??
-    challenges.flatMap((c) =>
+    opts?.dayStatus ??
+    everyChallenge.flatMap((c) =>
       c.status === "ACTIVE" ? compliantDays(c.id, c.startDate) : [],
     );
   mockDayStatusFindMany.mockResolvedValue(rows);
@@ -271,14 +298,16 @@ describe("getLeaderboard — metric & ranking", () => {
         challenge("stale", "ua", "2026-06-01"), // would be day 10
         challenge("fresh", "ub", "2026-06-08"), // day 3, compliant
       ],
-      [
-        // ua started 06-01 but only completed the first two days → missed days
-        // afterward, so the run should have hard-reset (currentDay 0).
-        { challengeId: "stale", dayKey: "2026-06-01" },
-        { challengeId: "stale", dayKey: "2026-06-02" },
-        // ub is fully compliant.
-        ...compliantDays("fresh", "2026-06-08"),
-      ],
+      {
+        dayStatus: [
+          // ua started 06-01 but only completed the first two days → missed
+          // days afterward, so the run should have hard-reset (currentDay 0).
+          { challengeId: "stale", dayKey: "2026-06-01" },
+          { challengeId: "stale", dayKey: "2026-06-02" },
+          // ub is fully compliant.
+          ...compliantDays("fresh", "2026-06-08"),
+        ],
+      },
     );
     mockUserFindMany.mockResolvedValue([user("ua"), user("ub")]);
 
@@ -308,19 +337,25 @@ describe("getLeaderboard — metric & ranking", () => {
   });
 
   it("completedDays sums DayStatus.completed across ALL of a user's PROJECT50 runs", async () => {
+    // The active run c1 is the only global candidate; the prior FAILED run c2 is
+    // NOT a candidate (status filter) but must still contribute its completed
+    // days to the tie-break total — so it lives in the owner-aggregate set.
     setup(
-      [
-        challenge("c1", "ua", "2026-06-09", "ACTIVE"), // day 2
-        challenge("c2", "ua", "2026-04-01", "FAILED"), // a prior failed run
-      ],
-      [
-        { challengeId: "c1", dayKey: "2026-06-09" }, // 1 completed (active, compliant)
-        // 12 completed days from the prior failed run
-        ...Array.from({ length: 12 }, (_, i) => ({
-          challengeId: "c2",
-          dayKey: addUtcDays("2026-04-01", i),
-        })),
-      ],
+      [challenge("c1", "ua", "2026-06-09", "ACTIVE")], // day 2 candidate
+      {
+        allChallenges: [
+          challenge("c1", "ua", "2026-06-09", "ACTIVE"),
+          challenge("c2", "ua", "2026-04-01", "FAILED"), // prior failed run
+        ],
+        dayStatus: [
+          { challengeId: "c1", dayKey: "2026-06-09" }, // 1 completed (active, compliant)
+          // 12 completed days from the prior failed run
+          ...Array.from({ length: 12 }, (_, i) => ({
+            challengeId: "c2",
+            dayKey: addUtcDays("2026-04-01", i),
+          })),
+        ],
+      },
     );
     mockUserFindMany.mockResolvedValue([user("ua")]);
 
@@ -398,7 +433,7 @@ describe("getLeaderboard — projection & limits", () => {
       users.push(user(id));
       dayStatus.push(...compliantDays(id, start));
     }
-    setup(challenges, dayStatus);
+    setup(challenges, { dayStatus });
     mockUserFindMany.mockResolvedValue(users);
 
     const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
@@ -417,15 +452,16 @@ describe("getLeaderboard — projection & limits", () => {
     const args = mockChallengeFindMany.mock.calls[0]![0];
     // No blind take cap — the window bounds the set instead.
     expect(args.take).toBeUndefined();
-    // status restricted to ACTIVE and startDate floored to today-49.
+    // status restricted to ACTIVE and startDate floored to today-50 (one extra
+    // day of westward-timezone slack beyond the 50-day program length).
     expect(args.where.status).toBe("ACTIVE");
-    // 2026-06-10 minus 49 days = 2026-04-22.
-    expect(args.where.startDate).toEqual({ gte: "2026-04-22" });
+    // 2026-06-10 minus 50 days = 2026-04-21.
+    expect(args.where.startDate).toEqual({ gte: "2026-04-21" });
     expect(args.where.visibility).toBe("PUBLIC");
   });
 
   it("a brand-new active run started today is NOT excluded by older stale runs", async () => {
-    // Simulate the DB window filter: the query (gte today-49, ACTIVE) only
+    // Simulate the DB window filter: the query (gte today-50, ACTIVE) only
     // returns the fresh run; 500+ stale runs started before the window never
     // load. The fresh run must rank.
     setup([challenge("fresh", "ua", TODAY, "ACTIVE")]);
@@ -435,6 +471,74 @@ describe("getLeaderboard — projection & limits", () => {
 
     expect(rows.map((r) => r.userId)).toEqual(["ua"]);
     expect(rows[0]!.currentDay).toBe(1);
+  });
+
+  it("includes a Day-50 run for a westward-TZ user early in the UTC day (cutoff slack)", async () => {
+    // LA at 2026-06-10T02:00Z is still 2026-06-09 local. A run started 49 LOCAL
+    // days earlier (2026-04-21, America/Los_Angeles) is on Day 50 locally, but
+    // its startDate is one day before the OLD today-49 UTC cutoff (2026-04-22),
+    // so it would have been dropped. The widened today-50 cutoff (2026-04-21)
+    // keeps it in the candidate set; the per-run check then confirms Day 50.
+    const earlyUtc = new Date("2026-06-10T02:00:00.000Z");
+    const startLocal = "2026-04-21"; // Day 50 on 2026-06-09 local (LA)
+    // Compliant: local days 1..49 (2026-04-21 .. 2026-06-08) all completed.
+    const days: DayStatusRow[] = [];
+    for (let d = startLocal; d < "2026-06-09"; d = addUtcDays(d, 1)) {
+      days.push({ challengeId: "la", dayKey: d });
+    }
+    setup([challenge("la", "ua", startLocal, "ACTIVE", "PUBLIC", "America/Los_Angeles")], {
+      dayStatus: days,
+    });
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    await getLeaderboard("viewer", { scope: "global", now: earlyUtc });
+
+    // The widened cutoff must be <= the run's startDate so the DB query keeps it,
+    // and strictly earlier than the old today-49 cutoff would have been.
+    const args = mockChallengeFindMany.mock.calls[0]![0];
+    expect(args.where.startDate.gte <= startLocal).toBe(true);
+    expect(args.where.startDate.gte).toBe("2026-04-21");
+
+    // With the run returned, the per-run timezone check ranks it as Day 50.
+    const rows = await getLeaderboard("viewer", { scope: "global", now: earlyUtc });
+    expect(rows[0]!.userId).toBe("ua");
+    expect(rows[0]!.currentDay).toBe(50);
+  });
+
+  it("two users tied on currentDay: the one with a prior completed run ranks higher", async () => {
+    // ua and ub are both on Day 3 in their active runs. ua has a prior COMPLETED
+    // run (50 done days) that is NOT a global candidate but must still count
+    // toward the completedDays tie-break, lifting ua above ub.
+    setup(
+      [
+        challenge("ua-active", "ua", "2026-06-08", "ACTIVE"), // day 3
+        challenge("ub-active", "ub", "2026-06-08", "ACTIVE"), // day 3
+      ],
+      {
+        allChallenges: [
+          challenge("ua-active", "ua", "2026-06-08", "ACTIVE"),
+          challenge("ua-done", "ua", "2026-01-01", "COMPLETED"), // prior win
+          challenge("ub-active", "ub", "2026-06-08", "ACTIVE"),
+        ],
+        dayStatus: [
+          ...compliantDays("ua-active", "2026-06-08"), // 2 active days
+          ...compliantDays("ub-active", "2026-06-08"), // 2 active days
+          // ua's prior completed run: 50 completed days.
+          ...Array.from({ length: 50 }, (_, i) => ({
+            challengeId: "ua-done",
+            dayKey: addUtcDays("2026-01-01", i),
+          })),
+        ],
+      },
+    );
+    mockUserFindMany.mockResolvedValue([user("ua"), user("ub")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    expect(rows.map((r) => r.userId)).toEqual(["ua", "ub"]);
+    expect(rows[0]!.currentDay).toBe(3);
+    expect(rows[0]!.completedDays).toBe(52); // 2 active + 50 prior
+    expect(rows[1]!.completedDays).toBe(2);
   });
 
   it("the friends scope is not startDate-window bounded (own/older runs still load)", async () => {
@@ -463,7 +567,7 @@ describe("getLeaderboard — projection & limits", () => {
     expect(rows[0]!.currentDay).toBe(1);
   });
 
-  it("avoids N+1: one challenge query, one dayStatus query, one user query", async () => {
+  it("avoids N+1: bounded query count regardless of owner count", async () => {
     setup([
       challenge("ca", "ua", "2026-06-08"),
       challenge("cb", "ub", "2026-06-06"),
@@ -473,7 +577,9 @@ describe("getLeaderboard — projection & limits", () => {
 
     await getLeaderboard("viewer", { scope: "global", now: NOW });
 
-    expect(mockChallengeFindMany).toHaveBeenCalledTimes(1);
+    // Two challenge queries (candidates + owner-aggregate), one dayStatus, one
+    // user — all bounded by the candidate owners, never per-user N+1.
+    expect(mockChallengeFindMany).toHaveBeenCalledTimes(2);
     expect(mockDayStatusFindMany).toHaveBeenCalledTimes(1);
     expect(mockUserFindMany).toHaveBeenCalledTimes(1);
   });
