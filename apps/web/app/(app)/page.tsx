@@ -2,18 +2,33 @@ import { requireUser } from "@/lib/session";
 import { listChallenges, getChallenge } from "@/lib/api/challenges";
 import { localDayKey, dayNumber } from "@project50/core";
 import { getProject50State } from "@/lib/project50";
+import { getLeaderboard } from "@/lib/leaderboard";
 import { Project50Client } from "./_components/Project50Client";
 import { StartProject50Button } from "./_components/StartProject50Button";
 import { DashboardView } from "./_components/DashboardView";
+import { Leaderboard } from "./_components/Leaderboard";
 import type { PrimaryChallenge, ChallengeItem } from "./_components/DashboardView";
 
 export default async function DashboardPage() {
   const uid = await requireUser();
 
-  // An active or failed Project 50 run takes over the home screen.
+  // An active/failed/completed Project 50 run takes over the home screen — but
+  // these users ARE the leaderboard's ranked audience, so render the leaderboard
+  // alongside their Project 50 dashboard (loaded once, both scopes).
   const p50 = await getProject50State(uid);
   if (p50.status !== "NONE") {
-    return <Project50Client state={p50} />;
+    const [friendsLeaderboard, globalLeaderboard] = await Promise.all([
+      getLeaderboard(uid, { scope: "friends" }),
+      getLeaderboard(uid, { scope: "global" }),
+    ]);
+    return (
+      <>
+        <Project50Client state={p50} />
+        <div style={{ padding: "0 32px 32px", maxWidth: "480px", margin: "0 auto" }}>
+          <Leaderboard friends={friendsLeaderboard} global={globalLeaderboard} />
+        </div>
+      </>
+    );
   }
 
   // No Project 50 run. Brand-new users (no challenges) get the Project 50
@@ -40,10 +55,21 @@ export default async function DashboardPage() {
   };
   const challengeItems: ChallengeItem[] = challenges.map((c) => ({ id: c.id, title: c.title, goalType: c.goalType as "TARGET" | "BINARY" }));
 
+  // Load both leaderboard scopes for the dashboard's ranked area.
+  const [friendsLeaderboard, globalLeaderboard] = await Promise.all([
+    getLeaderboard(uid, { scope: "friends" }),
+    getLeaderboard(uid, { scope: "global" }),
+  ]);
+
   return (
     <>
       <StartProject50Button />
-      <DashboardView primary={primary} challenges={challengeItems} />
+      <DashboardView
+        primary={primary}
+        challenges={challengeItems}
+        friendsLeaderboard={friendsLeaderboard}
+        globalLeaderboard={globalLeaderboard}
+      />
     </>
   );
 }
