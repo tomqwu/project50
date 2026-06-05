@@ -5,6 +5,12 @@ import { CelebrateView } from "@/app/(app)/challenges/[id]/celebrate/CelebrateVi
 import type { MilestoneKind } from "@/app/(app)/challenges/[id]/celebrate/CelebrateView";
 import { dayNumber, localDayKey } from "@project50/core";
 
+// Unauthenticated, low-volatility public share page — serve it via ISR and
+// revalidate every 5 minutes instead of re-querying the DB on every hit. Must be
+// a LITERAL export: Next.js only honors literal route-segment config. Matches the
+// 300s revalidate on this route's OG/Twitter image routes.
+export const revalidate = 300;
+
 export default async function PublicSharePage({
   params,
 }: {

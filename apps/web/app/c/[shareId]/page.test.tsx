@@ -43,7 +43,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import PublicSharePage from "./page";
+import PublicSharePage, { revalidate } from "./page";
 
 afterEach(() => {
   cleanup();
@@ -197,5 +197,11 @@ describe("PublicSharePage", () => {
 
     // totalAmount = null→0 + 5 = 5, daysCompleted = 2
     expect(screen.getByText("2")).toBeInTheDocument(); // days completed
+  });
+
+  it("opts into ISR with a 5-minute revalidate (matches the OG routes)", () => {
+    // This unauthenticated, low-volatility public page is a good ISR candidate;
+    // Next.js only honors a LITERAL route-segment `revalidate` export.
+    expect(revalidate).toBe(300);
   });
 });

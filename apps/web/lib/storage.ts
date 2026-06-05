@@ -20,6 +20,11 @@ import { DefaultAzureCredential } from "@azure/identity";
 
 const PRESIGN_EXPIRY = 5 * 60; // 5 minutes
 
+// Cache-Control for uploaded media. Media object keys are content-addressed and
+// immutable (see newMediaKey), so the bytes at a given key never change — set a
+// 1-year immutable directive so browsers/CDNs cache them aggressively.
+const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 // ---------------------------------------------------------------------------
 // Backend selection
 //
@@ -321,7 +326,12 @@ export async function putObject(
       .getContainerClient(getContainerName())
       .getBlockBlobClient(objectKey)
       .upload(body, body.length, {
-        blobHTTPHeaders: { blobContentType: contentType },
+        blobHTTPHeaders: {
+          blobContentType: contentType,
+          // Media keys are content-addressed/immutable (see newMediaKey), so the
+          // bytes at a key never change — let browsers/CDNs cache them forever.
+          blobCacheControl: IMMUTABLE_CACHE_CONTROL,
+        },
       });
     return;
   }
@@ -331,6 +341,8 @@ export async function putObject(
     Key: objectKey,
     Body: body,
     ContentType: contentType,
+    // Immutable content-addressed media — cache aggressively (1y, immutable).
+    CacheControl: IMMUTABLE_CACHE_CONTROL,
   });
   await getClient().send(command);
 }
