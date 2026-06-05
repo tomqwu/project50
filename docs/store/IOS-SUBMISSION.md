@@ -27,8 +27,10 @@ privacy answers below derive from them — do not copy a generic template.
 | Fact | Value | Source |
 | --- | --- | --- |
 | Framework | Expo SDK **52** / React Native 0.76 | `apps/mobile/package.json` |
-| Bundle identifier | `com.anonymous.project50` (**TODO**: rename to a real reverse-DNS id you own, e.g. `app.project50.ios`) | `apps/mobile/app.json` |
-| App name (binary) | `project50` | `apps/mobile/app.json` |
+| Bundle identifier | `com.anonymous.project50` today → **decided target `fit.project50.app`** (confirm it matches the App ID registered for the App Store Connect app below; the bundle id is **permanent** once shipped) | `apps/mobile/app.json` |
+| App name (home-screen label) | `project50` today → **decided `Project 50`** (short, so iOS doesn't truncate under the icon) | `apps/mobile/app.json` |
+| App Store Connect app | **created** — Apple ID **`6777206380`** (draft) | App Store Connect |
+| Store listing name | **`Project 50: Live in Respect`** (27 chars; verified no App Store collision) | §2 |
 | Version | `1.0.0` | `apps/mobile/app.json` |
 | URL scheme | `project50://` (OAuth redirect) | `apps/mobile/app.json`, `apps/mobile/src/lib/session.ts` |
 | Sign-in | **Facebook** (live in the binary); **Google** wired in `session.ts` | `apps/mobile/src/screens/SignInScreen.tsx`, `apps/mobile/src/lib/session.ts` |
@@ -58,16 +60,20 @@ to an Apple data category.
    - **Push Notifications** (daily reminders).
    - **Sign in with Apple** — only if you keep third-party login; see the App
      Review pitfall in §6.
-3. **TODO** — In [App Store Connect](https://appstoreconnect.apple.com) → **Apps**
-   → **+** → **New App**:
+3. ✅ **Done** — the App Store Connect app record exists: **Apple ID `6777206380`**
+   (draft). Confirm/finish these fields on it:
    - Platform: iOS.
-   - Name: see §2 (must be globally unique across the App Store).
+   - Name: `Project 50: Live in Respect` (see §2).
    - Primary language: English (U.S.) — **TODO** confirm.
-   - Bundle ID: the App ID registered above.
+   - Bundle ID: must be the App ID for `fit.project50.app` (register it under
+     **Certificates, Identifiers & Profiles → Identifiers** if not done, and make
+     `apps/mobile/app.json` `ios.bundleIdentifier` match exactly).
    - SKU: an internal string, e.g. `project50-ios`.
 4. **TODO** — Under **Users and Access → Integrations → App Store Connect API**,
-   create an **API key** (App Manager role). EAS Submit uses it to upload builds
-   without 2FA. Save the Key ID, Issuer ID, and the `.p8` file as EAS secrets (§4).
+   create an **API key** (App Manager role). With the local-Xcode/Transporter
+   path (§4) you sign in to **Transporter** with your Apple ID instead; the API
+   key is only needed if you automate uploads (`xcrun altool`/`notarytool` or EAS
+   Submit). Save the Key ID, Issuer ID, and the `.p8` file if you create one.
 5. **TODO** — Agree to the latest **Paid Apps / Free Apps agreements** under
    **Business**. The app cannot be submitted until agreements are active.
 
@@ -81,11 +87,16 @@ an external URL.
 
 ### Name and subtitle
 
-- **App name** (30 char max): `project50`
-  - **TODO** — confirm availability; if taken, use `project50 - 50-Day Reset` or
-    similar (still ≤30 chars).
-- **Subtitle** (30 char max): `50 days. 7 rules. No excuses.`
-  - Alt: `Build a 50-day hard-reset habit`
+- **App name** (30 char max): **`Project 50: Live in Respect`** (27 chars).
+  - **Decided** (2026-06-05). A bare `Project 50` / `Project50` is **not** safe —
+    an App Store search found established apps already using it (`Project50` by
+    ISOMEM, `Project 50 Lifestyle challenge`, `Project50: 75 Soft & Be Hard`), so
+    leading with the bare name risks a metadata rejection and the trademark
+    exposure tracked in **#279**. The distinctive `: Live in Respect` suffix
+    returned **zero** App Store results. (The home-screen icon label stays the
+    short `Project 50`; the listing name and the icon label are different fields.)
+- **Subtitle** (30 char max): `50-Day Habit Reset`
+  - Alt: `50 days. 7 rules. No excuses.` / `Build a 50-day hard-reset habit`
 
 ### Promotional text (170 char, updatable without review)
 
@@ -271,12 +282,48 @@ currently present).
 
 ---
 
-## 4. Build via EAS
+## 4. Build the app
 
-The repo has no `eas.json` yet — create one. Builds are produced with **EAS
-Build**; submission with **EAS Submit**.
+**Chosen path: local Xcode archive → Transporter** (no Expo/EAS account needed —
+only Apple Developer signing). The EAS path is kept below as an alternative.
 
-> **TODO** — initial EAS account/project wiring is account work.
+### Build prerequisites (verified building on this machine, 2026-06-05)
+
+The native iOS app **builds and boots to the SignIn screen on the iPhone 17 Pro
+simulator** (Xcode 26.5 / iOS 26 SDK). Getting there required fixes now on
+`main` (PR #326) — keep these in mind for a clean build machine:
+
+- **Node 20** (`.nvmrc` / `engines: >=20`). Node 25/26 break Expo SDK 52 build
+  scripts (TS type-stripping, xmldom) — use `nvm use 20` before building.
+- **Xcode 26.5+** with the iOS 26 SDK; **CocoaPods 1.16+**; **watchman** (Metro's
+  crawler overflows on the pnpm monorepo without it).
+- `react-native-purchases` must be **≥ 8.12.0** — 8.5.3's `PurchasesHybridCommon`
+  fails to compile against the iOS 26 SDK (`StoreProduct` API removal).
+- `apps/mobile/metro.config.js` + a direct `expo-asset` dep make Metro resolve
+  under pnpm's strict layout; `react-native-gesture-handler` is a required peer.
+- `apps/mobile/ios/` is **gitignored** — it's regenerated. Run `npx expo prebuild
+  --platform ios` then `cd apps/mobile/ios && pod install` on a fresh checkout.
+
+### Local Xcode archive → Transporter
+
+1. Set the real identity in `apps/mobile/app.json` first: `ios.bundleIdentifier`
+   = `fit.project50.app`, `name` = `Project 50` (the held app-identity PR), then
+   `npx expo prebuild --platform ios` + `pod install`.
+2. Open `apps/mobile/ios/project50.xcworkspace` in Xcode. Under **Signing &
+   Capabilities**, select your **Team** (`TODO` — your 10-char Apple Developer
+   Team ID) with automatic signing; set the build config to **Release**.
+3. Set the run destination to **Any iOS Device (arm64)** and **Product → Archive**.
+4. In the **Organizer**, either **Distribute App → App Store Connect → Upload**,
+   or **Export** the `.ipa` and upload it with the **Transporter** app (sign in
+   with your Apple ID). The build lands in **App Store Connect → TestFlight** for
+   app `6777206380`.
+5. Set `ITSAppUsesNonExemptEncryption=false` in `Info.plist` (via the `app.json`
+   `ios.infoPlist`) to skip the per-build export-compliance prompt (see §5).
+
+### Alternative: build + submit via EAS
+
+The repo has no `eas.json` — create one. Builds via **EAS Build**, submission via
+**EAS Submit** (needs an Expo account + the App Store Connect API key from §1).
 
 1. **TODO** — `npm i -g eas-cli` and `eas login` (Expo account).
 2. **TODO** — `eas init` inside `apps/mobile` to create the EAS project and set
@@ -294,7 +341,7 @@ Build**; submission with **EAS Submit**.
        "production": {
          "ios": {
            "appleId": "TODO@example.com",
-           "ascAppId": "TODO_numeric_app_id",
+           "ascAppId": "6777206380",
            "appleTeamId": "TODO_team_id"
          }
        }
