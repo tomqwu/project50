@@ -10,12 +10,17 @@ type Visibility = "PUBLIC" | "FOLLOWERS" | "PRIVATE";
  * Kept local (rather than importing Prisma's generated namespace, which the db
  * package doesn't re-export) and assignable to `challenge.findMany`'s argument.
  */
+/** Relation filter: the owner has not been blocked by `uid`. */
+type NotBlockedBy = { blocksReceived: { none: { blockerId: string } } };
+
 interface ChallengeWhere {
   kind: "PROJECT50";
   visibility?: Visibility;
   status?: "ACTIVE";
   startDate?: { gte: string };
   ownerId?: { in: string[] };
+  /** Exclude runs whose owner the viewer has blocked (mirrors the feed). */
+  owner?: NotBlockedBy;
   OR?: Array<{
     ownerId?: string | { in: string[] };
     visibility?: { in: Visibility[] };
@@ -23,18 +28,30 @@ interface ChallengeWhere {
 }
 
 /** The owner + visibility portion of a challenge filter, shared by both queries. */
-type VisibilityWhere = Pick<ChallengeWhere, "visibility" | "ownerId" | "OR">;
+type VisibilityWhere = Pick<ChallengeWhere, "visibility" | "ownerId" | "owner" | "OR">;
+
+/**
+ * Relation filter excluding runs owned by a user the viewer has blocked. Mirrors
+ * the social feed (lib/api/social.ts feed), which excludes viewer-blocked users
+ * via `blocksReceived: { none: { blockerId } }` — blocking does not remove the
+ * follow edge, so the leaderboard must filter blocked owners explicitly.
+ */
+function notBlockedBy(uid: string): NotBlockedBy {
+  return { blocksReceived: { none: { blockerId: uid } } };
+}
 
 /**
  * Build the owner/visibility `where` fragment a viewer is allowed to see in a
  * scope, restricted to `ownerIds`. This is the SINGLE source of the visibility
- * rule, used by BOTH the candidate query and the cross-run completedDays
- * aggregate so they can never drift (a private run hidden from one must be
- * hidden from the other):
+ * (and block-exclusion) rule, used by BOTH the candidate query and the cross-run
+ * completedDays aggregate so they can never drift (a private/blocked run hidden
+ * from one must be hidden from the other):
  *
  * - `global`  — PUBLIC runs only.
  * - `friends` — the viewer's OWN runs (any visibility) plus followees' runs that
  *   are PUBLIC or FOLLOWERS. (`followeeIds` is empty for global.)
+ *
+ * Both scopes additionally exclude runs owned by a user the viewer has blocked.
  */
 function visibilityWhere(
   scope: LeaderboardScope,
@@ -43,10 +60,11 @@ function visibilityWhere(
   ownerIds: string[],
 ): VisibilityWhere {
   if (scope === "global") {
-    return { visibility: "PUBLIC", ownerId: { in: ownerIds } };
+    return { visibility: "PUBLIC", ownerId: { in: ownerIds }, owner: notBlockedBy(uid) };
   }
   return {
     ownerId: { in: ownerIds },
+    owner: notBlockedBy(uid),
     OR: [
       // The viewer's own runs, regardless of visibility.
       { ownerId: uid },
@@ -148,6 +166,8 @@ export async function getLeaderboard(
       visibility: "PUBLIC",
       status: "ACTIVE",
       startDate: { gte: cutoff },
+      // Exclude runs whose owner the viewer has blocked (same as the aggregate).
+      owner: notBlockedBy(uid),
     };
   }
 

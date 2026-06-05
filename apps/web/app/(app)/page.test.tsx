@@ -138,6 +138,79 @@ describe("DashboardPage (Project 50)", () => {
     expect(screen.getByText(/finished project 50/i)).toBeInTheDocument();
   });
 
+  it("ACTIVE → also loads both leaderboard scopes and renders the leaderboard for the Project 50 audience", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue({
+      status: "ACTIVE",
+      runId: "r1",
+      today: {
+        dayKey: "2026-06-02",
+        dayNumber: 3,
+        checks: [false, false, false, false, false, false, false],
+        completedCount: 0,
+        media: [],
+      },
+    });
+    mockGetLeaderboard.mockImplementation(async (_uid: string, opts: { scope: string }) =>
+      opts.scope === "friends"
+        ? [
+            {
+              rank: 1,
+              userId: "u1",
+              handle: "me",
+              displayName: "Captain Me",
+              avatarUrl: null,
+              currentDay: 3,
+              completedDays: 2,
+              isMe: true,
+            },
+          ]
+        : [],
+    );
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    // The Project 50 dashboard still renders, AND the leaderboard rides along.
+    expect(screen.getByText(/Day 3 \/ 50/)).toBeInTheDocument();
+    expect(mockGetLeaderboard).toHaveBeenCalledWith("u1", { scope: "friends" });
+    expect(mockGetLeaderboard).toHaveBeenCalledWith("u1", { scope: "global" });
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Captain Me")).toBeInTheDocument();
+  });
+
+  it("FAILED → renders the leaderboard alongside the Streak broken screen", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue({
+      status: "FAILED",
+      failedDayNumber: 12,
+      failedRuleId: 3,
+    });
+    mockGetLeaderboard.mockImplementation(async (_uid: string, opts: { scope: string }) =>
+      opts.scope === "friends"
+        ? [
+            {
+              rank: 1,
+              userId: "u2",
+              handle: "ace",
+              displayName: "Ace",
+              avatarUrl: null,
+              currentDay: 9,
+              completedDays: 8,
+              isMe: false,
+            },
+          ]
+        : [],
+    );
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    expect(screen.getByText(/Streak broken/)).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Ace")).toBeInTheDocument();
+  });
+
   it("ACTIVE → clicking a rule row invokes toggleRuleAction(ruleId, true)", async () => {
     mockRequireUser.mockResolvedValue("u1");
     mockGetProject50State.mockResolvedValue({

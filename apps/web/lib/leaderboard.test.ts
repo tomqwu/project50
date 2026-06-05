@@ -215,6 +215,38 @@ describe("getLeaderboard — scope resolution & visibility", () => {
     expect(global.map((r) => r.userId)).not.toContain("ua");
   });
 
+  it("friends scope: a viewer-blocked followee is excluded (block exclusion in the query)", async () => {
+    mockFollowFindMany.mockResolvedValue([
+      { followeeId: "ua" },
+      { followeeId: "blocked" }, // still followed, but the viewer blocked them
+    ]);
+    // The query's owner block filter drops `blocked`'s run; Prisma returns only
+    // the non-blocked followee's run (+ none from the blocked user).
+    setup([challenge("ca", "ua", "2026-06-06", "ACTIVE", "PUBLIC")]);
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    const rows = await getLeaderboard("viewer", { scope: "friends", now: NOW });
+
+    expect(rows.map((r) => r.userId)).toEqual(["ua"]);
+    expect(rows.map((r) => r.userId)).not.toContain("blocked");
+    // Both the candidate (call 0) and aggregate (call 1) queries exclude owners
+    // the viewer has blocked, mirroring the feed's blocksReceived filter.
+    for (const call of [0, 1]) {
+      const where = mockChallengeFindMany.mock.calls[call]![0].where;
+      expect(where.owner).toEqual({ blocksReceived: { none: { blockerId: "viewer" } } });
+    }
+  });
+
+  it("global scope: viewer-blocked users are excluded too", async () => {
+    setup([challenge("ca", "ua", "2026-06-08", "ACTIVE", "PUBLIC")]);
+    mockUserFindMany.mockResolvedValue([user("ua")]);
+
+    await getLeaderboard("viewer", { scope: "global", now: NOW });
+
+    const where = mockChallengeFindMany.mock.calls[0]![0].where;
+    expect(where.owner).toEqual({ blocksReceived: { none: { blockerId: "viewer" } } });
+  });
+
   it("friends scope: the viewer's OWN PRIVATE run still appears as isMe", async () => {
     mockFollowFindMany.mockResolvedValue([]);
     setup([challenge("cme", "viewer", "2026-06-09", "ACTIVE", "PRIVATE")]);
