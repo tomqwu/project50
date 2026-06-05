@@ -331,6 +331,11 @@ export async function attachProject50DayMedia(
  * objectKey points at someone else's blob. Mirroring account deletion, we only
  * ever call deleteObject for keys under THIS user's own `media/<uid>/` prefix —
  * a row whose key is out-of-prefix has its DB row removed but no blob deleted.
+ *
+ * SHARED BLOBS: the same image can be attached to multiple days (multiple rows
+ * sharing one objectKey). We only delete the blob when NO OTHER row references
+ * that objectKey — otherwise we'd orphan the other rows' thumbnails. The row
+ * being removed is always deleted; the blob survives until its last reference.
  */
 export async function removeProject50DayMedia(
   uid: string,
@@ -343,9 +348,18 @@ export async function removeProject50DayMedia(
   // Unknown id, or a row whose challenge is owned by someone else → no-op.
   if (!row || row.challenge.ownerId !== uid) return;
 
+  // Don't delete a blob still referenced by another row (same image attached to
+  // another day, etc.) — that would break the other row's thumbnail.
+  const stillReferenced =
+    (await prisma.project50DayMedia.count({
+      where: { objectKey: row.objectKey, id: { not: row.id } },
+    })) > 0;
+
   // Only delete blobs under the user's own media prefix; never touch another
   // user's (or an arbitrary) key, even if a crafted/legacy row references one.
-  if (row.objectKey.startsWith(userMediaPrefix(uid))) {
+  if (stillReferenced) {
+    // Keep the blob: another row still uses it. The DB row below is still removed.
+  } else if (row.objectKey.startsWith(userMediaPrefix(uid))) {
     try {
       await deleteObject(row.objectKey);
     } catch (err) {

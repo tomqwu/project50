@@ -375,6 +375,40 @@ describe("Project 50 day media", () => {
     expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
   });
 
+  it("removeProject50DayMedia keeps the blob when another row still references the same objectKey", async () => {
+    // The same image can be attached to multiple days (e.g. Day 1 and Day 2),
+    // sharing one objectKey. Removing one such row must NOT delete the shared
+    // blob — that would break the other row's thumbnail. It deletes only the
+    // last reference's blob.
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/shared.jpg`;
+    // Two rows, same objectKey, different days.
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 3, height: 3 }, NOW);
+    await attachProject50DayMedia(
+      u.id,
+      { objectKey: key, width: 3, height: 3 },
+      new Date("2026-06-03T12:00:00Z"),
+    );
+    const rows = await prisma.project50DayMedia.findMany({
+      where: { challengeId: runId },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+
+    // Remove the first: the blob is still referenced by the second → keep it.
+    await removeProject50DayMedia(u.id, rows[0]!.id);
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: rows[0]!.id } })).toBeNull();
+    // The other row is untouched.
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: rows[1]!.id } })).not.toBeNull();
+
+    // Remove the last reference: now the blob is safe to delete.
+    await removeProject50DayMedia(u.id, rows[1]!.id);
+    expect(deleteObjectMock).toHaveBeenCalledWith(key);
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: rows[1]!.id } })).toBeNull();
+  });
+
   it("removeProject50DayMedia rejects a non-owner and deletes NOTHING (security)", async () => {
     const owner = await makeUser();
     const attacker = await prisma.user.create({ data: { handle: "atk", displayName: "Atk" } });
