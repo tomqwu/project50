@@ -52,6 +52,7 @@ vi.mock("./_actions/project50", () => ({
   startProject50Action: mockStartAction,
   toggleRuleAction: mockToggleAction,
   attachProject50MediaAction: vi.fn(),
+  removeProject50MediaAction: vi.fn(),
 }));
 vi.mock("next/link", () => ({
   default: ({
@@ -74,6 +75,7 @@ import DashboardPage from "./page";
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  delete process.env.FLAG_SHARE_INSTAGRAM;
 });
 
 beforeEach(() => {
@@ -277,6 +279,51 @@ describe("DashboardPage (Project 50)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /start over/i }));
     expect(mockStartAction).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- shareInstagram kill-switch threaded to the day-share controls (#285) ----
+  const activeWithShareableDay: Project50State = {
+    status: "ACTIVE",
+    runId: "r1",
+    shareId: "share-xyz",
+    today: {
+      dayKey: "2026-06-02",
+      dayNumber: 3,
+      checks: [false, false, false, false, false, false, false],
+      completedCount: 0,
+      media: [],
+    },
+    history: {
+      days: [
+        { dayNumber: 1, dayKey: "2026-06-01", status: "complete" },
+        { dayNumber: 2, dayKey: "2026-06-02", status: "today" },
+      ],
+    },
+  };
+
+  it("ACTIVE → day-share shows the Instagram option when shareInstagram is ON (default)", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue(activeWithShareableDay);
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    // A completed history day with a shareId renders a ShareDayButton with IG.
+    expect(screen.getByTestId("share-day-button")).toBeInTheDocument();
+    expect(screen.getByTestId("share-instagram-button")).toBeInTheDocument();
+  });
+
+  it("ACTIVE → server resolves FLAG_SHARE_INSTAGRAM=false and omits the day-share Instagram button", async () => {
+    process.env.FLAG_SHARE_INSTAGRAM = "false";
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue(activeWithShareableDay);
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    // Share control still renders; the Instagram option is gone (kill-switch).
+    expect(screen.getByTestId("share-day-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("share-instagram-button")).not.toBeInTheDocument();
   });
 
   // ---- NONE + has challenges → adaptive dashboard ----

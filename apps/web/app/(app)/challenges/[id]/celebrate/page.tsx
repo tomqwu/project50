@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/session";
 import { getChallenge, getMilestones } from "@/lib/api/challenges";
 import { listRecaps } from "@/lib/api/recap";
 import { getCapabilities } from "@/lib/publish/registry";
+import { visibleCapabilities } from "@/lib/publish/visible-capabilities";
 import { getOrCreateReferralCode } from "@/lib/api/referral";
 import { localDayKey, dayNumber } from "@project50/core";
 import { CelebrateView } from "./CelebrateView";
@@ -48,7 +49,9 @@ export default async function CelebratePage({
   // Compute props for SocialShare
   const hasRecap = initialRecaps.length > 0;
   const isPublic = challenge.visibility === "PUBLIC";
-  const capabilities = getCapabilities();
+  // Apply feature flags to the share options (e.g. the `shareInstagram`
+  // kill-switch, #285) before handing them to the client panel.
+  const capabilities = visibleCapabilities(getCapabilities());
 
   return (
     <>

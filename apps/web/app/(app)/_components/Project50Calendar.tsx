@@ -12,6 +12,12 @@ interface Props {
   shareId?: string;
   /** The active ("today") day's checked-rule count, to gate sharing today at 7/7. */
   todayCompletedCount?: number;
+  /**
+   * Whether the Instagram share option is offered on each day's share control
+   * (#285 `shareInstagram` kill-switch, resolved server-side). Threaded to
+   * {@link ShareDayButton}; defaults to `true` (flag default-ON).
+   */
+  instagramEnabled?: boolean;
 }
 
 /**
@@ -60,7 +66,12 @@ const STATUS_LABEL: Record<Project50DayStatus, string> = {
  * Read-only 50-day progress calendar: a grid of cells, one per day of the run,
  * colored by completion status. Today is outlined; future days are blank.
  */
-export function Project50Calendar({ days, shareId, todayCompletedCount = 0 }: Props) {
+export function Project50Calendar({
+  days,
+  shareId,
+  todayCompletedCount = 0,
+  instagramEnabled = true,
+}: Props) {
   if (days.length === 0) return null;
 
   const shareableDays = shareId
@@ -119,7 +130,12 @@ export function Project50Calendar({ days, shareId, todayCompletedCount = 0 }: Pr
           style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}
         >
           {shareableDays.map((day) => (
-            <ShareDayButton key={day.dayNumber} shareId={shareId} dayNumber={day.dayNumber} />
+            <ShareDayButton
+              key={day.dayNumber}
+              shareId={shareId}
+              dayNumber={day.dayNumber}
+              instagramEnabled={instagramEnabled}
+            />
           ))}
         </div>
       )}

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   FLAGS,
   type FlagName,
+  type FeatureFlag,
   isFlagEnabled,
+  isFeatureEnabled,
   assignVariant,
   getFlags,
   getClientFlags,
@@ -47,6 +49,93 @@ describe("isFlagEnabled", () => {
 
   it("reads from process.env when no env argument is given", () => {
     expect(isFlagEnabled("newOnboarding")).toBe(FLAGS.newOnboarding.default);
+  });
+});
+
+describe("shareInstagram flag", () => {
+  it("defaults ON (stable, already-shipped behaviour)", () => {
+    expect(FLAGS.shareInstagram.default).toBe(true);
+    expect(isFlagEnabled("shareInstagram", env({}))).toBe(true);
+    expect(isFeatureEnabled("shareInstagram", env({}))).toBe(true);
+  });
+
+  it("is server-only (not client-safe)", () => {
+    expect(FLAGS.shareInstagram.clientSafe).toBe(false);
+  });
+
+  it("is disabled ONLY by the explicit FLAG_SHARE_INSTAGRAM=false override", () => {
+    expect(isFeatureEnabled("shareInstagram", env({ FLAG_SHARE_INSTAGRAM: "false" }))).toBe(false);
+  });
+
+  it("stays ON when absent from NEXT_PUBLIC_FLAGS (allow-list cannot disable it)", () => {
+    // The allow-list only forces flags ON; omitting a default-ON flag does not
+    // turn it off — it falls back to default: true. This is the documented
+    // kill-switch contract (#285): use FLAG_SHARE_INSTAGRAM=false, not the list.
+    expect(isFeatureEnabled("shareInstagram", env({ NEXT_PUBLIC_FLAGS: "publicBanner" }))).toBe(
+      true,
+    );
+    expect(isFeatureEnabled("shareInstagram", env({ NEXT_PUBLIC_FLAGS: "" }))).toBe(true);
+  });
+});
+
+describe("isFeatureEnabled", () => {
+  const flag: FeatureFlag = "shareInstagram";
+
+  it("returns the registry default with an empty env", () => {
+    expect(isFeatureEnabled(flag, env({}))).toBe(FLAGS[flag].default);
+    expect(isFeatureEnabled("newOnboarding", env({}))).toBe(FLAGS.newOnboarding.default);
+  });
+
+  it("honours a per-flag FLAG_<NAME> override (ON)", () => {
+    expect(isFeatureEnabled("newOnboarding", env({ FLAG_NEW_ONBOARDING: "true" }))).toBe(true);
+  });
+
+  it("honours a per-flag FLAG_<NAME> override (OFF) as a kill-switch", () => {
+    expect(isFeatureEnabled(flag, env({ FLAG_SHARE_INSTAGRAM: "false" }))).toBe(false);
+  });
+
+  it("enables a default-off flag listed in NEXT_PUBLIC_FLAGS", () => {
+    expect(isFeatureEnabled("newOnboarding", env({ NEXT_PUBLIC_FLAGS: "newOnboarding" }))).toBe(
+      true,
+    );
+  });
+
+  it("matches NEXT_PUBLIC_FLAGS entries case-insensitively and trims whitespace", () => {
+    expect(
+      isFeatureEnabled("newOnboarding", env({ NEXT_PUBLIC_FLAGS: "  NEWONBOARDING , other " })),
+    ).toBe(true);
+  });
+
+  it("leaves a flag at its default when not present in NEXT_PUBLIC_FLAGS", () => {
+    expect(
+      isFeatureEnabled("newOnboarding", env({ NEXT_PUBLIC_FLAGS: "publicBanner" })),
+    ).toBe(false);
+  });
+
+  it("ignores unknown tokens in NEXT_PUBLIC_FLAGS", () => {
+    expect(
+      isFeatureEnabled("newOnboarding", env({ NEXT_PUBLIC_FLAGS: "nope,doesNotExist" })),
+    ).toBe(FLAGS.newOnboarding.default);
+  });
+
+  it("treats a blank NEXT_PUBLIC_FLAGS as unset", () => {
+    expect(isFeatureEnabled("newOnboarding", env({ NEXT_PUBLIC_FLAGS: "   " }))).toBe(
+      FLAGS.newOnboarding.default,
+    );
+  });
+
+  it("lets a FLAG_<NAME>=false override win over NEXT_PUBLIC_FLAGS membership", () => {
+    // Most-specific wins: explicit OFF beats the allow-list.
+    expect(
+      isFeatureEnabled("newOnboarding", env({
+        NEXT_PUBLIC_FLAGS: "newOnboarding",
+        FLAG_NEW_ONBOARDING: "false",
+      })),
+    ).toBe(false);
+  });
+
+  it("reads from process.env when no env argument is given", () => {
+    expect(isFeatureEnabled("shareInstagram")).toBe(FLAGS.shareInstagram.default);
   });
 });
 
@@ -113,6 +202,28 @@ describe("getFlags", () => {
     expect(flags.newOnboarding).toBe(true);
   });
 
+  it("reflects a flag forced ON via NEXT_PUBLIC_FLAGS (snapshot matches isFeatureEnabled)", () => {
+    const e = env({ NEXT_PUBLIC_FLAGS: "newOnboarding" });
+    const flags = getFlags(e);
+    expect(flags.newOnboarding).toBe(true);
+    expect(flags.newOnboarding).toBe(isFeatureEnabled("newOnboarding", e));
+  });
+
+  it("reflects a flag forced OFF via FLAG_<NAME>=false (snapshot matches isFeatureEnabled)", () => {
+    const e = env({ FLAG_SHARE_INSTAGRAM: "false" });
+    const flags = getFlags(e);
+    expect(flags.shareInstagram).toBe(false);
+    expect(flags.shareInstagram).toBe(isFeatureEnabled("shareInstagram", e));
+  });
+
+  it("matches isFeatureEnabled for every flag under mixed env config", () => {
+    const e = env({ NEXT_PUBLIC_FLAGS: "newOnboarding", FLAG_SHARE_INSTAGRAM: "false" });
+    const flags = getFlags(e);
+    for (const name of Object.keys(FLAGS) as FlagName[]) {
+      expect(flags[name]).toBe(isFeatureEnabled(name, e));
+    }
+  });
+
   it("reads from process.env when no env argument is given", () => {
     const flags = getFlags();
     expect(flags.newOnboarding).toBe(FLAGS.newOnboarding.default);
@@ -139,6 +250,23 @@ describe("getClientFlags", () => {
   it("reflects env overrides for client-safe flags", () => {
     const client = getClientFlags(env({ FLAG_PUBLIC_BANNER: "true" }));
     expect(client.publicBanner).toBe(true);
+  });
+
+  it("reflects a client-safe flag forced ON via NEXT_PUBLIC_FLAGS", () => {
+    // publicBanner defaults OFF; the allow-list must turn it ON in the snapshot,
+    // matching isFeatureEnabled — not just emit the registry default.
+    const e = env({ NEXT_PUBLIC_FLAGS: "publicBanner" });
+    const client = getClientFlags(e);
+    expect(client.publicBanner).toBe(true);
+    expect(client.publicBanner).toBe(isFeatureEnabled("publicBanner", e));
+  });
+
+  it("reflects a client-safe flag forced OFF via FLAG_<NAME>=false", () => {
+    // FLAG_<NAME>=false beats the allow-list, even in the client snapshot.
+    const e = env({ NEXT_PUBLIC_FLAGS: "publicBanner", FLAG_PUBLIC_BANNER: "false" });
+    const client = getClientFlags(e);
+    expect(client.publicBanner).toBe(false);
+    expect(client.publicBanner).toBe(isFeatureEnabled("publicBanner", e));
   });
 
   it("reads from process.env when no env argument is given", () => {

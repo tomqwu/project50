@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/session";
 import { listChallenges, getChallenge } from "@/lib/api/challenges";
 import { localDayKey, dayNumber } from "@project50/core";
 import { getProject50State } from "@/lib/project50";
+import { isFeatureEnabled } from "@/lib/flags";
 import { getLeaderboard } from "@/lib/leaderboard";
 import { getOrCreateReferralCode } from "@/lib/api/referral";
 import { Project50Client } from "./_components/Project50Client";
@@ -12,6 +13,12 @@ import type { PrimaryChallenge, ChallengeItem } from "./_components/DashboardVie
 
 export default async function DashboardPage() {
   const uid = await requireUser();
+
+  // Resolve the Instagram-share kill-switch (#285) server-side once and thread
+  // it down to the (client) day-share controls — same `isFeatureEnabled` path
+  // as the capabilities API, celebrate UI, and publish endpoint, so all four
+  // surfaces agree.
+  const instagramEnabled = isFeatureEnabled("shareInstagram");
 
   // An active/failed/completed Project 50 run takes over the home screen — but
   // these users ARE the leaderboard's ranked audience, so render the leaderboard
@@ -25,7 +32,7 @@ export default async function DashboardPage() {
     ]);
     return (
       <>
-        <Project50Client state={p50} />
+        <Project50Client state={p50} instagramEnabled={instagramEnabled} />
         <div style={{ padding: "0 32px 32px", maxWidth: "480px", margin: "0 auto" }}>
           <Leaderboard
             friends={friendsLeaderboard}
@@ -42,7 +49,7 @@ export default async function DashboardPage() {
   // with an entry to start Project 50.
   const challenges = await listChallenges(uid);
   if (challenges.length === 0) {
-    return <Project50Client state={p50} />;
+    return <Project50Client state={p50} instagramEnabled={instagramEnabled} />;
   }
 
   const primaryRaw = challenges[0]!; // eslint-disable-line @typescript-eslint/no-non-null-assertion

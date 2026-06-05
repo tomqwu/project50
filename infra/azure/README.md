@@ -533,6 +533,135 @@ The remaining one-time concern is the leaked plaintext in state history:
 > [`docs/SECRETS.md`](../../docs/SECRETS.md). Until both the rotation and the
 > state-history scrub are done, the old values must be considered compromised.
 
+## Custom domain & TLS — managed outside Terraform (why) (#268)
+
+The app is live on **https://www.project50.fit** via an Azure-**managed** TLS
+cert on the Container Apps **environment** + a custom-domain **binding** of that
+cert to the app. **These are created and managed with `az`, NOT in Terraform** —
+Azure **auto-renews** the managed cert, so there is no operational toil. This is
+a deliberate, documented outcome of #268, not a gap: **azurerm 4.75 genuinely
+cannot represent these resources.**
+
+### Why Terraform can't manage them (two hard azurerm 4.75 blockers)
+
+1. **The live managed-cert name contains `--`.** Azure auto-generated the cert
+   name **`mc-cae-project50--www-project50-fi-5521`**, which has a **double
+   hyphen**. The provider's `name` ValidateFunc for
+   `azurerm_container_app_environment_managed_certificate`
+   (`validate.CertificateName`) does `strings.Contains(v, "--")` → **reject**.
+   That validation runs at **plan/validate** time for every config value —
+   including an imported resource — so the live cert simply **cannot be declared**
+   without `terraform validate` erroring.
+
+2. **The binding can't reference a managed cert.**
+   `azurerm_container_app_custom_domain.container_app_environment_certificate_id`
+   is the only settable cert-id field, and it parses/validates as a
+   **`/certificates/...`** environment-cert id. The live binding references a
+   **`/managedCertificates/...`** id (managed certs live under a different path),
+   which that field does not accept on a from-scratch apply — and on Read the
+   provider records the managed cert under the **computed**
+   `container_app_environment_managed_certificate_id`, leaving the settable field
+   empty. So a managed-cert binding can't be faithfully expressed either.
+
+Because the cert resource is unrepresentable (blocker 1) and the binding can't
+point at a managed cert (blocker 2), forcing this into Terraform would error
+`terraform validate`/plan and **break routine deploys**. The honest resolution is
+to **keep the binding + managed cert under `az`** and document it here. There are
+**no** `manage_custom_domain` / `custom_domain_name` vars and **no** gated-off
+placeholder resources in `main.tf` — a routine
+`terraform apply -var image_tag=…` is completely unaffected (no new vars, no new
+resources, nothing to import). `auth_url` already defaults to the canonical
+`https://www.project50.fit`, so a deploy needs no `-var auth_url=…` override
+(passing it is still harmless).
+
+> Earlier drafts also modeled 3 `exempt-managedcert-tag-*` Azure Policy
+> exemptions, but `az policy exemption list` returns **`[]`** — they were
+> temporary and are gone, so they are intentionally **not** in Terraform either.
+
+**Revisit when:** azurerm relaxes the `CertificateName` `--` rule **and** lets
+`azurerm_container_app_custom_domain` bind a `/managedCertificates/...` id (or the
+cert is reissued with a `--`-free name and a representable binding). Until then,
+this section is the source of truth.
+
+### Live ids + how the binding/cert are managed with `az`
+
+For ops reference (subscription `81e891a1-b374-4898-8fed-0871de418dae`, RG
+`rg-project50-dev-canadacentral`, env `cae-project50-dev`, app
+`ca-project50-web-dev`):
+
+| What | Live value |
+| --- | --- |
+| Managed cert name | `mc-cae-project50--www-project50-fi-5521` |
+| Managed cert id | `/subscriptions/81e891a1-…/resourceGroups/rg-project50-dev-canadacentral/providers/Microsoft.App/managedEnvironments/cae-project50-dev/managedCertificates/mc-cae-project50--www-project50-fi-5521` |
+| Binding (custom domain) | `www.project50.fit` → `ca-project50-web-dev`, binding type `SniEnabled`, validation `CNAME` |
+
+**Inspect the cert + binding (read-only):**
+
+```bash
+SUB=81e891a1-b374-4898-8fed-0871de418dae
+RG=rg-project50-dev-canadacentral
+ENV=cae-project50-dev
+APP=ca-project50-web-dev
+DOMAIN=www.project50.fit
+
+# Managed cert (state should be Succeeded; subject = the domain)
+az containerapp env certificate list -g "$RG" --name "$ENV" \
+  --managed-certificates-only \
+  --query "[?properties.subjectName=='$DOMAIN'].{name:name,state:properties.provisioningState,subject:properties.subjectName,validation:properties.validationMethod}" -o table
+
+# The custom-domain binding on the app (name + bindingType + which cert it uses)
+az containerapp hostname list -g "$RG" --name "$APP" \
+  --query "[?name=='$DOMAIN']" -o json
+```
+
+**(Re)create the binding with `az`** if it is ever lost (managed cert is
+auto-provisioned + auto-renewed by Azure once the hostname is added and the
+`asuid.www` TXT + `www` CNAME DNS records are in place — see #291 below):
+
+```bash
+# Add the hostname, then bind with an Azure-managed cert (Azure issues it):
+az containerapp hostname add    -g "$RG" --name "$APP" --hostname "$DOMAIN"
+az containerapp hostname bind   -g "$RG" --name "$APP" --hostname "$DOMAIN" \
+  --environment "$ENV" --validation-method CNAME
+# (Azure provisions + SNI-binds the managed cert; verify with the list commands above.)
+```
+
+## Apex domain `project50.fit` → `www` (#291)
+
+**Recommendation: do NOT bind the apex on the Container App. Use a
+registrar/DNS-level URL redirect** (Namecheap) `project50.fit` →
+`https://www.project50.fit`.
+
+**Why not an apex managed cert:** apex managed certs **fail** on Container Apps —
+issuance uses an HTTP ACME challenge on `http://project50.fit/.well-known/...`,
+but the app's ingress **redirects HTTP→HTTPS**, which breaks the challenge before
+the CA can validate it. (Subdomains like `www` provision cleanly because the
+`www` CNAME's validation path isn't subject to the same apex redirect trap.) So
+there is **no reliable apex managed cert**, and adding fragile apex-cert TF would
+just produce a perpetually-failing resource — deliberately omitted here.
+
+**Recommended path (registrar URL redirect at Namecheap):**
+
+1. In Namecheap → **Domain List → project50.fit → Manage**.
+2. Ensure the `www` host points at the Container App (the existing setup):
+   - `CNAME` `www` → the app FQDN (`ca-project50-web-dev.<env-region>.azurecontainerapps.io`), and
+   - the `asuid.www` `TXT` domain-verification record Azure required for the `www` binding.
+3. Under **Redirect Domain**, add an **unmasked (301 permanent)** redirect:
+   - **Source:** `@` (apex `project50.fit`) — and optionally `http://`/`https://` both.
+   - **Destination:** `https://www.project50.fit`
+   - Type: **Permanent (301)**, **unmasked** (a real redirect, not a frame).
+4. Save. Namecheap serves the apex over its own redirect endpoint, so the apex
+   never needs a cert **on the Container App**. Verify:
+
+   ```bash
+   curl -sI http://project50.fit  | grep -i '^location:'   # → https://www.project50.fit
+   curl -sI https://project50.fit | grep -i '^location:'   # → https://www.project50.fit
+   ```
+
+This keeps `www` as the single canonical, cert-bearing origin (managed cert,
+auto-renewed) and routes the apex to it at the DNS/registrar layer — no apex cert,
+no fragile apex TF.
+
 ## Object storage
 
 The app selects its storage backend by env (`apps/web/lib/storage.ts`): when

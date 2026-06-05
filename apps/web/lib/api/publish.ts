@@ -3,6 +3,7 @@ import { notFound, unprocessable, HttpError } from "./http";
 import { listRecaps } from "./recap";
 import { getPublisher } from "@/lib/publish/registry";
 import { getBaseUrl } from "@/lib/base-url";
+import { isFeatureEnabled } from "@/lib/flags";
 import type { Platform, AssetKind, PublishResult } from "@/lib/publish/types";
 
 /**
@@ -24,6 +25,14 @@ export async function publishChallengeAsset(
   // 2. Owner-only (403 FORBIDDEN)
   if (challenge.ownerId !== userId) {
     throw new HttpError(403, "FORBIDDEN");
+  }
+
+  // 2b. Feature-flag kill-switch (#285). The celebrate UI hides the Instagram
+  // button when `shareInstagram` is OFF, but the kill-switch must hold even if
+  // the UI is bypassed (direct API call, stale client) — so enforce it here on
+  // the authoritative server path too, via the same resolver (no drift).
+  if (platform === "INSTAGRAM" && !isFeatureEnabled("shareInstagram")) {
+    unprocessable("PLATFORM_DISABLED");
   }
 
   // 3. Resolve asset URL and build caption
