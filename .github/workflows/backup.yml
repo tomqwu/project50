@@ -16,10 +16,14 @@
 #
 # The Blob upload uses `az storage blob upload --auth-mode login`, which REQUIRES
 # an Azure login on the runner. So the CI workflow ALWAYS uses `azure/login`
-# (federated OIDC) — the OIDC creds are mandatory, not optional. A `DATABASE_URL`
-# secret alone is NOT enough for CI (it can't authenticate the Blob upload); the
-# direct-`DATABASE_URL` path exists only for an operator running
-# scripts/pg-backup.sh LOCALLY who already has `az login`.
+# (federated OIDC) — the OIDC creds are mandatory.
+#
+# The scheduled backup ALWAYS reads the dump connection from the Key Vault secret
+# `database-url-admin` (the prod ADMIN URL) — the single source of truth. It does
+# NOT reuse the shared `DATABASE_URL` repo secret: that one is the APP/pooler
+# connection (least-priv `p50app` role, possibly a pooler host / Prisma-only
+# params) and is the WRONG connection/role for `pg_dump`. The federated login
+# already grants Key Vault access, so no DB conn string is passed into CI at all.
 #
 # Required repository secrets (ALL of these — the workflow stays inert otherwise):
 #   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
@@ -31,10 +35,11 @@
 #   BACKUP_STORAGE_ACCOUNT  Storage account for dumps (e.g. stp50backupszv34o5).
 # Optional:
 #   KEY_VAULT_NAME          override; default kv-project50-dev-6z7n.
-#   DATABASE_URL            admin conn string — overrides the Key Vault read.
-#                           (Optional even in CI; Azure login is still required.)
 #   BACKUP_CONTAINER        container; default db-backups.
 #   BACKUP_RETENTION_DAYS   daily dumps to keep; default 14.
+#
+# (The local operator path of scripts/pg-backup.sh additionally accepts an
+# explicit DATABASE_URL env to override the KV read — NOT wired into CI here.)
 #
 # See docs/BACKUPS.md and infra/azure/README.md for setup + the restore drill.
 
@@ -60,10 +65,11 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # Gate: resolve whether enough secrets are present to take a backup, as a
-  # boolean output. The Blob upload needs `az login`, so CI REQUIRES the Azure
-  # federated (OIDC) creds AND the storage account. Without all of them the
-  # pipeline is inert (skipped, not failed). DATABASE_URL alone is intentionally
-  # NOT sufficient — it can't authenticate the Blob upload on a clean runner.
+  # boolean output. The Blob upload needs `az login` and the dump connection
+  # comes from Key Vault, so CI REQUIRES the Azure federated (OIDC) creds AND the
+  # storage account. Without all of them the pipeline is inert (skipped, not
+  # failed). No DB conn string is gated on / passed — the admin URL is read from
+  # the `database-url-admin` Key Vault secret at run time.
   # ---------------------------------------------------------------------------
   preflight:
     name: Preflight (secret gate)
@@ -97,7 +103,9 @@ jobs:
     if: needs.preflight.outputs.has_backup == 'true'
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # NB: no DATABASE_URL — the backup reads the prod ADMIN conn string from the
+      # Key Vault `database-url-admin` secret (single source of truth). The shared
+      # DATABASE_URL is the app/pooler (p50app) connection, wrong for pg_dump.
       KEY_VAULT_NAME: ${{ secrets.KEY_VAULT_NAME }}
       BACKUP_STORAGE_ACCOUNT: ${{ secrets.BACKUP_STORAGE_ACCOUNT }}
       BACKUP_CONTAINER: ${{ secrets.BACKUP_CONTAINER }}

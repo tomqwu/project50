@@ -26,11 +26,17 @@
 # Env / config (see docs/BACKUPS.md, infra/azure/README.md)
 # ---------------------------------------------------------
 #   Connection (one of):
-#     DATABASE_URL            Admin Postgres conn string (sslmode=require). Used
-#                             directly if set. In CI this is the repo secret.
-#     KEY_VAULT_NAME          Key Vault to read `database-url-admin` from when
-#                             DATABASE_URL is not set. Default: kv-project50-dev-6z7n
+#     KEY_VAULT_NAME          Key Vault to read the ADMIN conn string from.
+#                             Default: kv-project50-dev-6z7n. This is the CI /
+#                             default source of truth (the scheduled backup uses
+#                             ONLY this — see backup.yml).
 #     KV_SECRET_NAME          KV secret name. Default: database-url-admin
+#     DATABASE_URL            LOCAL-OPERATOR OVERRIDE ONLY. If set, it is used
+#                             instead of the Key Vault read. It MUST be the prod
+#                             ADMIN connection (sslmode=require) — do NOT pass the
+#                             app/pooler `p50app` DATABASE_URL here (wrong role /
+#                             possibly a pooler host, unsuitable for pg_dump).
+#                             NOT wired into CI (CI always reads Key Vault).
 #
 #   Blob upload target (optional — skipped if BACKUP_STORAGE_ACCOUNT unset):
 #     BACKUP_STORAGE_ACCOUNT  Storage account for backups (e.g. a dedicated
@@ -58,8 +64,9 @@ BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 PGDUMP_IMAGE="${PGDUMP_IMAGE:-postgres:16}"
 
 # --- resolve the connection string -------------------------------------------
-# Prefer an explicit DATABASE_URL (env/CI secret); else pull the admin string
-# from Key Vault. Never echo the connection string (it carries the password).
+# Read the admin conn string from Key Vault (the default / CI source of truth).
+# A local operator MAY override with an explicit admin DATABASE_URL env (NOT the
+# app/pooler p50app one). Never echo the connection string (it carries the pw).
 CONN="${DATABASE_URL:-}"
 if [ -z "$CONN" ]; then
   if [ -z "$KEY_VAULT_NAME" ]; then

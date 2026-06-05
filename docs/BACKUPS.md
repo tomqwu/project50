@@ -115,7 +115,9 @@ BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> \
 # and prunes blobs older than BACKUP_RETENTION_DAYS (14).
 ```
 
-Override the connection (e.g. an explicit admin URL, skipping Key Vault):
+Local-operator override (skip Key Vault with an explicit conn string) — this
+**must be the prod ADMIN connection**, never the app/pooler `p50app`
+`DATABASE_URL` (wrong role / possibly a pooler host, unsuitable for `pg_dump`):
 
 ```bash
 DATABASE_URL="postgresql://<admin>:<pw>@psql-project50-dev-zv34o5.postgres.database.azure.com:5432/project50?sslmode=require" \
@@ -126,8 +128,12 @@ BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> \
 Local dump only (no upload) — omit `BACKUP_STORAGE_ACCOUNT`:
 
 ```bash
-DATABASE_URL="...admin..." ./scripts/pg-backup.sh   # writes ./backups/*.dump.gz
+DATABASE_URL="...ADMIN url..." ./scripts/pg-backup.sh   # writes ./backups/*.dump.gz
 ```
+
+> The `DATABASE_URL` override is a **local-operator convenience only**. The
+> scheduled CI backup never uses it — it always reads `database-url-admin` from
+> Key Vault (see below).
 
 ### In CI (`backup.yml`)
 
@@ -135,13 +141,15 @@ Daily + on demand from the Actions tab. **Inert until secrets are set** (like
 `deploy.yml`): a `preflight` job gates the backup, so on a fork / before setup it
 is **skipped, not failed**, and CI stays green.
 
-> **CI requires Azure login.** The Blob upload runs `az storage blob upload
-> --auth-mode login`, which needs an authenticated `az` on the runner — so the
-> workflow **always** uses `azure/login` (federated OIDC) and the gate **requires
-> the OIDC creds + the storage account**. A `DATABASE_URL` secret alone is **not
-> sufficient for CI** (it can't authenticate the upload); the direct-`DATABASE_URL`
-> path is only for an **operator running `scripts/pg-backup.sh` locally** who
-> already has `az login`.
+> **CI requires Azure login, and the dump connection always comes from Key
+> Vault.** The Blob upload runs `az storage blob upload --auth-mode login`, which
+> needs an authenticated `az` on the runner — so the workflow **always** uses
+> `azure/login` (federated OIDC) and the gate **requires the OIDC creds + the
+> storage account**. The scheduled backup reads the prod **admin** connection
+> from the `database-url-admin` Key Vault secret — the single source of truth —
+> and **never** uses the shared `DATABASE_URL` repo secret (that's the
+> app/pooler `p50app` connection, the wrong role/host for `pg_dump`). No DB conn
+> string is passed into CI at all; the federated login already grants KV access.
 
 Required secrets (ALL of these — the gate requires the full Azure-login set plus
 the storage account, else the job stays inert/skipped):
@@ -152,8 +160,10 @@ the storage account, else the job stays inert/skipped):
 | `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`) — **required**. |
 | `BACKUP_CONTAINER` | (optional) container name; default `db-backups`. |
 | `KEY_VAULT_NAME` | (optional) override; default `kv-project50-dev-6z7n`. |
-| `DATABASE_URL` | (optional) admin conn string that overrides the Key Vault read. Azure login is still required regardless. |
 | `BACKUP_RETENTION_DAYS` | (optional) daily dumps to keep; default `14`. |
+
+> **No `DATABASE_URL` in CI** — deliberately. The admin URL comes from Key Vault.
+> The script's `DATABASE_URL` override is for the local-operator path only.
 
 > **Least privilege:** the backup identity needs only **read** on the Key Vault
 > secret + **read on the DB** (the admin string is used read-only for `pg_dump`)

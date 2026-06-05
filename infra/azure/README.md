@@ -582,16 +582,19 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
   `pg_dump`s the Flexible Server (`psql-project50-dev-zv34o5`) via the
   `postgres:16` docker image (client major ≥ server 16) and uploads a gzipped
   custom-format dump to a Blob container (`db-backups`), pruning by a daily
-  retention (default 14). It reads the admin conn string from the
-  `database-url-admin` Key Vault secret (or an explicit `DATABASE_URL`), and
-  uploads with `--auth-mode login` (no account key).
+  retention (default 14). It reads the prod **admin** conn string from the
+  `database-url-admin` Key Vault secret (the single source of truth — NOT the
+  shared `DATABASE_URL`/`p50app` app connection, which is the wrong role/host for
+  `pg_dump`; a local operator may override via an explicit admin `DATABASE_URL`
+  env). It uploads with `--auth-mode login` (no account key).
 - **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
   runs it **daily 03:17 UTC**, INERT until secrets are set (mirrors `deploy.yml`'s
   preflight gate). The Blob upload uses `--auth-mode login`, so **CI requires the
   Azure federated (OIDC) creds** (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`)
-  plus `BACKUP_STORAGE_ACCOUNT`; a bare `DATABASE_URL` is **not** enough for CI
-  (it can't authenticate the upload — that path is for a local operator with `az
-  login`). Azure Flexible Server's own **PITR** (provider window) is a separate,
+  plus `BACKUP_STORAGE_ACCOUNT`. CI passes **no DB conn string** — it reads the
+  admin URL from Key Vault (so it never backs up the wrong `p50app` connection;
+  the `DATABASE_URL` override is for the local operator only). Azure Flexible
+  Server's own **PITR** (provider window) is a separate,
   complementary layer.
 - **Tested restore drill** — [`scripts/pg-restore-drill.sh`](../../scripts/pg-restore-drill.sh)
   restores the latest backup into a **throwaway** DB (`project50_restore_test`,
