@@ -395,15 +395,21 @@ resource "azurerm_container_app" "web" {
 
       # Health probes — because min_replicas > 0 means a warm replica is in the
       # routing pool, gate traffic on readiness so a still-booting (or unhealthy)
-      # replica isn't sent requests. The app exposes /api/health (liveness) and
-      # /api/ready (readiness). port = 3000 matches the ingress target_port.
+      # replica isn't sent requests. The app exposes /api/health (a static,
+      # dependency-free liveness check) and /api/ready (checks Postgres + Blob).
+      # port = 3000 matches the ingress target_port.
       #
-      # startup: don't start liveness/readiness until the Next server has booted
-      # (covers the cold-start window on a fresh replica during scale-out).
+      # startup: confirm only that the Node/Next process is up and serving —
+      # MUST stay dependency-free, so it hits /api/health, NOT /api/ready. A
+      # failed startup probe KILLS the starting revision; if it depended on
+      # external services (DB/Blob/KV) a transient outage during a rollout would
+      # make the probe never succeed and flap/wedge the deploy. Dependency
+      # readiness is gated by the readiness probe below (which only withholds
+      # traffic, never restarts).
       startup_probe {
         transport        = "HTTP"
         port             = 3000
-        path             = "/api/ready"
+        path             = "/api/health"
         initial_delay    = 5
         interval_seconds = 5
         timeout          = 3
