@@ -379,7 +379,8 @@ resource "azurerm_container_app" "web" {
         secret_name = "facebook-client-secret"
       }
       # Public base URL so Auth.js builds correct OAuth callback URLs (otherwise
-      # it derives 0.0.0.0:3000). Switch to the custom domain once it's bound.
+      # it derives 0.0.0.0:3000). var.auth_url defaults to the canonical
+      # https://www.project50.fit (the bound custom domain; apex redirects to it).
       env {
         name  = "AUTH_URL"
         value = var.auth_url
@@ -435,3 +436,14 @@ resource "azurerm_container_app" "web" {
     }
   }
 }
+
+# ── Custom domain & TLS (www.project50.fit) — managed OUTSIDE Terraform (#268) ─
+# The www.project50.fit custom-domain binding + its Azure-managed TLS cert are
+# created and managed with `az`, NOT in Terraform (Azure auto-renews the managed
+# cert). This is a deliberate, documented outcome: azurerm 4.75 genuinely cannot
+# represent these resources (the live cert name contains `--`, which the
+# provider's CertificateName validator rejects; and the custom-domain binding's
+# certificate_id only accepts `/certificates/...` env-cert ids, not the
+# `/managedCertificates/...` id a managed cert uses). See the "Custom domain &
+# TLS — managed outside Terraform (why)" section in README.md for the full
+# rationale, the live ids, and the `az` inspect commands.
