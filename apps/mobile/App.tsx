@@ -7,6 +7,9 @@
  * See COVERAGE.md → Task 5 exclusions.
  */
 
+// Must be the first import: react-native-gesture-handler registers its native
+// module on import and is a required peer dependency of @react-navigation/stack.
+import "react-native-gesture-handler";
 import { registerRootComponent } from "expo";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { initCrashReporting } from "./src/lib/crash";
