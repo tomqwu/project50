@@ -1,11 +1,16 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-const { mockGetChallengeByShareId, mockNotFound, mockDayNumber } = vi.hoisted(() => ({
-  mockGetChallengeByShareId: vi.fn(),
-  mockNotFound: vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); }),
-  mockDayNumber: vi.fn(),
-}));
+const { mockGetChallengeByShareId, mockNotFound, mockDayNumber, mockLocalDayKey } = vi.hoisted(
+  () => ({
+    mockGetChallengeByShareId: vi.fn(),
+    mockNotFound: vi.fn(() => {
+      throw new Error("NEXT_NOT_FOUND");
+    }),
+    mockDayNumber: vi.fn(),
+    mockLocalDayKey: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/api/challenges", () => ({
   getChallengeByShareId: mockGetChallengeByShareId,
@@ -17,6 +22,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@project50/core", () => ({
   dayNumber: mockDayNumber,
+  localDayKey: mockLocalDayKey,
 }));
 
 vi.mock("next/link", () => ({
@@ -134,14 +140,33 @@ describe("PublicSharePage", () => {
     expect(screen.queryByText("Total")).toBeNull();
   });
 
+  it("derives the current day from the challenge timezone (matches the OG image)", async () => {
+    mockGetChallengeByShareId.mockResolvedValue({
+      ...publicChallenge,
+      timezone: "Asia/Shanghai",
+    });
+    mockLocalDayKey.mockReturnValue("2026-06-04");
+    mockDayNumber.mockReturnValue(4);
+
+    const ui = await PublicSharePage({ params: Promise.resolve({ shareId: "share-abc" }) });
+    render(ui);
+
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "Asia/Shanghai");
+    // dayNumber is computed from the timezone-local key, not a UTC slice
+    expect(mockDayNumber).toHaveBeenCalledWith("2026-06-01", "2026-06-04");
+    expect(screen.getByText("Day 4 / 50")).toBeInTheDocument();
+  });
+
   it("falls back to UTC when timezone is null", async () => {
     const noTzChallenge = { ...publicChallenge, timezone: null };
     mockGetChallengeByShareId.mockResolvedValue(noTzChallenge);
+    mockLocalDayKey.mockReturnValue("2026-06-04");
     mockDayNumber.mockReturnValue(10);
 
     const ui = await PublicSharePage({ params: Promise.resolve({ shareId: "share-abc" }) });
     render(ui);
 
+    expect(mockLocalDayKey).toHaveBeenCalledWith(expect.any(Date), "UTC");
     // Should render without error
     expect(screen.getByTestId("wordmark")).toBeInTheDocument();
   });

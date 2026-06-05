@@ -12,7 +12,9 @@ import {
 } from "./project50";
 
 beforeEach(resetDb);
-afterAll(async () => { await prisma.$disconnect(); });
+afterAll(async () => {
+  await prisma.$disconnect();
+});
 
 async function makeUser() {
   return prisma.user.create({ data: { handle: "u", displayName: "U" } });
@@ -33,6 +35,15 @@ describe("getProject50State", () => {
     expect(state.today?.dayNumber).toBe(1);
     expect(state.today?.completedCount).toBe(0);
     expect(state.today?.checks).toEqual([false, false, false, false, false, false, false]);
+  });
+
+  it("startProject50 normalizes a malformed timezone to UTC before storing", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "Not/A_Zone", NOW);
+    const run = await prisma.challenge.findUniqueOrThrow({ where: { id: runId } });
+    expect(run.timezone).toBe("UTC");
+    // startDate is the UTC day for NOW (2026-06-02), proving UTC was used.
+    expect(run.startDate).toBe("2026-06-02");
   });
 });
 

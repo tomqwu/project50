@@ -42,7 +42,11 @@ async function makeUser() {
 }
 async function makeRun(
   ownerId: string,
-  overrides: { status?: "ACTIVE" | "FAILED" | "COMPLETED"; kind?: "PROJECT50" | "STANDARD"; timezone?: string } = {},
+  overrides: {
+    status?: "ACTIVE" | "FAILED" | "COMPLETED";
+    kind?: "PROJECT50" | "STANDARD";
+    timezone?: string;
+  } = {},
 ) {
   return prisma.challenge.create({
     data: {
@@ -272,6 +276,17 @@ describe("findStreakAtRiskUsers (#123)", () => {
     const u = await makeUser();
     await makeRun(u.id, { timezone: "America/New_York" });
     expect(await findStreakAtRiskUsers(LATE)).toHaveLength(0);
+  });
+
+  it("treats a run with a malformed stored timezone as UTC instead of aborting", async () => {
+    // A legacy/garbage stored zone must not throw and abort selection for ALL
+    // runs; localHour falls back to UTC, so at 20:00 UTC this run is still late.
+    const u = await makeUser();
+    const run = await makeRun(u.id, { timezone: "Not/A_Zone" });
+    await completeToday(run.id, "2026-06-02", 4);
+    const out = await findStreakAtRiskUsers(LATE);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ userId: u.id, runId: run.id });
   });
 
   it("excludes non-ACTIVE runs and non-PROJECT50 challenges", async () => {

@@ -8,10 +8,14 @@ vi.mock("@/lib/analytics", () => ({ track: (...a: unknown[]) => trackMock(...a) 
 const startAction = vi.fn();
 const toggleAction = vi.fn();
 const attachAction = vi.fn();
+const saveJournalAction = vi.fn();
 vi.mock("../_actions/project50", () => ({
   startProject50Action: (...a: unknown[]) => startAction(...a),
   toggleRuleAction: (...a: unknown[]) => toggleAction(...a),
   attachProject50MediaAction: (...a: unknown[]) => attachAction(...a),
+}));
+vi.mock("../_actions/journal", () => ({
+  saveJournalAction: (...a: unknown[]) => saveJournalAction(...a),
 }));
 
 // Replace Project50View with a thin harness exposing the callbacks.
@@ -21,11 +25,13 @@ vi.mock("./Project50View", () => ({
     onRestart,
     onToggle,
     onAttachMedia,
+    onSaveJournal,
   }: {
     onStart: () => void;
     onRestart: () => void;
     onToggle: (id: number, done: boolean) => void;
     onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+    onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void> | void;
   }) => (
     <div>
       <button data-testid="start" onClick={onStart}>start</button>
@@ -33,6 +39,12 @@ vi.mock("./Project50View", () => ({
       <button data-testid="toggle" onClick={() => onToggle(3, true)}>toggle</button>
       <button data-testid="attach" onClick={() => onAttachMedia?.("media/u/x.jpg", 800, 600)}>
         attach
+      </button>
+      <button
+        data-testid="save-journal"
+        onClick={() => onSaveJournal?.("won", "learned", "2026-06-02")}
+      >
+        save-journal
       </button>
     </div>
   ),
@@ -47,6 +59,8 @@ beforeEach(() => {
   startAction.mockReset();
   toggleAction.mockReset();
   attachAction.mockReset();
+  saveJournalAction.mockReset();
+  saveJournalAction.mockResolvedValue(undefined);
 });
 
 afterEach(() => cleanup());
@@ -78,5 +92,12 @@ describe("Project50Client instrumentation", () => {
     fireEvent.click(screen.getByTestId("attach"));
     expect(trackMock).toHaveBeenCalledWith("project50_photo_added", {});
     expect(attachAction).toHaveBeenCalledWith("media/u/x.jpg", 800, 600);
+  });
+
+  it("tracks project50_journal_saved and saves the journal on Save", () => {
+    render(<Project50Client state={state} />);
+    fireEvent.click(screen.getByTestId("save-journal"));
+    expect(trackMock).toHaveBeenCalledWith("project50_journal_saved", {});
+    expect(saveJournalAction).toHaveBeenCalledWith("won", "learned", "2026-06-02");
   });
 });

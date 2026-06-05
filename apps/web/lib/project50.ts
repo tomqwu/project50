@@ -3,6 +3,7 @@ import {
   localDayKey,
   dayNumber,
   addDays,
+  safeTimeZone,
   PROJECT50_RULE_IDS,
   PROJECT50_LENGTH_DAYS,
 } from "@project50/core";
@@ -24,6 +25,8 @@ export interface Project50Today {
   completedCount: number;
   /** Photos attached to today, oldest first, each with a signed view URL. */
   media: Project50DayMediaItem[];
+  /** Today's journal reflection (rule #7), present only once the user saves one. */
+  journal?: { wins: string; lessons: string };
 }
 
 export type Project50DayStatus = "complete" | "incomplete" | "today" | "future";
@@ -49,7 +52,7 @@ export interface Project50State {
 }
 
 /** The active Project 50 run for a user, or null. */
-async function activeRun(uid: string) {
+export async function activeRun(uid: string) {
   return prisma.challenge.findFirst({
     where: { ownerId: uid, kind: "PROJECT50", status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -70,14 +73,17 @@ export async function startProject50(
   timezone: string,
   now: Date = new Date(),
 ): Promise<string> {
-  const startDate = localDayKey(now, timezone);
+  // Normalize a blank/invalid zone to UTC before persisting, so the stored
+  // value is always a zone every later consumer (localDayKey/localHour) can use.
+  const safeTz = safeTimeZone(timezone);
+  const startDate = localDayKey(now, safeTz);
   const run = await prisma.challenge.create({
     data: {
       ownerId: uid,
       title: "Project 50",
       goalType: "BINARY",
       startDate,
-      timezone,
+      timezone: safeTz,
       lengthDays: 50,
       kind: "PROJECT50",
       status: "ACTIVE",
@@ -87,19 +93,28 @@ export async function startProject50(
 }
 
 /** Build today's checklist for a run. */
-async function buildToday(runId: string, startDate: string, todayKey: string): Promise<Project50Today> {
+async function buildToday(
+  runId: string,
+  startDate: string,
+  todayKey: string,
+): Promise<Project50Today> {
   const checksRows = await prisma.ruleCheck.findMany({
     where: { challengeId: runId, dayKey: todayKey, done: true },
   });
   const doneIds = new Set(checksRows.map((c) => c.ruleId));
   const checks = PROJECT50_RULE_IDS.map((id) => doneIds.has(id));
   const media = await listProject50DayMedia(runId, todayKey);
+  const journalRow = await prisma.dayJournal.findUnique({
+    where: { challengeId_dayKey: { challengeId: runId, dayKey: todayKey } },
+    select: { wins: true, lessons: true },
+  });
   return {
     dayKey: todayKey,
     dayNumber: Math.max(1, dayNumber(startDate, todayKey)),
     checks,
     completedCount: checks.filter(Boolean).length,
     media,
+    ...(journalRow ? { journal: { wins: journalRow.wins, lessons: journalRow.lessons } } : {}),
   };
 }
 
@@ -116,9 +131,7 @@ export async function listProject50DayMedia(
     orderBy: { createdAt: "asc" },
     select: { objectKey: true, width: true, height: true },
   });
-  return Promise.all(
-    rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })),
-  );
+  return Promise.all(rows.map(async (m) => ({ ...m, url: await presignGet(m.objectKey) })));
 }
 
 /**
@@ -170,7 +183,10 @@ export async function getProject50History(
   return buildHistory(run.id, run.startDate, todayKey);
 }
 
-export async function getProject50State(uid: string, now: Date = new Date()): Promise<Project50State> {
+export async function getProject50State(
+  uid: string,
+  now: Date = new Date(),
+): Promise<Project50State> {
   const run = await activeRun(uid);
   if (!run) {
     // A previously-finished run stays visible as a terminal celebration.

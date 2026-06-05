@@ -197,6 +197,7 @@ model Challenge {
   recaps      Recap[]
   ruleChecks  RuleCheck[]
   dayMedia    Project50DayMedia[]
+  dayJournals DayJournal[]
 
   // Owner's challenge list (listChallenges) and cascade deletes on the owner.
   @@index([ownerId])
@@ -311,6 +312,25 @@ model Project50DayMedia {
 
   // Listing a day's photos (listProject50DayMedia) and cascade deletes on the run.
   @@index([challengeId, dayKey])
+}
+
+/// Per-day journal entry for a Project 50 run (rule #7 "Track progress"). Each
+/// row is the user's free-text reflection for one local day (`dayKey`, YYYY-MM-DD)
+/// of a run: what went well ("wins") and what they learned ("lessons"). Exactly
+/// one entry per (run, day), enforced by the unique constraint, so saving is an
+/// upsert. Cascades on run deletion.
+model DayJournal {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  dayKey      String
+  wins        String    @default("")
+  lessons     String    @default("")
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+
+  @@unique([challengeId, dayKey])
+  @@index([challengeId])
 }
 
 model Subscription {
