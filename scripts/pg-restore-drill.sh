@@ -35,8 +35,10 @@
 #   --dump PATH             A local .dump(.gz). If omitted, the latest blob is
 #                           downloaded from $BACKUP_STORAGE_ACCOUNT/$BACKUP_CONTAINER.
 #   --scratch-url URL       Connection to a Postgres where a throwaway DB can be
-#                           created. Default: a local docker Postgres this script
-#                           starts and tears down (DRILL_DOCKER=1).
+#                           created. MUST include an explicit "/<db>" path (e.g.
+#                           .../postgres) — the script refuses to guess a db.
+#                           Default: a local docker Postgres this script starts
+#                           and tears down (DRILL_DOCKER=1).
 #   --keep                  Do NOT drop the scratch DB / stop the container at the
 #                           end (for manual inspection). Default: tears down.
 #   BACKUP_STORAGE_ACCOUNT  Storage account holding the dumps (for blob download).
@@ -72,24 +74,44 @@ done
 
 # --- SAFETY: the scratch DB name must be disposable ---------------------------
 # This script issues `DROP DATABASE ... $SCRATCH_DB`. If SCRATCH_DB were ever a
-# real/production database name, the drill would DELETE it. Hard-reject a set of
-# protected names BEFORE any drop can run (this guard sits before cleanup() is
-# even registered, so the protected name can never reach a DROP on any path —
-# local-docker or external --scratch-url).
+# real/production database name, the drill would DELETE it. Three belt-and-
+# suspenders guards run BEFORE any drop (before cleanup() is even registered, so
+# a bad name can never reach a DROP on any path — local-docker or external):
+#
+#   1. STRICT PATTERN: only [A-Za-z0-9_] — no spaces, quotes, semicolons, dots
+#      (blocks SQL injection and any shell/identifier trickery).
+#   2. CASE-INSENSITIVE PROTECTED CHECK: Postgres folds an UNQUOTED identifier to
+#      lower case, so `Project50` would DROP `project50`. We lowercase before
+#      comparing, so Project50/PROJECT50/etc. are all rejected.
+#   3. QUOTED IDENTIFIER everywhere (below): every DROP/CREATE double-quotes the
+#      name so Postgres treats it literally (no folding) — combined with (1)+(2)
+#      it is impossible to drop a protected DB under any case.
+if ! printf '%s' "$SCRATCH_DB" | grep -Eq '^[A-Za-z0-9_]+$'; then
+  echo "REFUSING: SCRATCH_DB='${SCRATCH_DB}' is not a safe identifier." >&2
+  echo "Use only letters, digits, and underscores (default project50_restore_test)." >&2
+  exit 3
+fi
 PROTECTED_DBS="${PROTECTED_DBS:-project50 postgres template0 template1 azure_maintenance azure_sys}"
+SCRATCH_DB_LC="$(printf '%s' "$SCRATCH_DB" | tr '[:upper:]' '[:lower:]')"
 # shellcheck disable=SC2086  # intentional word-splitting of the space-sep list
 for protected in $PROTECTED_DBS; do
-  if [ "$SCRATCH_DB" = "$protected" ]; then
-    echo "REFUSING: SCRATCH_DB='${SCRATCH_DB}' is a protected/production database name." >&2
+  if [ "$SCRATCH_DB_LC" = "$protected" ]; then
+    echo "REFUSING: SCRATCH_DB='${SCRATCH_DB}' folds to the protected/production name '${protected}'." >&2
     echo "The drill DROPs the scratch DB; it must be a throwaway name (default" >&2
     echo "project50_restore_test). Pick a disposable SCRATCH_DB and re-run." >&2
     exit 3
   fi
 done
+# Pre-quoted identifier for safe use in DROP/CREATE DATABASE statements.
+SCRATCH_DB_Q="\"${SCRATCH_DB}\""
 
 WORKDIR="$(mktemp -d)"
 CONTAINER_NAME="p50-restore-drill-$$"
 STARTED_DOCKER="0"
+# Admin (maintenance-DB) connection used to DROP/CREATE the scratch DB on an
+# external scratch server. Set in the external branch below; empty until then so
+# an early-exit cleanup is a no-op.
+ADMIN_DB_URL=""
 
 cleanup() {
   if [ "$KEEP" = "1" ]; then
@@ -97,13 +119,12 @@ cleanup() {
     [ "$STARTED_DOCKER" = "1" ] && echo "  docker rm -f ${CONTAINER_NAME}"
     return
   fi
-  if [ -n "$SCRATCH_URL" ] && [ "$STARTED_DOCKER" != "1" ]; then
+  if [ -n "$ADMIN_DB_URL" ] && [ "$STARTED_DOCKER" != "1" ]; then
     # External scratch server: drop the throwaway DB we created (never the
-    # server). Connect to the admin 'postgres' DB to issue the DROP.
-    ADMIN_DB_URL="$(printf '%s' "$SCRATCH_URL" | sed -E 's#/[^/?]+(\?|$)#/postgres\1#')"
+    # server). Connect to the admin maintenance DB to issue the DROP.
     docker run --rm "$PG_IMAGE" \
       psql "$ADMIN_DB_URL" -v ON_ERROR_STOP=1 \
-      -c "DROP DATABASE IF EXISTS ${SCRATCH_DB} WITH (FORCE);" >/dev/null 2>&1 || true
+      -c "DROP DATABASE IF EXISTS ${SCRATCH_DB_Q} WITH (FORCE);" >/dev/null 2>&1 || true
   fi
   if [ "$STARTED_DOCKER" = "1" ]; then
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
@@ -171,15 +192,46 @@ if [ -z "$SCRATCH_URL" ]; then
     esac
   }
 else
-  # External scratch server: guard against accidentally targeting the source.
-  # Compare the NORMALIZED restore target (host:port + the scratch DB name we
-  # will actually create/drop) against the live DATABASE_URL — not just the
-  # raw --scratch-url (which is typically an admin /postgres URL whose db name
-  # differs). strip_creds() drops user:pass and any querystring so we compare
-  # host:port/db only.
+  # External scratch server. Parse the --scratch-url PROPERLY (no fragile host-
+  # matching sed): require an explicit "/<db>" path so we never guess. The URL is
+  #   <scheme>://<authority>/<db>[?<query>]
+  # We split off <authority> (after "://", up to the first "/") and then the
+  # "/<db>[?query]" tail, so we can swap ONLY the db path — never the host.
+  case "$SCRATCH_URL" in
+    *://*) ;;
+    *) echo "ERROR: --scratch-url must be a postgresql:// URL." >&2; exit 2 ;;
+  esac
+  SU_SCHEME="${SCRATCH_URL%%://*}"
+  SU_REST="${SCRATCH_URL#*://}"           # authority[/db[?query]]
+  case "$SU_REST" in
+    */*) ;;   # has a path
+    *)
+      echo "ERROR: --scratch-url has no database path. It MUST end in /<db>" >&2
+      echo "  e.g. postgresql://user:pass@host:5432/postgres" >&2
+      echo "Refusing to guess a database — pass an explicit /<db> path." >&2
+      exit 2 ;;
+  esac
+  SU_AUTHORITY="${SU_REST%%/*}"           # user:pass@host:port
+  SU_PATHQ="/${SU_REST#*/}"               # /db[?query]
+  # Split the path tail into db + optional ?query.
+  case "$SU_PATHQ" in
+    *\?*) SU_QUERY="?${SU_PATHQ#*\?}"; SU_DB="${SU_PATHQ%%\?*}"; SU_DB="${SU_DB#/}" ;;
+    *)    SU_QUERY="";                 SU_DB="${SU_PATHQ#/}" ;;
+  esac
+  if [ -z "$SU_DB" ]; then
+    echo "ERROR: --scratch-url has an empty database path (ends in '/'). Pass /<db>." >&2
+    exit 2
+  fi
+  # Rebuild admin (maintenance-DB) and scratch URLs by replacing ONLY the db
+  # segment. Admin DB defaults to 'postgres' but never the scratch name itself.
+  ADMIN_DB="postgres"; [ "$SU_DB" = "postgres" ] && ADMIN_DB="template1"
+  ADMIN_DB_URL="${SU_SCHEME}://${SU_AUTHORITY}/${ADMIN_DB}${SU_QUERY}"
+  TARGET_URL="${SU_SCHEME}://${SU_AUTHORITY}/${SCRATCH_DB}${SU_QUERY}"
+
+  # Collision guard: compare the NORMALIZED restore target (host:port + the
+  # scratch DB name we will actually create/drop) against the live DATABASE_URL.
+  # strip_creds() drops user:pass and any querystring so we compare host/db only.
   strip_creds() { printf '%s' "$1" | sed -E 's#^[a-zA-Z]+://[^@]*@##; s#\?.*$##'; }
-  # The actual target = scratch host with SCRATCH_DB as the database.
-  TARGET_URL="$(printf '%s' "$SCRATCH_URL" | sed -E "s#/[^/?]+(\?|\$)#/${SCRATCH_DB}\1#")"
   TARGET_ID="$(strip_creds "$TARGET_URL")"
   SRC_ID="$(strip_creds "${DATABASE_URL:-}")"
   if [ -n "$SRC_ID" ] && [ "$TARGET_ID" = "$SRC_ID" ]; then
@@ -188,10 +240,10 @@ else
     exit 3
   fi
   echo "[drill] creating throwaway DB ${SCRATCH_DB} on the scratch server"
-  ADMIN_DB_URL="$(printf '%s' "$SCRATCH_URL" | sed -E 's#/[^/?]+(\?|$)#/postgres\1#')"
+  # Quoted identifier (SCRATCH_DB_Q) so Postgres treats the name literally.
   docker run --rm "$PG_IMAGE" psql "$ADMIN_DB_URL" -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS ${SCRATCH_DB} WITH (FORCE);" \
-    -c "CREATE DATABASE ${SCRATCH_DB};"
+    -c "DROP DATABASE IF EXISTS ${SCRATCH_DB_Q} WITH (FORCE);" \
+    -c "CREATE DATABASE ${SCRATCH_DB_Q};"
   SCRATCH_URL="$TARGET_URL"
   PSQL() { docker run --rm "$PG_IMAGE" psql "$SCRATCH_URL" "$@"; }
   RESTORE() {
