@@ -8,6 +8,7 @@ import {
   SESSION_MAX_AGE_SECONDS,
   SESSION_UPDATE_AGE_SECONDS,
   parseAuthSecrets,
+  shouldRegisterE2eProvider,
   shouldUseSecureCookies,
 } from "@/lib/auth-config";
 import { isEmailConfigured } from "@/lib/email";
@@ -43,23 +44,14 @@ if (process.env.FACEBOOK_CLIENT_ID) {
 }
 
 // Test-only deterministic sign-in. NEVER enabled in production.
-// Double-gated:
-//   Gate 1 — AUTH_E2E === "1": primary gate. This env var is NEVER set in
-//     production deployments; it is only present in local .env and the
-//     Playwright webServer env (playwright.config.ts).
-//   Gate 2 — NODE_ENV !== "production": belt-and-suspenders so the provider
-//     cannot activate even if AUTH_E2E leaks. In vitest (unit tests) NODE_ENV
-//     is "test"; in `next dev` it is "development".
-//     Note: `next start` forces NODE_ENV=production at webpack build time AND
-//     at runtime (router-server.js), which would block the e2e provider.
-//     To allow it in the Playwright e2e server while keeping the prod guard
-//     in unit tests, the webServer also sets AUTH_E2E_ALLOW_PROD=1, which
-//     short-circuits gate 2 for the e2e build and runtime.
-//     In real production: AUTH_E2E is never set → gate 1 blocks, gate 2 is moot.
-if (
-  process.env.AUTH_E2E === "1" &&
-  (process.env.NODE_ENV !== "production" || process.env.AUTH_E2E_ALLOW_PROD === "1")
-) {
+// The whole production-safety decision lives in shouldRegisterE2eProvider
+// (apps/web/lib/auth-config.ts, #277): it requires AUTH_E2E === "1" (gate 1),
+// allows it freely outside production, and in production registers the provider
+// ONLY for the single documented escape hatch AUTH_E2E_ALLOW_PROD === "1" (the
+// CI e2e prod-build server) — refusing silently when the flag is absent and
+// THROWING a startup error if AUTH_E2E_ALLOW_PROD is set to anything else, so a
+// misconfiguration can never quietly expose the passwordless test login.
+if (shouldRegisterE2eProvider()) {
   providers.push(
     Credentials({
       id: "e2e",
