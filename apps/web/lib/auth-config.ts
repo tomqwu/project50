@@ -46,3 +46,64 @@ export function shouldUseSecureCookies(
   const url = env.AUTH_URL ?? env.NEXTAUTH_URL;
   return url?.startsWith("https://") ? true : undefined;
 }
+
+/**
+ * The ONE documented escape hatch that re-enables the test login under
+ * `NODE_ENV=production`. The CI e2e server runs `next start` (which forces
+ * production) over http, and sets this to exactly "1" so Playwright's
+ * deterministic login keeps working. Any other value is a misconfiguration.
+ */
+const AUTH_E2E_ALLOW_PROD_ESCAPE_HATCH = "1";
+
+/**
+ * Production safety guard for the dev/e2e "continue as demo" Credentials
+ * provider (#277).
+ *
+ * The dev/e2e sign-in path is a passwordless login and must NEVER be reachable
+ * in production. This decides whether `auth.ts` may register the `e2e`
+ * Credentials provider, hardening the previous inline double-gate so it can't be
+ * enabled in production by misconfiguration:
+ *
+ *   - Gate 1 (primary): only `AUTH_E2E === "1"` arms the path at all. Any other
+ *     value (unset, "0", "true", …) → never registered, never throws.
+ *   - Non-production (`NODE_ENV !== "production"`, e.g. dev / vitest / Playwright
+ *     dev server) → registered. This is the normal local + CI-unit path.
+ *   - Production (`NODE_ENV === "production"`):
+ *       • `AUTH_E2E_ALLOW_PROD === "1"` (the single documented escape hatch) →
+ *         registered, so the CI e2e prod-build server still works.
+ *       • `AUTH_E2E_ALLOW_PROD` set to any *other* truthy/non-empty value →
+ *         **throws** a clear startup error: this is almost certainly a
+ *         misconfiguration trying to expose the test login in prod, so fail
+ *         loudly rather than silently guess.
+ *       • `AUTH_E2E_ALLOW_PROD` unset or empty → NOT registered (silent refuse):
+ *         `.env.example` ships it blank, so a leaked `AUTH_E2E=1` alone can never
+ *         expose the test login in production.
+ *
+ * @throws {Error} in production when the escape hatch is set to a non-"1",
+ *   non-empty value while `AUTH_E2E === "1"`.
+ */
+export function shouldRegisterE2eProvider(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  // Gate 1 — primary gate. Never set in production deployments.
+  if (env.AUTH_E2E !== "1") return false;
+
+  // Non-production: the primary gate is sufficient.
+  if (env.NODE_ENV !== "production") return true;
+
+  // Production: the test login may ONLY come back via the exact escape hatch.
+  const allowProd = env.AUTH_E2E_ALLOW_PROD;
+  if (allowProd === AUTH_E2E_ALLOW_PROD_ESCAPE_HATCH) return true;
+
+  // Empty / unset → silently refuse (the safe production default).
+  if (allowProd === undefined || allowProd === "") return false;
+
+  // Any other value in production is a misconfiguration — fail loudly so a
+  // mistyped/forced flag can never quietly expose the passwordless test login.
+  throw new Error(
+    `Refusing to start: AUTH_E2E_ALLOW_PROD=${JSON.stringify(allowProd)} is set in ` +
+      `production but is not the documented escape hatch "1". The dev/e2e test ` +
+      `login must never be enabled in production. Unset AUTH_E2E and ` +
+      `AUTH_E2E_ALLOW_PROD in production (see docs/SECRETS.md).`,
+  );
+}

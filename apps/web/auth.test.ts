@@ -223,6 +223,19 @@ describe("auth.ts module wiring", () => {
     expect(capturedCalls.some((c) => c.hasE2E)).toBe(true);
     expect(capturedAuthorize).toBeTypeOf("function");
   });
+
+  it("THROWS at startup in production when AUTH_E2E_ALLOW_PROD is a non-'1' misconfiguration (#277)", async () => {
+    // Hard guard: a forced/mistyped escape hatch in production must fail loudly
+    // at module load rather than silently expose the passwordless test login.
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_E2E = "1";
+    process.env.AUTH_E2E_ALLOW_PROD = "true";
+    overrideNodeEnv("production");
+
+    await expect(import("./auth")).rejects.toThrow(/AUTH_E2E_ALLOW_PROD/);
+    // NextAuth must never have been constructed with the leaked test login.
+    expect(capturedCalls).toHaveLength(0);
+  });
 });
 
 describe("auth.ts hardening config", () => {
@@ -273,6 +286,23 @@ describe("auth.ts hardening config", () => {
     await import("./auth");
 
     expect(capturedCalls.at(0)?.config).not.toHaveProperty("useSecureCookies");
+  });
+
+  it("forces secure cookies in production over an https AUTH_URL (#277)", async () => {
+    // Production shape: real https origin → useSecureCookies:true so Auth.js v5
+    // emits __Secure- prefixed, Secure session cookies. We never set a custom
+    // `cookies` config, so httpOnly + sameSite=lax remain the framework secure
+    // defaults — we only opt into forcing Secure, never weaken them.
+    process.env.AUTH_SECRET = "test-secret";
+    process.env.AUTH_URL = "https://www.project50.fit";
+    overrideNodeEnv("production");
+
+    await import("./auth");
+
+    expect(capturedCalls.at(0)?.config.useSecureCookies).toBe(true);
+    // Lock the expectation that we don't ship a custom cookie config that could
+    // override Auth.js's secure (httpOnly/secure/sameSite) defaults.
+    expect(capturedCalls.at(0)?.config).not.toHaveProperty("cookies");
   });
 });
 
