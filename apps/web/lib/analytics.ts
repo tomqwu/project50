@@ -30,7 +30,16 @@ export type AnalyticsEvent =
   | "rule_toggled"
   | "project50_photo_added"
   | "project50_journal_saved"
-  | "upgrade_clicked";
+  | "upgrade_clicked"
+  // ── Funnel events (#285) ────────────────────────────────────────────────
+  /**
+   * A celebrate-screen social share completed successfully. Emit from the
+   * share panel's success handler (`SocialShareClient`) with
+   * `{ platform: Platform, asset: AssetKind }`. Pairs with the `shareInstagram`
+   * flag so you can read "shares per platform" and confirm a kill-switch
+   * actually stopped Instagram shares.
+   */
+  | "share_completed";
 
 /** Arbitrary, JSON-serializable properties attached to an event. */
 export type AnalyticsProps = Record<string, string | number | boolean | null | undefined>;

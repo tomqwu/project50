@@ -45,9 +45,28 @@ export const FLAGS = {
   newOnboarding: { default: false, clientSafe: false },
   /** Client-visible marketing banner toggle (default off). */
   publicBanner: { default: false, clientSafe: true },
+  /**
+   * Kill-switch for the **Instagram** option in the celebrate-screen social
+   * share panel (#285). Default **ON** — this gates an already-shipped,
+   * stable behaviour, so merging the flag changes nothing. Flip it OFF (e.g.
+   * `FLAG_SHARE_INSTAGRAM=false` or drop `shareInstagram` from
+   * `NEXT_PUBLIC_FLAGS`) to instantly pull the Instagram share button if the
+   * Graph API / deeplink starts misbehaving — no deploy required. Server-gated
+   * (the celebrate page filters capabilities on the server), so `clientSafe`
+   * stays `false`.
+   */
+  shareInstagram: { default: true, clientSafe: false },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagName = keyof typeof FLAGS;
+
+/**
+ * Public, intent-revealing alias for {@link FlagName} — the typed union of
+ * every known feature flag. Call sites read better as `FeatureFlag` than
+ * `FlagName`, and it pins the issue (#285) `isFeatureEnabled(flag)` contract to
+ * the same closed registry rather than accepting free-form strings.
+ */
+export type FeatureFlag = FlagName;
 
 /** Resolved on/off state for every flag. */
 export type FlagState = Record<FlagName, boolean>;
@@ -72,6 +91,27 @@ function parseOverride(raw: string | undefined): boolean | undefined {
 }
 
 /**
+ * Parse the `NEXT_PUBLIC_FLAGS` comma-list into a Set of flag names. The list
+ * is an *allow-list*: any flag whose camelCase name appears (trimmed,
+ * case-insensitively matched against the registry) is forced ON. Unknown
+ * tokens are ignored so a stale env var can never crash a render. Returns
+ * `undefined` when the var is unset/blank, so callers can tell "not configured"
+ * apart from "configured but empty".
+ */
+function parseFlagList(raw: string | undefined): Set<FlagName> | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const known = new Map<string, FlagName>(
+    (Object.keys(FLAGS) as FlagName[]).map((n) => [n.toLowerCase(), n]),
+  );
+  const set = new Set<FlagName>();
+  for (const token of raw.split(",")) {
+    const match = known.get(token.trim().toLowerCase());
+    if (match) set.add(match);
+  }
+  return set;
+}
+
+/**
  * Returns whether a flag is enabled. An env override (`FLAG_<NAME>`) wins over
  * the registry default. `env` is injectable for tests; it defaults to
  * `process.env`.
@@ -79,6 +119,33 @@ function parseOverride(raw: string | undefined): boolean | undefined {
 export function isFlagEnabled(name: FlagName, env: NodeJS.ProcessEnv = process.env): boolean {
   const override = parseOverride(env[envVarFor(name)]);
   return override ?? FLAGS[name].default;
+}
+
+/**
+ * Resolve a feature flag — the public entry point for #285.
+ *
+ * Precedence, most-specific first:
+ *   1. Per-flag boolean override `FLAG_<NAME>` (`true/false/1/0`) — an explicit
+ *      OFF here is honoured even if the flag is listed in `NEXT_PUBLIC_FLAGS`,
+ *      so it doubles as a hard kill-switch.
+ *   2. Membership in the `NEXT_PUBLIC_FLAGS` comma-list (allow-list → forces ON).
+ *   3. The registry {@link FlagDefinition.default}.
+ *
+ * Pure and side-effect free; `env` is injectable for tests and defaults to
+ * `process.env`. The `flag` argument is the typed {@link FeatureFlag} union, so
+ * typos are caught at compile time.
+ */
+export function isFeatureEnabled(
+  flag: FeatureFlag,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const override = parseOverride(env[envVarFor(flag)]);
+  if (override !== undefined) return override;
+
+  const list = parseFlagList(env.NEXT_PUBLIC_FLAGS);
+  if (list?.has(flag)) return true;
+
+  return FLAGS[flag].default;
 }
 
 /** Resolves the on/off state of every registered flag. */

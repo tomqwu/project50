@@ -1,0 +1,75 @@
+# Feature flags
+
+A tiny, env/config-driven flag system — **no external service**. Flags are
+declared in a typed registry (`apps/web/lib/flags.ts`) with compile-time
+defaults and resolved purely from environment variables, so the same code path
+runs on the server, during SSR, and in the build. Flag state is deterministic
+and side-effect free.
+
+## The registry
+
+Each flag is one entry in `FLAGS`:
+
+```ts
+export const FLAGS = {
+  newOnboarding:  { default: false, clientSafe: false }, // demo gate
+  publicBanner:   { default: false, clientSafe: true  }, // marketing toggle
+  shareInstagram: { default: true,  clientSafe: false }, // kill-switch (#285)
+} as const satisfies Record<string, FlagDefinition>;
+```
+
+- **`default`** — value when nothing overrides it. Default **OFF** for new/risky
+  flags (merging the flag changes nothing); **ON** for a kill-switch over
+  already-shipped, stable behaviour.
+- **`clientSafe`** — `true` only if the flag may be exposed to the browser via
+  `getClientFlags()`. Server-only flags stay `false` so their state never leaks.
+
+`FeatureFlag` is the typed union of the registry keys, so a typo'd flag name is a
+compile error.
+
+## Reading a flag
+
+```ts
+import { isFeatureEnabled } from "@/lib/flags";
+
+if (isFeatureEnabled("shareInstagram")) { /* show the Instagram share */ }
+```
+
+Resolution precedence (most specific first):
+
+1. **`FLAG_<NAME>` env override** — `true/false/1/0`, case-insensitive, trimmed.
+   `<NAME>` is the camelCase key in UPPER_SNAKE (`shareInstagram` →
+   `FLAG_SHARE_INSTAGRAM`). An explicit `false` here is honoured even when the
+   flag is in the allow-list, so it doubles as a hard **kill-switch**.
+2. **`NEXT_PUBLIC_FLAGS`** — a comma-list *allow-list* that forces the named
+   flags ON (e.g. `NEXT_PUBLIC_FLAGS=newOnboarding,publicBanner`). Entries are
+   matched case-insensitively; unknown tokens are ignored.
+3. The registry **`default`**.
+
+`isFlagEnabled(name)` (the original `#126` API) reads only the per-flag
+`FLAG_<NAME>` override + default; `isFeatureEnabled(flag)` is the superset that
+also honours `NEXT_PUBLIC_FLAGS`. Both are pure and take an injectable `env`.
+
+A/B bucketing is available via `assignVariant(key, userId, variants)` — a pure,
+deterministic FNV-1a hash, stable per `(key, user)` across processes.
+
+## Flags in use
+
+| Flag | Default | Client-safe | Wired at | Purpose |
+| --- | --- | --- | --- | --- |
+| `shareInstagram` | **ON** | no | `apps/web/lib/publish/visible-capabilities.ts`, consumed in the celebrate page (`app/(app)/challenges/[id]/celebrate/page.tsx`) | **Kill-switch** for the Instagram option in the celebrate-screen social share panel. Flip OFF (`FLAG_SHARE_INSTAGRAM=false`) to instantly pull the Instagram button — server-side, no deploy — if the Graph API / deeplink misbehaves. |
+| `newOnboarding` | off | no | _(reserved)_ | Server-gated experimental onboarding flow. |
+| `publicBanner` | off | yes | _(reserved)_ | Client-visible marketing banner toggle. |
+
+> Only `shareInstagram` is wired to a real consumer today; the other two are the
+> original `#126` scaffold and stay until they have a genuine use. Keep this
+> table honest — a flag with no consumer is dead code.
+
+## Adding a flag
+
+1. Add an entry to `FLAGS` in `apps/web/lib/flags.ts` (default OFF unless it
+   gates stable behaviour as a kill-switch).
+2. Gate code with `isFeatureEnabled("yourFlag")`.
+3. Override per-environment with `FLAG_YOUR_FLAG=true|false` or list it in
+   `NEXT_PUBLIC_FLAGS`.
+4. Add a row to the table above and a test (the lib is at 100% coverage).
