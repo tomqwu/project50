@@ -57,7 +57,8 @@ function Project50PhotoSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleRemove(mediaId: string) {
-    if (removingIds.has(mediaId)) return;
+    // The button is `disabled` once removal is in flight, so re-entry can't
+    // happen via the UI; the confirm gate is the only branch here.
     if (!window.confirm("Remove this photo?")) return;
     setRemovingIds((cur) => new Set(cur).add(mediaId));
     onRemoveMedia?.(mediaId);
