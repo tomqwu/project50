@@ -177,6 +177,16 @@ az postgres flexible-server firewall-rule delete -g "$RG" \
 
 # 7. App URL
 terraform output -raw app_url
+
+# 8. GDPR guard: assert blob soft delete is still OFF on the media account (the
+#    hard-erase guarantee depends on it; `apply` can't assert an *absent* policy).
+#    See "Verify blob soft delete is OFF" under Object storage — both queries
+#    must return false/null:
+SA="$(terraform output -raw storage_account_name)"
+az storage account blob-service-properties show --account-name "$SA" \
+  --query 'deleteRetentionPolicy.enabled'           # expect: false (or null)
+az storage account blob-service-properties show --account-name "$SA" \
+  --query 'containerDeleteRetentionPolicy.enabled'  # expect: false (or null)
 ```
 
 ### Bootstrap / secret recovery
@@ -390,6 +400,40 @@ The app selects its storage backend by env (`apps/web/lib/storage.ts`): when
 `AZURE_STORAGE_ACCOUNT` / `AZURE_STORAGE_CONTAINER` / `AZURE_STORAGE_KEY` are
 set (wired here from Key Vault), it uses Azure Blob with SAS URLs; otherwise it
 falls back to S3/MinIO. No code change needed between local and Azure.
+
+### Verify blob soft delete is OFF (GDPR hard-erase guarantee)
+
+Account deletion must **permanently** erase a user's media, which requires blob
+**soft delete to stay DISABLED** on the media storage account — otherwise a
+deleted blob is recoverable and the GDPR erasure contract
+(`apps/web/lib/storage.ts`) is silently broken.
+
+This is enforced by **omission** in `main.tf`: the `azurerm_storage_account.media`
+`blob_properties` block deliberately carries no `delete_retention_policy` /
+`container_delete_retention_policy` (azurerm has no `enabled = false` form, and
+`days = 0` is rejected — the only "disabled" is absence). Because the disabled
+state is an *absence*, Terraform can't assert it with a precondition, so verify
+it at the data plane **after every `terraform apply`** (and any portal change):
+
+```bash
+# Resolve the (suffixed) storage account name from Terraform, then assert both
+# the blob-level and container-level soft-delete policies are OFF. Each query
+# must print `false` or empty/null — anything else means soft delete is ON and
+# must be turned back off (drop the retention policy) before going live.
+SA="$(terraform output -raw storage_account_name 2>/dev/null \
+      || az storage account list -g rg-project50-dev-canadacentral \
+           --query "[?starts_with(name,'stp50media')].name | [0]" -o tsv)"   # e.g. stp50mediazv34o5
+
+az storage account blob-service-properties show --account-name "$SA" \
+  --query 'deleteRetentionPolicy.enabled'           # expect: false (or null)
+az storage account blob-service-properties show --account-name "$SA" \
+  --query 'containerDeleteRetentionPolicy.enabled'  # expect: false (or null)
+```
+
+> If either returns `true`, soft delete has been enabled out-of-band. Disable it
+> (remove the retention policy in the portal or re-run `terraform apply`, which
+> reasserts the policy-free `blob_properties`) so account deletion stays a true
+> hard-erase. Run this as the **final step of every deploy** (see the runbook).
 
 ## Notes
 - Module source is the private landing-zone repo; `terraform init` needs git
