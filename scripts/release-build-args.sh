@@ -47,17 +47,23 @@ fi
 SHA="$(git rev-parse --short=7 HEAD)"
 TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# --- HARD GATE: the selected tag MUST point at HEAD --------------------------
-# The image is built from HEAD, so the badge's tag/title/url must describe HEAD.
-# If $TAG resolves to a different commit (a stale `git describe` fallback, or an
-# explicit tag that isn't checked out), FAIL — building would ship newer code
-# with a badge linking to the wrong release.
-HEAD_FULL="$(git rev-parse HEAD)"
-TAG_FULL="$(git rev-list -n1 "$TAG" 2>/dev/null || true)"
-if [ -z "$TAG_FULL" ]; then
-  echo "release-build-args.sh: tag '$TAG' does not exist in this repo" >&2
+# --- HARD GATE: $TAG must be a REAL git tag ----------------------------------
+# `git rev-list`/`rev-parse` happily resolve HEAD, a branch (main), or a raw sha,
+# which would PASS the HEAD check below and silently emit
+# NEXT_PUBLIC_RELEASE_TAG=<non-tag> with no release URL — defeating the script's
+# purpose. Require $TAG to peel to an actual tag ref before going further.
+if ! git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" >/dev/null 2>&1; then
+  echo "release-build-args: '$TAG' is not a git tag — pass the CalVer release tag" >&2
   exit 1
 fi
+
+# --- HARD GATE: the selected tag MUST point at HEAD --------------------------
+# The image is built from HEAD, so the badge's tag/title/url must describe HEAD.
+# If the (now-verified real) tag resolves to a different commit (a stale
+# `git describe` fallback, or an explicit tag that isn't checked out), FAIL —
+# building would ship newer code with a badge linking to the wrong release.
+HEAD_FULL="$(git rev-parse HEAD)"
+TAG_FULL="$(git rev-list -n1 "refs/tags/$TAG" 2>/dev/null || true)"
 if [ "$TAG_FULL" != "$HEAD_FULL" ]; then
   echo "release-build-args: HEAD ($SHA) is not at tag $TAG — deploy from a tagged commit or pass the exact tag" >&2
   exit 1
