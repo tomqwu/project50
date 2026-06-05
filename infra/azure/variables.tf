@@ -1,5 +1,5 @@
 variable "alert_email" {
-  description = "Email address that receives Azure Monitor alerts (action group + metric alerts in monitoring.tf). Left EMPTY by default: with no email the action group and every alert are count-gated to zero, so `terraform apply` creates nothing new and the deploy plan stays clean. Activate alerting by passing `-var alert_email=ops@example.com` at apply time."
+  description = "Email address that receives Azure Monitor alerts (action group + metric alerts in monitoring.tf). Left EMPTY by default: with no email the action group and every alert are count-gated to zero, so `terraform apply` creates nothing new and the deploy plan stays clean. Activate alerting by setting it in an auto-loaded `infra/azure/alerts.auto.tfvars` (see alerts.auto.tfvars.example) so it PERSISTS across applies — do NOT pass it as a one-shot `-var`, or the next routine `apply -var image_tag=...` (which omits it) would reset the gate to 0 and destroy the alerts."
   type        = string
   default     = ""
 }

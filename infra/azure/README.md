@@ -23,13 +23,29 @@ The app's managed identity (`uami-project50-dev`, from onboard) pulls the image
 Postgres, all wired to a single email **action group**. Everything is
 **count-gated on `var.alert_email`** (mirroring the repo's env-gating pattern):
 
-- **`alert_email = ""` (the default) ⇒ nothing is created.** The action group and
-  every alert resolve to `count = 0`, so a no-email `terraform apply` adds **zero**
-  new resources and the existing deploy plan stays clean (inert until enabled).
-- **Activate** by passing the email at apply time:
-  `terraform apply -var alert_email=ops@example.com …` — this creates the action
-  group `ag-project50-ops-dev` (one email receiver, common alert schema) plus the
-  alerts below.
+- **No `alert_email` set ⇒ nothing is created.** The action group and every alert
+  resolve to `count = 0`, so a no-email `terraform apply` adds **zero** new
+  resources and the existing deploy plan stays clean (inert until enabled).
+- **Activate** by setting the email in an auto-loaded tfvars file (NOT a one-shot
+  `-var`):
+
+  ```bash
+  cd infra/azure
+  cp alerts.auto.tfvars.example alerts.auto.tfvars
+  # edit alerts.auto.tfvars → alert_email = "ops@example.com"
+  ```
+
+  Terraform **auto-loads every `*.auto.tfvars`** on every plan/apply, so the email
+  **persists across applies**. This is the only correct way to enable alerts: the
+  normal deploy runs `terraform apply -var image_tag=…` **without**
+  `-var alert_email=…`, so passing the email as a one-shot `-var` would set the
+  gate back to `0` on the next routine apply and **DESTROY the action group + all
+  alerts** (silently disabling monitoring). The `alerts.auto.tfvars` file keeps the
+  gate stable. It is **gitignored** (it may carry the ops email) — commit only
+  `alerts.auto.tfvars.example`.
+
+  Enabling creates the action group `ag-project50-ops-dev` (one email receiver,
+  common alert schema) plus the alerts below.
 
 | Alert | Scope | Metric (namespace) | Condition |
 | --- | --- | --- | --- |
@@ -37,7 +53,7 @@ Postgres, all wired to a single email **action group**. Everything is
 | Replica restarts | Container App | `RestartCount` (`Microsoft.App/containerApps`) | Total > 3 over 15m (Sev2) |
 | CPU high | Postgres | `cpu_percent` (`Microsoft.DBforPostgreSQL/flexibleServers`) | Avg > 80% over 15m (Sev2) |
 | Storage high | Postgres | `storage_percent` (same) | Avg > 85% over 1h (Sev2) |
-| Active connections high | Postgres | `active_connections` (same) | Max > 50 over 15m (Sev2) |
+| Active connections high | Postgres | `active_connections` (same) | Max > 25 over 15m (Sev2) — ~70% of the ~35 B1ms cap |
 
 Thresholds/windows and their rationale are commented inline in `monitoring.tf`.
 

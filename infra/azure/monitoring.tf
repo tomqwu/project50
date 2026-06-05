@@ -6,7 +6,11 @@
 # uses elsewhere): with `alert_email = ""` (the default) the action group and
 # every alert resolve to `count = 0`, so a no-email apply creates ZERO new
 # resources and the existing deploy plan stays clean. The operator activates
-# alerts by passing `-var alert_email=ops@example.com` at apply time.
+# alerts by setting `alert_email` in an AUTO-LOADED `alerts.auto.tfvars` (see
+# alerts.auto.tfvars.example + README) — NOT a one-shot `-var`. Terraform loads
+# `*.auto.tfvars` on every plan/apply, so the value persists across deploys; the
+# routine `apply -var image_tag=...` omits the email, so a one-shot `-var` would
+# reset the gate to 0 on the next apply and DESTROY the action group + alerts.
 #
 # This complements the app-level Prometheus endpoint (`/api/metrics`, see
 # docs/OBSERVABILITY.md) with platform-level signals Azure Monitor scrapes for
@@ -181,16 +185,19 @@ resource "azurerm_monitor_metric_alert" "pg_storage" {
 }
 
 # ── Postgres: active connections high ───────────────────────────────────────
-# B1ms caps at ~35 max_connections. >50 over 15m means connection-pool leak or
-# runaway fan-out — the DB will start refusing new connections soon. Maximum
-# aggregation (not Average) so a sustained peak isn't smoothed away.
+# B1ms caps at ~35 max_connections, so the alert MUST fire BELOW the cap —
+# Postgres refuses new connections at the limit, so a threshold at/above ~35
+# could never trigger (the saturation it's meant to warn about manifests as
+# refused connections, not a higher count). >25 (~70% of ~35) gives headroom to
+# page before the pool saturates. Maximum aggregation (not Average) so a
+# sustained peak isn't smoothed away.
 resource "azurerm_monitor_metric_alert" "pg_connections" {
   count = local.alerts_enabled
 
   name                = "p50-pg-active-connections-high"
   resource_group_name = module.onboard.resource_group_name
   scopes              = [azurerm_postgresql_flexible_server.db.id]
-  description         = "Postgres active connections >50 over 15 minutes (approaching B1ms limit)."
+  description         = "Postgres active connections >25 over 15 minutes (~70% of the ~35 B1ms cap — paging before saturation)."
   severity            = 2
   frequency           = "PT5M"
   window_size         = "PT15M"
@@ -201,7 +208,7 @@ resource "azurerm_monitor_metric_alert" "pg_connections" {
     metric_name      = "active_connections"
     aggregation      = "Maximum"
     operator         = "GreaterThan"
-    threshold        = 50
+    threshold        = 25
   }
 
   action {
