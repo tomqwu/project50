@@ -25,17 +25,16 @@
  *   Generic host scheduler (cron / systemd timer): same curl as above.
  */
 import { sendDailyReminders } from "@/lib/api/reminders";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
+  if (!process.env.CRON_SECRET) {
     logger.warn("cron/reminders called but CRON_SECRET is not set; refusing");
     return Response.json({ error: "not_configured" }, { status: 503 });
   }
 
-  const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${secret}`) {
+  if (!isAuthorizedCron(request)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
