@@ -1,6 +1,7 @@
 import { Card, Label, StatTile } from "@project50/ui";
 import { ShareActions } from "./ShareActions";
 import type { ShareActionsProps } from "./ShareActions";
+import { InviteFriendsButton } from "../../../_components/InviteFriendsButton";
 
 export type MilestoneKind =
   | "COMPLETED_7"
@@ -23,6 +24,11 @@ export interface CelebrateViewProps {
   shareActions?: ShareActionsProps;
   /** Signed URL of the most recent activity photo, if any */
   photoUrl?: string | null;
+  /**
+   * Viewer's referral code. When present, an "Invite friends" action (FB Share
+   * Dialog for the referral link) is surfaced on the celebrate screen.
+   */
+  referralCode?: string;
 }
 
 const MILESTONE_LABELS: Record<MilestoneKind, string> = {
@@ -40,6 +46,7 @@ export function CelebrateView({
   milestones,
   shareActions,
   photoUrl,
+  referralCode,
 }: CelebrateViewProps) {
   const isComplete = dayNumber >= 50;
 
@@ -154,6 +161,16 @@ export function CelebrateView({
       {/* Share actions */}
       {shareActions ? (
         <ShareActions {...shareActions} />
+      ) : null}
+
+      {/* Invite friends to Project 50 via the referral link (FB Share Dialog). */}
+      {referralCode ? (
+        <div
+          data-testid="celebrate-invite"
+          style={{ marginTop: "24px", display: "flex", justifyContent: "center" }}
+        >
+          <InviteFriendsButton referralCode={referralCode} />
+        </div>
       ) : null}
     </div>
   );

@@ -140,6 +140,21 @@ describe("Leaderboard", () => {
     expect(invite).toHaveAttribute("href", "/refer");
   });
 
+  it("renders the InviteFriendsButton in the empty-state seam when a referralCode is given", () => {
+    render(<Leaderboard friends={[]} global={global} referralCode="ABCD2345" />);
+    expect(screen.getByTestId("leaderboard-empty-friends")).toBeInTheDocument();
+    // The real invite control is wired in alongside the /refer seam link.
+    expect(screen.getByTestId("invite-friends-button")).toBeInTheDocument();
+    // The /refer seam link is still present (kept intact).
+    expect(screen.getByTestId("leaderboard-invite-seam")).toHaveAttribute("href", "/refer");
+  });
+
+  it("omits the InviteFriendsButton when no referralCode is given", () => {
+    render(<Leaderboard friends={[]} global={global} />);
+    expect(screen.getByTestId("leaderboard-empty-friends")).toBeInTheDocument();
+    expect(screen.queryByTestId("invite-friends-button")).not.toBeInTheDocument();
+  });
+
   it("shows a generic empty state on the global tab when it is empty", () => {
     render(<Leaderboard friends={friends} global={[]} />);
     fireEvent.click(screen.getByRole("tab", { name: /global/i }));
