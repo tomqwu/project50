@@ -1,13 +1,13 @@
-# Scheduled offsite backups — Postgres dump + media Blob mirror, with retention.
+# Scheduled offsite Postgres backup — pg_dump -> Azure Blob, with retention.
 #
-# Implements #272 (Automated Postgres backups + tested restore drill):
-#   - `pg-backup`  dumps the PROD Azure Postgres Flexible Server and uploads the
-#                  dump to an Azure Blob container (with retention).
-#   - `media-sync` mirrors the live media Blob container (user photos / recap
-#                  MP4s — stateful, unrecoverable if lost) to a backup container.
-# Both run on the same daily schedule. The tested-restore DRILL + runbook live in
-# docs/BACKUPS.md + scripts/pg-restore-drill.sh (the operator runs it with `az`
-# access — it cannot run against prod from CI here).
+# Implements #272 (Automated Postgres backups + tested restore drill): the
+# `pg-backup` job dumps the PROD Azure Postgres Flexible Server and uploads the
+# dump to an Azure Blob container (with retention). The tested-restore DRILL +
+# runbook live in docs/BACKUPS.md + scripts/pg-restore-drill.sh (the operator
+# runs it with `az` access — it cannot run against prod from CI here).
+#
+# Media (user photos / recap MP4s) backup is tracked SEPARATELY in #320; this
+# workflow covers Postgres only.
 #
 # DESIGN NOTES
 # ------------
@@ -94,7 +94,7 @@ jobs:
             echo "has_backup=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_backup=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Backup secrets not set (need AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID for azure/login — the Blob ops authenticate via it — plus BACKUP_STORAGE_ACCOUNT) — pg-backup AND media-sync will be skipped."
+            echo "::notice::Backup secrets not set (need AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID for azure/login — the Blob upload authenticates via it — plus BACKUP_STORAGE_ACCOUNT) — pg-backup will be skipped."
           fi
 
   # ---------------------------------------------------------------------------
@@ -129,34 +129,3 @@ jobs:
       # runner) so its major >= the prod server (16); az CLI is preinstalled too.
       - name: Run backup
         run: ./scripts/pg-backup.sh
-
-  # ---------------------------------------------------------------------------
-  # #272 — Media (user photos / recap MP4s) Blob mirror -> backup container.
-  # Stateful, unrecoverable if lost, so it's backed up on the same daily schedule.
-  # Server-side blob-to-blob copy (no data through the runner), additive only.
-  # Inert without secrets (gated like pg-backup). Reuses the backup storage
-  # account; the live media account/container default to the prod values and can
-  # be overridden via MEDIA_SRC_ACCOUNT / MEDIA_SRC_CONTAINER secrets.
-  # ---------------------------------------------------------------------------
-  media-sync:
-    name: Media backup (Blob mirror -> backup container)
-    needs: preflight
-    if: needs.preflight.outputs.has_backup == 'true'
-    runs-on: ubuntu-latest
-    env:
-      MEDIA_SRC_ACCOUNT: ${{ secrets.MEDIA_SRC_ACCOUNT }}
-      MEDIA_SRC_CONTAINER: ${{ secrets.MEDIA_SRC_CONTAINER }}
-      BACKUP_STORAGE_ACCOUNT: ${{ secrets.BACKUP_STORAGE_ACCOUNT }}
-      MEDIA_BACKUP_CONTAINER: ${{ secrets.MEDIA_BACKUP_CONTAINER }}
-    steps:
-      - uses: actions/checkout@v6
-      # Azure login (federated OIDC) — REQUIRED for the server-side blob copy
-      # (--auth-mode login on both source and backup accounts).
-      - name: Azure login (federated)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Sync media bucket
-        run: ./scripts/media-sync.sh

@@ -717,19 +717,13 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
   `pg_dump`; a local operator may override via the dedicated `BACKUP_DATABASE_URL`
   env, never the ambient `DATABASE_URL`). It uploads with `--auth-mode login` (no
   account key).
-- **Media backup** — [`scripts/media-sync.sh`](../../scripts/media-sync.sh)
-  server-side mirrors the live media container (`stp50mediazv34o5`/`media`) to a
-  backup container (`media-backup` on `BACKUP_STORAGE_ACCOUNT`). **Truly additive:**
-  it diffs and copies **only the source blobs missing from the backup** — never
-  overwrites an existing backup blob, never deletes from the backup (so a wipe or
-  a corrupted live blob can't clobber the good copy). It **polls copy status until
-  all copies complete** and **exits non-zero** on any `failed`/`aborted` copy or
-  timeout, so the job never reports success with missing blobs. User media is
-  stateful + unrecoverable if lost, so it runs on the daily schedule (`media-sync`).
+- **Media backup** — tracked separately in **#320** (the cross-account
+  private-Blob mirror needs a live Azure cross-account run to validate). Postgres
+  backup is covered here.
 - **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
-  runs **both jobs daily 03:17 UTC**, INERT until secrets are set (mirrors
-  `deploy.yml`'s preflight gate). The Blob ops use `--auth-mode login`, so **CI
-  requires the Azure federated (OIDC) creds**
+  runs the `pg-backup` job **daily 03:17 UTC**, INERT until secrets are set
+  (mirrors `deploy.yml`'s preflight gate). The Blob upload uses `--auth-mode
+  login`, so **CI requires the Azure federated (OIDC) creds**
   (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`) plus `BACKUP_STORAGE_ACCOUNT`.
   CI passes **no DB conn string** — it reads the admin URL from Key Vault (so it
   never backs up the wrong `p50app` connection). Azure Flexible Server's own
@@ -743,17 +737,10 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
 **Operator one-time setup (Azure-account steps — NOT in this Terraform):**
 
 1. Create a **separate** backup storage account (e.g. `stp50backups<suffix>`,
-   ideally cross-region from `stp50mediazv34o5`) + a private `db-backups`
-   container (DB dumps) and a `media-backup` container (media mirror). Enable
-   **versioning + soft-delete on this BACKUP account** (the *live media* account
-   keeps soft-delete OFF for GDPR hard-erase — different account).
-2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`),
-   **Storage Blob Data Contributor** (on the backup account), and — for the media
-   mirror — **Storage Blob Data Reader + Storage Blob Delegator** on the live media
-   account `stp50mediazv34o5` (or just **Storage Blob Data Contributor**, which
-   includes delegation). Plain Reader is **not** enough: the cross-account
-   `--auth-mode login` copy mints a source user-delegation SAS, which Reader can't
-   create — the copy would fail.
+   ideally cross-region from the live data) + a private `db-backups` container
+   (DB dumps). Enable **versioning + soft-delete on this BACKUP account**.
+2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`)
+   and **Storage Blob Data Contributor** (on the backup account).
 3. Add the repo secrets (`AZURE_CLIENT_ID`/`TENANT`/`SUBSCRIPTION` for federated
    login — **required for CI** — plus `BACKUP_STORAGE_ACCOUNT`) — see
    `docs/BACKUPS.md`.

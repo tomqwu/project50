@@ -1,19 +1,22 @@
-# Backups & tested restore
+# Postgres backups & tested restore
 
-How Project 50 backs up its stateful systems on **Azure** — and, critically, how
-we **verify** the Postgres backup actually restores. A backup you have never
-restored is a hypothesis, not a backup.
+How Project 50 backs up its **Postgres** database on **Azure** — and, critically,
+how we **verify** the backup actually restores. A backup you have never restored
+is a hypothesis, not a backup.
+
+> **Media (user photos / recap MP4s) backup is tracked separately in #320** — the
+> cross-account private-Blob mirror needs a live Azure cross-account run to
+> validate, so it's deferred to its own follow-up. **This doc + workflow cover
+> Postgres**, which is the verified part.
 
 Live infra (see [`infra/azure/README.md`](../infra/azure/README.md)): the app
 runs on **Azure Container Apps** in `rg-project50-dev-canadacentral` with
-**Postgres Flexible Server** (`psql-project50-dev-zv34o5`) and **Blob storage**
-(`stp50mediazv34o5`). Admin DB creds live only in the Key Vault secret
-`database-url-admin` (vault `kv-project50-dev-6z7n`).
+**Postgres Flexible Server** (`psql-project50-dev-zv34o5`). Admin DB creds live
+only in the Key Vault secret `database-url-admin` (vault `kv-project50-dev-6z7n`).
 
-Read alongside [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md) (media storage),
-[`RUNBOOKS.md`](./RUNBOOKS.md) (recovery), [`DEPLOY.md`](./DEPLOY.md) and
-[`infra/azure/README.md`](../infra/azure/README.md) (deploy/secrets) and
-[`SECRETS.md`](./SECRETS.md).
+Read alongside [`RUNBOOKS.md`](./RUNBOOKS.md) (recovery),
+[`DEPLOY.md`](./DEPLOY.md) and [`infra/azure/README.md`](../infra/azure/README.md)
+(deploy/secrets) and [`SECRETS.md`](./SECRETS.md).
 
 > **Honest status — automated vs manual.** The **backup workflow + scripts are
 > real and runnable** the moment the secrets exist (they are env-gated/inert
@@ -28,20 +31,19 @@ Read alongside [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md) (media storage),
 | System | What | Tool | Where it goes |
 | --- | --- | --- | --- |
 | **Postgres** | Full logical dump (schema + data) | `pg_dump -Fc \| gzip` (via `postgres:16` docker) | Azure Blob container `db-backups` |
-| **Object storage (media)** | User media (photos, recap MP4s) | server-side Blob mirror (`az storage blob copy`) | backup container `media-backup` |
 | **Restore drill** | Restore a dump into a THROWAWAY DB + sanity-check | `pg_restore` + checks | local docker Postgres (no prod touch) |
+
+> **Media:** user media backup is deferred to **#320** (see note above).
 
 Scripts:
 
 - [`scripts/pg-backup.sh`](../scripts/pg-backup.sh) — Azure-native Postgres dump
   → Blob, with retention. Powers the `pg-backup` job and a local `az login` run.
-- [`scripts/media-sync.sh`](../scripts/media-sync.sh) — Azure-native media Blob
-  mirror → backup container. Powers the `media-sync` job and a local run.
 - [`scripts/pg-restore-drill.sh`](../scripts/pg-restore-drill.sh) — the **tested
   restore**: restore the latest backup into a throwaway DB, verify, tear down.
 - [`scripts/backup/`](../scripts/backup/) — portable S3/MinIO variants of the
-  dump/restore/media-sync (for non-Azure / generic hosts). The Azure deployment
-  uses the Azure-native scripts above.
+  dump/restore (for non-Azure / generic hosts). The Azure deployment uses the
+  Azure-native scripts above.
 
 Everything else is **rebuildable from source** and needs no backup: app code
 (git), infra config (this repo), and secrets (held in Key Vault — back up the
@@ -54,7 +56,6 @@ vault per Azure's soft-delete/purge-protection, separately; see `SECRETS.md`).
 | What | Cadence | Mechanism |
 | --- | --- | --- |
 | Postgres dump | **Daily** (03:17 UTC) | [`.github/workflows/backup.yml`](../.github/workflows/backup.yml) `schedule`, or a local cron — see [Scheduling](#scheduling) |
-| Media mirror | **Daily** (same run) | `backup.yml` `media-sync` job → [`scripts/media-sync.sh`](../scripts/media-sync.sh) (see [Media](#media-backup--restore)) |
 | Restore **drill** | **Quarterly** + after any backup/schema-tooling change | [`scripts/pg-restore-drill.sh`](../scripts/pg-restore-drill.sh) — see [Restore drill](#tested-restore-drill) |
 
 > Daily logical dump is the baseline. Azure Flexible Server **also** runs its own
@@ -160,25 +161,20 @@ the storage account, else the job stays inert/skipped):
 
 | Secret | Purpose |
 | --- | --- |
-| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — **required** (used by both the `pg-backup` and `media-sync` jobs). The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n`, **Storage Blob Data Contributor** on the backup account, and — for the media mirror — **Storage Blob Data Reader + Storage Blob Delegator** on the live media account `stp50mediazv34o5` (or just **Storage Blob Data Contributor**, which includes delegation). Plain Reader is **not** enough: the cross-account `--auth-mode login` copy mints a *source user-delegation SAS*, which Reader cannot create. |
-| `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`) — **required**; holds both the DB dumps and the media mirror. |
+| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — **required**. The Blob upload authenticates via it, and the script reads `database-url-admin` from Key Vault. The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n` and **Storage Blob Data Contributor** on the backup account. |
+| `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`) — **required**; holds the DB dumps. |
 | `BACKUP_CONTAINER` | (optional) DB-dump container name; default `db-backups`. |
 | `KEY_VAULT_NAME` | (optional) override; default `kv-project50-dev-6z7n`. |
 | `BACKUP_RETENTION_DAYS` | (optional) daily dumps to keep; default `14`. |
-| `MEDIA_SRC_ACCOUNT` / `MEDIA_SRC_CONTAINER` | (optional) live media account/container to mirror; default `stp50mediazv34o5` / `media`. |
-| `MEDIA_BACKUP_CONTAINER` | (optional) backup container for the media mirror; default `media-backup`. |
 
 > **No `DATABASE_URL` in CI** — deliberately. The admin URL comes from Key Vault.
 > The script's `BACKUP_DATABASE_URL` override is for the local-operator path only;
 > the ambient `DATABASE_URL` is never used for backups.
 
 > **Least privilege:** the backup identity needs **read** on the Key Vault secret
-> + **read on the DB** (the admin string is used read-only for `pg_dump`) +
-> **read + blob-delegation on the live media** account (Storage Blob Data Reader
-> *and* Storage Blob Delegator, or Contributor — the cross-account copy must mint
-> a source delegation SAS), and **write** on the backup account — and, for DB-dump
-> retention, delete on the `db-backups` container only. Never delete on the source
-> DB or the live media account.
+> + **read on the DB** (the admin string is used read-only for `pg_dump`) and
+> **write** on the backup account — and, for DB-dump retention, delete on the
+> `db-backups` container only. Never delete on the source DB.
 
 ## Tested restore drill
 
@@ -277,63 +273,12 @@ az postgres flexible-server firewall-rule delete -g rg-project50-dev-canadacentr
 See [`RUNBOOKS.md`](./RUNBOOKS.md) and [`INCIDENT-RESPONSE.md`](./INCIDENT-RESPONSE.md)
 for the full recovery flow.
 
-## Media backup & restore
+## Media backup
 
-User media lives in the `media` container on `stp50mediazv34o5`. Keys are
-content-addressed and immutable (`media/<userId>/<suffix>.<ext>`, see
-[`CDN.md`](./CDN.md)), so an **additive** mirror to a backup container is safe and
-idempotent.
-
-**Backup ([`scripts/media-sync.sh`](../scripts/media-sync.sh), `media-sync` job):**
-a daily **server-side** blob-to-blob copy from the live container to a backup
-container (`media-backup`, on `BACKUP_STORAGE_ACCOUNT`). No data flows through the
-runner.
-
-> **Truly additive — only copies MISSING blobs.** The script diffs the source
-> against the backup and copies **only the source blobs not already in the
-> backup**; it **never overwrites an existing backup blob** and never deletes
-> from the backup. So neither a wipe of the live container nor a corrupted/
-> overwritten live blob can clobber the good backup copy. (Media keys are
-> content-addressed + immutable, so a present backup blob is already correct.)
-
-> **It waits for completion.** `az storage blob copy start` only *queues* Azure's
-> async server-side copies. The script then **polls each destination blob's
-> `copy.status` until none are pending** and only then reports success. If any
-> copy ends `failed`/`aborted`, or copies are still pending at the timeout
-> (`MEDIA_SYNC_TIMEOUT`, default 1800s), it **exits non-zero** so the workflow
-> fails — it will never record a "successful" media backup with missing or
-> still-copying blobs.
-
-Run locally too (your `az` identity needs **Storage Blob Delegator** — or
-Contributor — on the source media account; see the RBAC note above):
-
-```bash
-az login
-BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> ./scripts/media-sync.sh
-# (defaults: MEDIA_SRC_ACCOUNT=stp50mediazv34o5, MEDIA_SRC_CONTAINER=media,
-#  MEDIA_BACKUP_CONTAINER=media-backup)
-```
-
-**Restore:** reverse the direction — copy from the backup container back into a
-(new) live media container:
-
-```bash
-MEDIA_SRC_ACCOUNT=stp50backups<suffix> MEDIA_SRC_CONTAINER=media-backup \
-BACKUP_STORAGE_ACCOUNT=stp50mediazv34o5 MEDIA_BACKUP_CONTAINER=media \
-  ./scripts/media-sync.sh
-```
-
-After a restore, `/api/ready` should report `storage:true` (see `RUNBOOKS.md` →
-Object storage).
-
-> **TODO (Azure-account step):** create the `media-backup` container on the backup
-> account and enable **versioning + soft-delete on the BACKUP account** for
-> point-in-time recovery. Ideally place the backup account in a different region.
-
-> **Note on soft-delete:** the *live media* account deliberately keeps blob
-> soft-delete **OFF** so account deletion is a true GDPR hard-erase
-> (`infra/azure/README.md`). Recoverability for media therefore comes from the
-> **separate backup container**, not from soft-delete on the live account.
+Media backup (mirroring the user-media Blob container `stp50mediazv34o5`/`media`
+to a separate backup container) is **tracked separately in #320** — the
+cross-account private-Blob copy needs a live Azure cross-account run to validate,
+so it's deferred to its own follow-up. **Postgres backup is covered here.**
 
 ## CRON_SECRET — reminder / nudge cron routes
 
