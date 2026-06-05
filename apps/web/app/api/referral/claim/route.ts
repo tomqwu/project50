@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireUser } from "@/lib/session";
 import { handleRoute, unprocessable } from "@/lib/api/http";
-import { recordReferral } from "@/lib/api/referral";
+import { recordReferral, isNewlyCreatedUser } from "@/lib/api/referral";
 import { REFERRAL_COOKIE } from "@/lib/referral-capture";
 
 /**
@@ -13,11 +13,18 @@ import { REFERRAL_COOKIE } from "@/lib/referral-capture";
  * the path that survives a signed-out invitee's auth round-trip — a query param
  * does not).
  *
+ * NEW-USER GATE (cookie path only): the authenticated layout auto-POSTs this for
+ * ANY pending cookie, so a RETURNING user who clicks an invite link then signs
+ * in would otherwise be mis-attributed as a fresh referral. Cookie-based claims
+ * are therefore recorded ONLY when the account was just created (see
+ * `isNewlyCreatedUser` — `User.createdAt` within the cookie's TTL). EXPLICIT
+ * body-code claims are intentional and stay ungated.
+ *
  * On any handled attempt the `p50_ref` cookie is cleared so a stale code can't
- * re-attribute later. Idempotent and self-referral-safe via `recordReferral`:
- * `{ recorded: false }` means a harmless no-op (unknown code, self-referral, or
- * already referred). 422 only when there is no code at all (neither body nor
- * cookie).
+ * re-attribute later (a returning user's cookie won't keep retrying). Idempotent
+ * and self-referral-safe via `recordReferral`: `{ recorded: false }` means a
+ * harmless no-op (unknown code, self-referral, already referred, or — for the
+ * cookie path — a non-new user). 422 only when there is no code at all.
  */
 export async function POST(req: Request) {
   return handleRoute(async () => {
@@ -37,7 +44,11 @@ export async function POST(req: Request) {
       unprocessable("INVALID_REFERRAL_CODE");
     }
 
-    const recorded = await recordReferral(code, uid);
+    // Cookie-derived claims only count for genuinely-new accounts; explicit body
+    // codes are not age-gated.
+    const fromCookie = bodyCode === null;
+    const eligible = fromCookie ? await isNewlyCreatedUser(uid) : true;
+    const recorded = eligible ? await recordReferral(code, uid) : false;
 
     const res = NextResponse.json({ recorded });
     // Always clear the pending-referral cookie once we've handled it, so a stale

@@ -159,4 +159,72 @@ describe("POST /api/referral/claim", () => {
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain(`${REFERRAL_COOKIE}=`);
   });
+
+  it("does NOT attribute a COOKIE claim for a RETURNING (old) user, but clears the cookie", async () => {
+    const referrer = await createUser({ handle: "referrer" });
+    const code = await getOrCreateReferralCode(referrer.id);
+    const returning = await createUser({ handle: "returning" });
+    // Age the account beyond the new-user window — a returning user who merely
+    // clicked an invite link must NOT be counted as a new referral.
+    await prisma.user.update({
+      where: { id: returning.id },
+      data: { createdAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    vi.mocked(requireUser).mockResolvedValue(returning.id);
+    mockCookieGet.mockReturnValue({ value: code });
+
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: false });
+    // No referral row was created.
+    expect(await prisma.referral.count()).toBe(0);
+    // The stale cookie is still cleared so it stops retrying.
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${REFERRAL_COOKIE}=`);
+    expect(setCookie.toLowerCase()).toMatch(/max-age=0|expires=/);
+  });
+
+  it("attributes a COOKIE claim for a genuinely NEW user", async () => {
+    const referrer = await createUser({ handle: "referrer" });
+    const code = await getOrCreateReferralCode(referrer.id);
+    // Freshly created → createdAt is now → inside the new-user window.
+    const newUser = await createUser({ handle: "fresh" });
+    vi.mocked(requireUser).mockResolvedValue(newUser.id);
+    mockCookieGet.mockReturnValue({ value: code });
+
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: true });
+    expect(await prisma.referral.count()).toBe(1);
+  });
+
+  it("still attributes an EXPLICIT body-code claim for an OLD user (ungated path)", async () => {
+    const referrer = await createUser({ handle: "referrer" });
+    const code = await getOrCreateReferralCode(referrer.id);
+    const returning = await createUser({ handle: "returning" });
+    await prisma.user.update({
+      where: { id: returning.id },
+      data: { createdAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    vi.mocked(requireUser).mockResolvedValue(returning.id);
+    // No cookie — an explicit body code is intentional and NOT age-gated.
+    const res = await POST(claimRequest({ code }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: true });
+    expect(await prisma.referral.count()).toBe(1);
+  });
+
+  it("rejects a self-referral via the cookie path for a new user (no-op, cookie cleared)", async () => {
+    const me = await createUser({ handle: "selfie" });
+    const myCode = await getOrCreateReferralCode(me.id);
+    vi.mocked(requireUser).mockResolvedValue(me.id);
+    mockCookieGet.mockReturnValue({ value: myCode });
+
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: false });
+    expect(await prisma.referral.count()).toBe(0);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${REFERRAL_COOKIE}=`);
+  });
 });

@@ -8,6 +8,8 @@ import {
   getOrCreateReferralCode,
   getReferralStats,
   recordReferral,
+  isNewlyCreatedUser,
+  REFERRAL_NEW_USER_WINDOW_MS,
 } from "./referral";
 
 beforeEach(resetDb);
@@ -136,5 +138,40 @@ describe("getReferralStats", () => {
 
     expect(stats.code).toBe(code);
     expect(stats.referredCount).toBe(2);
+  });
+});
+
+describe("isNewlyCreatedUser", () => {
+  it("is true for a just-created account (createdAt within the window)", async () => {
+    const fresh = await createUser({ handle: "fresh" });
+    await expect(isNewlyCreatedUser(fresh.id)).resolves.toBe(true);
+  });
+
+  it("is false for a returning account older than the window", async () => {
+    const old = await createUser({ handle: "old" });
+    // Age the account well beyond the window.
+    await prisma.user.update({
+      where: { id: old.id },
+      data: { createdAt: new Date(Date.now() - REFERRAL_NEW_USER_WINDOW_MS - 60_000) },
+    });
+    await expect(isNewlyCreatedUser(old.id)).resolves.toBe(false);
+  });
+
+  it("is false for an unknown user id", async () => {
+    await expect(isNewlyCreatedUser("does-not-exist")).resolves.toBe(false);
+  });
+
+  it("treats an account created exactly at the window boundary as new (inclusive)", async () => {
+    const edge = await createUser({ handle: "edge" });
+    const now = new Date();
+    await prisma.user.update({
+      where: { id: edge.id },
+      data: { createdAt: new Date(now.getTime() - REFERRAL_NEW_USER_WINDOW_MS) },
+    });
+    await expect(isNewlyCreatedUser(edge.id, now)).resolves.toBe(true);
+  });
+
+  it("uses ~30 minutes as the new-user window (matches the referral cookie TTL)", () => {
+    expect(REFERRAL_NEW_USER_WINDOW_MS).toBe(30 * 60 * 1000);
   });
 });
