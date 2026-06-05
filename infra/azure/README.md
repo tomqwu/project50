@@ -533,6 +533,156 @@ The remaining one-time concern is the leaked plaintext in state history:
 > [`docs/SECRETS.md`](../../docs/SECRETS.md). Until both the rotation and the
 > state-history scrub are done, the old values must be considered compromised.
 
+## Custom domain & cert in Terraform (#268)
+
+The app is live on **https://www.project50.fit** via a custom-domain binding +
+an Azure-**managed** TLS cert on the Container Apps **environment**, plus **3
+Azure Policy exemptions** (`exempt-managedcert-tag-{owner,env,app}`) that waive a
+tag-required policy for the managed cert (Azure-managed certs carry no user
+tags). All five resources were originally created **imperatively with `az`** this
+session, so they're real Azure resources that were **not** in Terraform — the
+drift #268 closes.
+
+`main.tf` now declares them (all gated on `var.manage_custom_domain`, default
+`true` to match the live deployment):
+
+| Terraform address | Resource | Azure resource |
+| --- | --- | --- |
+| `azurerm_container_app_environment_managed_certificate.web[0]` | `azurerm_container_app_environment_managed_certificate` | managed cert for `www.project50.fit` on `cae-project50-dev` |
+| `azurerm_container_app_custom_domain.web[0]` | `azurerm_container_app_custom_domain` | the `SniEnabled` binding of `www.project50.fit` → `ca-project50-web-dev` |
+| `azurerm_resource_policy_exemption.managedcert_tag["owner"]` | `azurerm_resource_policy_exemption` | `exempt-managedcert-tag-owner` |
+| `azurerm_resource_policy_exemption.managedcert_tag["env"]` | `azurerm_resource_policy_exemption` | `exempt-managedcert-tag-env` |
+| `azurerm_resource_policy_exemption.managedcert_tag["app"]` | `azurerm_resource_policy_exemption` | `exempt-managedcert-tag-app` |
+
+> **azurerm 4.x shape (researched against the provider schema):** the binding is
+> a **separate resource** `azurerm_container_app_custom_domain` — NOT a
+> `custom_domain {}` block inside `ingress` (that ingress attribute is
+> computed/read-only in 4.x). The managed cert is
+> `azurerm_container_app_environment_managed_certificate`, NOT the BYO
+> `azurerm_container_app_environment_certificate`. For a managed cert the bound
+> cert id is the **computed** `container_app_environment_managed_certificate_id`,
+> so the binding sets only `certificate_binding_type = "SniEnabled"` and
+> `ignore_changes`-es it to keep an imported binding at **No changes**.
+
+### Import runbook (orchestrator runs this — DO NOT recreate)
+
+These are **import-targeted**: the resource definitions are written to match the
+live resources, so after `terraform import` for each, `terraform plan` MUST show
+**No changes**. Reconcile any diff by **adjusting the resource attributes** (or
+the `# VERIFY:` placeholders in `main.tf`), never by recreating.
+
+```bash
+cd infra/azure
+terraform init
+
+SUB=81e891a1-b374-4898-8fed-0871de418dae
+RG=rg-project50-dev-canadacentral
+ENV=cae-project50-dev
+APP=ca-project50-web-dev
+DOMAIN=www.project50.fit
+
+# ── 0. Look up the live values the import IDs / config need ──────────────────
+# (a) the live MANAGED CERT name on the environment (fills the `name` in main.tf —
+#     # VERIFY: name = "mc-project50-www"; replace if this prints something else):
+MC_NAME=$(az containerapp env certificate list -g "$RG" --name "$ENV" \
+  --managed-certificates-only --query "[?properties.subjectName=='$DOMAIN'].name | [0]" -o tsv)
+echo "managed cert name = $MC_NAME"
+MC_ID="/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.App/managedEnvironments/$ENV/managedCertificates/$MC_NAME"
+
+# (b) the live POLICY ASSIGNMENT id the 3 exemptions target (same for all three;
+#     set it via -var below — it's `# VERIFY: policy_assignment_id` in main.tf):
+POLICY_ASSIGNMENT_ID=$(az policy exemption show --name exempt-managedcert-tag-owner \
+  --scope "$MC_ID" --query policyAssignmentId -o tsv)
+echo "policy assignment id = $POLICY_ASSIGNMENT_ID"
+# (c) the live exemptionCategory (# VERIFY: exemption_category = "Waiver"):
+az policy exemption show --name exempt-managedcert-tag-owner --scope "$MC_ID" \
+  --query exemptionCategory -o tsv   # expect: Waiver
+
+# All plan/import/apply below MUST pass the looked-up assignment id so the
+# exemptions converge (it has no default):
+TFVARS=(-var "managedcert_tag_policy_assignment_id=$POLICY_ASSIGNMENT_ID")
+
+# ── 1. Managed certificate ───────────────────────────────────────────────────
+#   id format: .../Microsoft.App/managedEnvironments/{env}/managedCertificates/{name}
+terraform import "${TFVARS[@]}" \
+  'azurerm_container_app_environment_managed_certificate.web[0]' \
+  "$MC_ID"
+
+# ── 2. Custom-domain binding ─────────────────────────────────────────────────
+#   id format: .../Microsoft.App/containerApps/{app}/customDomainName/{fqdn}
+terraform import "${TFVARS[@]}" \
+  'azurerm_container_app_custom_domain.web[0]' \
+  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.App/containerApps/$APP/customDomainName/$DOMAIN"
+
+# ── 3. The 3 managed-cert tag-policy exemptions ──────────────────────────────
+#   id format: {scope}/providers/Microsoft.Authorization/policyExemptions/{name}
+#   scope = the managed cert resource id ($MC_ID)
+terraform import "${TFVARS[@]}" \
+  'azurerm_resource_policy_exemption.managedcert_tag["owner"]' \
+  "$MC_ID/providers/Microsoft.Authorization/policyExemptions/exempt-managedcert-tag-owner"
+terraform import "${TFVARS[@]}" \
+  'azurerm_resource_policy_exemption.managedcert_tag["env"]' \
+  "$MC_ID/providers/Microsoft.Authorization/policyExemptions/exempt-managedcert-tag-env"
+terraform import "${TFVARS[@]}" \
+  'azurerm_resource_policy_exemption.managedcert_tag["app"]' \
+  "$MC_ID/providers/Microsoft.Authorization/policyExemptions/exempt-managedcert-tag-app"
+
+# ── 4. Verify convergence — this MUST print "No changes" ─────────────────────
+terraform plan "${TFVARS[@]}" -var "image_tag=<current sha>"
+```
+
+If the plan shows a diff, **reconcile by editing the resource attributes**, not by
+recreating. The known places to check are the `# VERIFY:` comments in `main.tf`:
+
+| `# VERIFY:` in `main.tf` | What to confirm during import | How to look it up |
+| --- | --- | --- |
+| `name = "mc-project50-www"` (managed cert) | the live managed-cert **resource name** — set `name` to whatever step 0(a) printed | `az containerapp env certificate list -g $RG --name $ENV --managed-certificates-only --query '[].name'` |
+| `policy_assignment_id` (exemptions) | the live **policy assignment id** — pass via `-var managedcert_tag_policy_assignment_id=…` (step 0b) | `az policy exemption show --name exempt-managedcert-tag-owner --scope $MC_ID --query policyAssignmentId` |
+| `exemption_category = "Waiver"` | the live category (`Waiver` vs `Mitigated`) — edit if different | `az policy exemption show … --query exemptionCategory` |
+| managed-cert `tags` (commented out) | whether the live cert carries `module.onboard.tags`; if `plan` shows a tags diff, uncomment `tags = module.onboard.tags` | `az containerapp env certificate show … --query tags` |
+| binding `container_app_environment_certificate_id` | if `plan` still diffs here after import, add it to the binding's `ignore_changes` (Azure recorded the cert under the computed managed-cert id) | inspect the `plan` diff |
+| exemption `display_name` / `description` / `metadata` | add to the resource only if `plan` shows a diff | `az policy exemption show … -o json` |
+
+A **no-domain** plan is unaffected: `terraform plan -var manage_custom_domain=false`
+creates/manages none of the above (it does not even reference
+`managedcert_tag_policy_assignment_id`).
+
+## Apex domain `project50.fit` → `www` (#291)
+
+**Recommendation: do NOT bind the apex on the Container App. Use a
+registrar/DNS-level URL redirect** (Namecheap) `project50.fit` →
+`https://www.project50.fit`.
+
+**Why not an apex managed cert:** apex managed certs **fail** on Container Apps —
+issuance uses an HTTP ACME challenge on `http://project50.fit/.well-known/...`,
+but the app's ingress **redirects HTTP→HTTPS**, which breaks the challenge before
+the CA can validate it. (Subdomains like `www` provision cleanly because the
+`www` CNAME's validation path isn't subject to the same apex redirect trap.) So
+there is **no reliable apex managed cert**, and adding fragile apex-cert TF would
+just produce a perpetually-failing resource — deliberately omitted here.
+
+**Recommended path (registrar URL redirect at Namecheap):**
+
+1. In Namecheap → **Domain List → project50.fit → Manage**.
+2. Ensure the `www` host points at the Container App (the existing setup):
+   - `CNAME` `www` → the app FQDN (`ca-project50-web-dev.<env-region>.azurecontainerapps.io`), and
+   - the `asuid.www` `TXT` domain-verification record Azure required for the `www` binding.
+3. Under **Redirect Domain**, add an **unmasked (301 permanent)** redirect:
+   - **Source:** `@` (apex `project50.fit`) — and optionally `http://`/`https://` both.
+   - **Destination:** `https://www.project50.fit`
+   - Type: **Permanent (301)**, **unmasked** (a real redirect, not a frame).
+4. Save. Namecheap serves the apex over its own redirect endpoint, so the apex
+   never needs a cert **on the Container App**. Verify:
+
+   ```bash
+   curl -sI http://project50.fit  | grep -i '^location:'   # → https://www.project50.fit
+   curl -sI https://project50.fit | grep -i '^location:'   # → https://www.project50.fit
+   ```
+
+This keeps `www` as the single canonical, cert-bearing origin (managed cert,
+auto-renewed) and routes the apex to it at the DNS/registrar layer — no apex cert,
+no fragile apex TF.
+
 ## Object storage
 
 The app selects its storage backend by env (`apps/web/lib/storage.ts`): when
