@@ -7,13 +7,20 @@ vi.mock("@/lib/session", () => ({
   UnauthorizedError: class UnauthorizedError extends Error {},
 }));
 
+// Mock the request cookie store so the cookie-fallback path is drivable without
+// a real request scope. Defaults to "no cookie".
+const cookieStore = { get: vi.fn<(name: string) => { value: string } | undefined>() };
+vi.mock("next/headers", () => ({ cookies: vi.fn(async () => cookieStore) }));
+
 import { requireUser, UnauthorizedError } from "@/lib/session";
 import { getOrCreateReferralCode } from "@/lib/api/referral";
+import { REFERRAL_COOKIE } from "@/lib/referral-capture";
 import { POST } from "./route";
 
 beforeEach(async () => {
   await resetDb();
   vi.resetAllMocks();
+  cookieStore.get.mockReturnValue(undefined);
 });
 
 afterAll(async () => {
@@ -92,5 +99,55 @@ describe("POST /api/referral/claim", () => {
 
     const res = await POST(claimRequest("not json{", true));
     expect(res.status).toBe(422);
+  });
+
+  it("falls back to the p50_ref cookie when the body has no code, and clears it", async () => {
+    const referrer = await createUser({ handle: "referrer" });
+    const code = await getOrCreateReferralCode(referrer.id);
+    const newUser = await createUser({ handle: "newbie" });
+    vi.mocked(requireUser).mockResolvedValue(newUser.id);
+    cookieStore.get.mockReturnValue({ value: code });
+
+    // Empty body → the cookie is the source of the code.
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: true });
+    expect(await prisma.referral.count()).toBe(1);
+    // The pending-referral cookie is cleared (max-age 0) on the response.
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${REFERRAL_COOKIE}=`);
+    expect(setCookie.toLowerCase()).toMatch(/max-age=0|expires=/);
+  });
+
+  it("prefers an explicit body code over the cookie", async () => {
+    const referrer = await createUser({ handle: "referrer" });
+    const code = await getOrCreateReferralCode(referrer.id);
+    const newUser = await createUser({ handle: "newbie" });
+    vi.mocked(requireUser).mockResolvedValue(newUser.id);
+    cookieStore.get.mockReturnValue({ value: "STALECODE" });
+
+    const res = await POST(claimRequest({ code }));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: true });
+  });
+
+  it("returns 422 when neither a body code nor a cookie is present", async () => {
+    const newUser = await createUser({ handle: "newbie" });
+    vi.mocked(requireUser).mockResolvedValue(newUser.id);
+    // no cookie (default), empty body
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(422);
+  });
+
+  it("clears the cookie even when the captured referral is a no-op (unknown code)", async () => {
+    const newUser = await createUser({ handle: "newbie" });
+    vi.mocked(requireUser).mockResolvedValue(newUser.id);
+    cookieStore.get.mockReturnValue({ value: "NOPECODE" });
+
+    const res = await POST(claimRequest({}));
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ recorded: false });
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${REFERRAL_COOKIE}=`);
   });
 });

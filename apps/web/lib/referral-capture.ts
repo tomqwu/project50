@@ -1,0 +1,83 @@
+/**
+ * Referral capture-across-auth (#266 / F4).
+ *
+ * The invite link is `${origin}/?ref=<code>`. When the recipient is a NEW,
+ * signed-OUT user (the primary case), hitting `/?ref=...` redirects them to
+ * `/signin` — and a query param does NOT survive that redirect or the external
+ * OAuth round-trip, so the referral code would be lost before it could ever be
+ * recorded.
+ *
+ * Fix: capture `<code>` into a short-lived httpOnly cookie in `middleware`
+ * (which runs on every request, BEFORE any redirect, and whose cookie survives
+ * the OAuth bounce). After the user lands authenticated, the cookie is read and
+ * the referral is recorded via the SAME `recordReferral` attribution path used
+ * by `/api/referral/claim` (idempotent + self-referral-safe), then cleared.
+ *
+ * This module is split into an edge-safe capture half (no DB) and a Node claim
+ * half (delegates to `recordReferral`) so each can be unit-tested in isolation.
+ */
+import type { NextRequest, NextResponse } from "next/server";
+
+/** Name of the short-lived cookie holding a pending referral code. */
+export const REFERRAL_COOKIE = "p50_ref";
+
+/** Lifetime of the pending-referral cookie: 30 minutes. */
+export const REFERRAL_COOKIE_MAX_AGE_SECONDS = 30 * 60;
+
+/**
+ * Generated codes are 8 chars from `[A-Z2-9]` (see `lib/api/referral.ts`). We
+ * accept the slightly broader `[A-Za-z0-9]{1,64}` so legacy/manual codes still
+ * work, while rejecting anything with spaces, slashes, or other characters that
+ * could smuggle a path/redirect into the cookie value.
+ */
+const VALID_CODE = /^[A-Za-z0-9]{1,64}$/;
+
+/** True when `code` is a plausible, injection-safe referral code. */
+export function isValidReferralCode(code: string): boolean {
+  return VALID_CODE.test(code);
+}
+
+/**
+ * If the incoming request carries a valid `?ref=<code>`, set the pending
+ * referral cookie on `response`. Edge-safe (no DB). Returns whether a cookie
+ * was set. Invalid/garbage/absent codes are ignored (no cookie, no throw).
+ */
+export function captureReferralFromRequest(
+  request: NextRequest,
+  response: NextResponse,
+): boolean {
+  const raw = request.nextUrl.searchParams.get("ref");
+  if (raw === null) return false;
+  const code = raw.trim();
+  if (!isValidReferralCode(code)) return false;
+
+  response.cookies.set(REFERRAL_COOKIE, code, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: REFERRAL_COOKIE_MAX_AGE_SECONDS,
+    // Secure in production (https); plain over http so local/e2e still works.
+    secure: process.env.NODE_ENV === "production",
+  });
+  return true;
+}
+
+/**
+ * Record a captured referral `code` for `uid`, reusing the canonical
+ * `recordReferral` attribution path (idempotent; self-referral / already-claimed
+ * / unknown-code are safe no-ops). Returns whether a NEW referral was recorded.
+ * A missing/blank/invalid code is a no-op that never touches the DB.
+ *
+ * Imported lazily so the edge `middleware` half of this module never pulls in
+ * Prisma.
+ */
+export async function claimReferralCode(
+  code: string | undefined,
+  uid: string,
+): Promise<boolean> {
+  if (!code) return false;
+  const trimmed = code.trim();
+  if (!isValidReferralCode(trimmed)) return false;
+  const { recordReferral } = await import("./api/referral");
+  return recordReferral(trimmed, uid);
+}

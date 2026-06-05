@@ -1,5 +1,12 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { middleware } from "./middleware";
+import { REFERRAL_COOKIE } from "./lib/referral-capture";
+import type { NextRequest } from "next/server";
+
+/** Build a minimal NextRequest-like object exposing only `nextUrl`. */
+function reqFor(url: string): NextRequest {
+  return { nextUrl: new URL(url) } as unknown as NextRequest;
+}
 
 /**
  * Guards the dev/prod CSP split. The e2e suite runs the production build
@@ -112,5 +119,32 @@ describe("security headers middleware — storage origins (CSP)", () => {
     const c = csp();
     // connect-src falls back to just 'self' (no storage origin appended).
     expect(c).toMatch(/connect-src 'self'(;| )/);
+  });
+});
+
+describe("security headers middleware — referral capture (#266)", () => {
+  it("captures ?ref=<code> into the p50_ref cookie (survives the auth redirect)", () => {
+    const res = middleware(reqFor("https://app.test/?ref=ABCD2345"));
+    const cookie = res.cookies.get(REFERRAL_COOKIE);
+    expect(cookie?.value).toBe("ABCD2345");
+    expect(cookie?.httpOnly).toBe(true);
+    // Still emits the security headers on the same response.
+    expect(res.headers.get("content-security-policy")).toContain("default-src 'self'");
+  });
+
+  it("does not set the cookie when there is no ?ref param", () => {
+    const res = middleware(reqFor("https://app.test/dashboard"));
+    expect(res.cookies.get(REFERRAL_COOKIE)).toBeUndefined();
+  });
+
+  it("ignores a garbage ?ref value (no cookie set)", () => {
+    const res = middleware(reqFor("https://app.test/?ref=" + encodeURIComponent("../evil ")));
+    expect(res.cookies.get(REFERRAL_COOKIE)).toBeUndefined();
+  });
+
+  it("still works (no throw) when called without a request — headers only", () => {
+    const res = middleware();
+    expect(res.headers.get("content-security-policy")).toBeTruthy();
+    expect(res.cookies.get(REFERRAL_COOKIE)).toBeUndefined();
   });
 });
