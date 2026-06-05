@@ -47,6 +47,7 @@ recorded via `track(event, props)` and carries the call's epoch-ms timestamp
 | `project50_started` | The user begins (or restarts) a 50-day challenge — fires when the start/restart button is pressed. | `app/(app)/_components/Project50Client.tsx` | `restarted: boolean` — `false` for a first start, `true` for a hard-reset restart. |
 | `rule_toggled` | The user checks or unchecks one of the day's rules. | `app/(app)/_components/Project50Client.tsx` | `ruleId: string` — which rule; `done: boolean` — checked (`true`) or unchecked (`false`). |
 | `upgrade_clicked` | The user presses the primary upgrade button on the paywall (intent to pay — before Stripe Checkout). | `app/(app)/upgrade/_components/Paywall.tsx` | `trial: boolean` — whether a free trial was requested at checkout. |
+| `share_completed` | A celebrate-screen social share completed successfully. **Reserved — declared in the union (#285) but not yet wired.** Emit from the share panel's success handler (`app/(app)/challenges/[id]/celebrate/SocialShareClient.tsx`). Lets you measure shares per platform and confirm the `shareInstagram` kill-switch (see `FEATURE-FLAGS.md`) actually stops Instagram shares. | _none yet_ | `platform: "FACEBOOK" \| "INSTAGRAM" \| "WECHAT" \| "WEBSHARE"`; `asset: "IMAGE" \| "VIDEO"` |
 
 **Implicit properties on every event** (set by `track()` / the collector, not by
 call sites): `event` (the union member), `ts` (epoch ms), and — once a backend

@@ -9,6 +9,16 @@ interface Props {
   shareId: string;
   /** 1-based day number to share. */
   dayNumber: number;
+  /**
+   * Whether the Instagram share option is offered (#285 `shareInstagram`
+   * kill-switch). Resolved server-side via `isFeatureEnabled("shareInstagram")`
+   * and threaded down (this is a client component). Defaults to `true` so the
+   * button shows unless explicitly disabled — matching the flag's default-ON
+   * state and keeping existing callers unchanged. When `false`, the Instagram
+   * button (and its fallback) are omitted entirely; Facebook / copy / native
+   * share are unaffected.
+   */
+  instagramEnabled?: boolean;
 }
 
 type CopyState = "idle" | "copied" | "error";
@@ -31,7 +41,7 @@ type InstagramState = "idle" | "pending" | "fallback";
  * The share URL/image are resolved against the current window origin; this is a
  * client-only component so `window` is always defined.
  */
-export function ShareDayButton({ shareId, dayNumber }: Props) {
+export function ShareDayButton({ shareId, dayNumber, instagramEnabled = true }: Props) {
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [igState, setIgState] = useState<InstagramState>("idle");
 
@@ -151,17 +161,19 @@ export function ShareDayButton({ shareId, dayNumber }: Props) {
         >
           Facebook
         </button>
-        <button
-          type="button"
-          data-testid="share-instagram-button"
-          aria-label={`Share Day ${dayNumber} on Instagram`}
-          aria-busy={igState === "pending"}
-          disabled={igState === "pending"}
-          onClick={handleInstagram}
-          style={{ ...pillStyle, opacity: igState === "pending" ? 0.6 : 1 }}
-        >
-          {igState === "pending" ? "Sharing…" : "Instagram"}
-        </button>
+        {instagramEnabled && (
+          <button
+            type="button"
+            data-testid="share-instagram-button"
+            aria-label={`Share Day ${dayNumber} on Instagram`}
+            aria-busy={igState === "pending"}
+            disabled={igState === "pending"}
+            onClick={handleInstagram}
+            style={{ ...pillStyle, opacity: igState === "pending" ? 0.6 : 1 }}
+          >
+            {igState === "pending" ? "Sharing…" : "Instagram"}
+          </button>
+        )}
         <button
           type="button"
           data-testid="copy-day-link-button"
@@ -178,7 +190,7 @@ export function ShareDayButton({ shareId, dayNumber }: Props) {
         )}
       </div>
 
-      {igState === "fallback" && (
+      {instagramEnabled && igState === "fallback" && (
         <div
           data-testid="instagram-fallback"
           style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}

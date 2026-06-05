@@ -49,6 +49,32 @@ describe("ShareDayButton — structure", () => {
   });
 });
 
+describe("ShareDayButton — shareInstagram kill-switch (#285)", () => {
+  it("renders the Instagram button when instagramEnabled is true (default)", () => {
+    render(<ShareDayButton shareId="abc" dayNumber={7} />);
+    expect(screen.getByTestId("share-instagram-button")).toBeInTheDocument();
+  });
+
+  it("renders the Instagram button when instagramEnabled is explicitly true", () => {
+    render(<ShareDayButton shareId="abc" dayNumber={7} instagramEnabled />);
+    expect(screen.getByTestId("share-instagram-button")).toBeInTheDocument();
+  });
+
+  it("omits the Instagram button when instagramEnabled is false", () => {
+    render(<ShareDayButton shareId="abc" dayNumber={7} instagramEnabled={false} />);
+    expect(screen.queryByTestId("share-instagram-button")).not.toBeInTheDocument();
+    // No IG fallback either.
+    expect(screen.queryByTestId("instagram-fallback")).not.toBeInTheDocument();
+  });
+
+  it("keeps Facebook, copy, and native share when Instagram is disabled", () => {
+    render(<ShareDayButton shareId="abc" dayNumber={7} instagramEnabled={false} />);
+    expect(screen.getByTestId("share-day-button")).toBeInTheDocument();
+    expect(screen.getByTestId("share-facebook-button")).toBeInTheDocument();
+    expect(screen.getByTestId("copy-day-link-button")).toBeInTheDocument();
+  });
+});
+
 describe("ShareDayButton — generic native share", () => {
   it("uses navigator.share with the day URL when available", async () => {
     const share = vi.fn().mockResolvedValue(undefined);

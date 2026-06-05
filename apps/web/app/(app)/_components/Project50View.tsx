@@ -29,6 +29,12 @@ interface Props {
   onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void>;
   /** Injectable for testing — defaults to readImageDimensions. */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
+  /**
+   * Whether the Instagram day-share option is offered (#285 `shareInstagram`
+   * kill-switch, resolved server-side and threaded down). Forwarded to the
+   * calendar's {@link ShareDayButton}; defaults to `true` (flag default-ON).
+   */
+  instagramEnabled?: boolean;
 }
 
 /**
@@ -254,6 +260,7 @@ export function Project50View({
   onRemoveMedia,
   onSaveJournal,
   readDimensions,
+  instagramEnabled = true,
 }: Props) {
   const [openHelpId, setOpenHelpId] = useState<number | null>(null);
 
@@ -449,6 +456,7 @@ export function Project50View({
         days={state.history?.days ?? []}
         shareId={state.shareId}
         todayCompletedCount={today.completedCount}
+        instagramEnabled={instagramEnabled}
       />
     </div>
   );

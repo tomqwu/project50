@@ -56,16 +56,19 @@ vi.mock("./SocialShare", () => ({
     challengeId,
     hasRecap,
     isPublic,
+    capabilities,
   }: {
     challengeId: string;
     hasRecap: boolean;
     isPublic: boolean;
+    capabilities?: { platform: string }[];
   }) => (
     <div
       data-testid="social-share"
       data-challenge-id={challengeId}
       data-has-recap={String(hasRecap)}
       data-is-public={String(isPublic)}
+      data-platforms={(capabilities ?? []).map((c) => c.platform).join(",")}
     />
   ),
 }));
@@ -379,5 +382,52 @@ describe("CelebratePage", () => {
     await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
 
     expect(mockGetCapabilities).toHaveBeenCalled();
+  });
+
+  describe("shareInstagram feature flag", () => {
+    const caps = [
+      { platform: "WEBSHARE", method: "WEBSHARE", apiAvailable: false },
+      { platform: "FACEBOOK", method: "DEEPLINK", apiAvailable: false },
+      { platform: "INSTAGRAM", method: "DEEPLINK", apiAvailable: false },
+    ];
+
+    afterEach(() => {
+      delete process.env.FLAG_SHARE_INSTAGRAM;
+    });
+
+    it("includes Instagram in capabilities by default (flag ON)", async () => {
+      mockRequireUser.mockResolvedValue("u1");
+      mockGetChallenge.mockResolvedValue(baseChallenge);
+      mockGetMilestones.mockResolvedValue([]);
+      mockGetCapabilities.mockReturnValue(caps);
+      mockLocalDayKey.mockReturnValue("2026-05-03");
+      mockDayNumber.mockReturnValue(3);
+
+      const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+      render(ui);
+
+      expect(screen.getByTestId("social-share")).toHaveAttribute(
+        "data-platforms",
+        "WEBSHARE,FACEBOOK,INSTAGRAM",
+      );
+    });
+
+    it("drops Instagram when the kill-switch FLAG_SHARE_INSTAGRAM=false is set", async () => {
+      process.env.FLAG_SHARE_INSTAGRAM = "false";
+      mockRequireUser.mockResolvedValue("u1");
+      mockGetChallenge.mockResolvedValue(baseChallenge);
+      mockGetMilestones.mockResolvedValue([]);
+      mockGetCapabilities.mockReturnValue(caps);
+      mockLocalDayKey.mockReturnValue("2026-05-03");
+      mockDayNumber.mockReturnValue(3);
+
+      const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+      render(ui);
+
+      expect(screen.getByTestId("social-share")).toHaveAttribute(
+        "data-platforms",
+        "WEBSHARE,FACEBOOK",
+      );
+    });
   });
 });
