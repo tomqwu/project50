@@ -171,13 +171,20 @@ resource "azurerm_role_assignment" "uami_blob" {
   principal_id         = module.onboard.identity_principal_id
 }
 
-# ── Deployer Key Vault access ───────────────────────────────────────────────
-# The principal running `terraform apply` needs to WRITE secrets into the
-# RBAC-mode per-app Key Vault. The onboard module grants the app's UAMI read
-# access, but not the deployer — so grant it here (captured in code, not a
-# manual `az role assignment`), then wait for RBAC to propagate before the
-# secret writes below (data-plane RBAC is eventually-consistent — without the
-# wait the first apply races the grant and 403s).
+# ── Key Vault RBAC propagation gate ─────────────────────────────────────────
+# Two data-plane RBAC grants must be LIVE before the things that depend on them
+# (data-plane RBAC is eventually-consistent — acting before propagation 403s):
+#   1. The DEPLOYER's "Key Vault Secrets Officer" grant (created here) — needed
+#      for the out-of-band `az keyvault secret set` writes the operator runs.
+#   2. The app UAMI's "Key Vault Secrets User" grant (created INSIDE
+#      module.onboard as azurerm_role_assignment.kv_secrets_user) — needed for
+#      the Container App to resolve its versionless KV secret URIs at create time.
+# Previously the (now-removed) azurerm_key_vault_secret resources chained the
+# Container App behind this wait implicitly; with them gone we make the wait
+# depend on BOTH grants and gate the Container App on it explicitly (see
+# `depends_on` on azurerm_container_app.web). The module exposes no handle for
+# its role assignment, so we depend on module.onboard as a whole — which orders
+# after every module resource, including kv_secrets_user.
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_role_assignment" "deployer_kv_secrets" {
@@ -187,7 +194,9 @@ resource "azurerm_role_assignment" "deployer_kv_secrets" {
 }
 
 resource "time_sleep" "kv_rbac_propagation" {
-  depends_on      = [azurerm_role_assignment.deployer_kv_secrets]
+  # Wait covers BOTH the deployer's Secrets Officer grant and the app UAMI's
+  # Secrets User grant (the latter inside module.onboard).
+  depends_on      = [azurerm_role_assignment.deployer_kv_secrets, module.onboard]
   create_duration = "60s"
 }
 
@@ -222,6 +231,13 @@ resource "azurerm_container_app_environment" "env" {
 
 # ── The web app (scale-to-zero) ─────────────────────────────────────────────
 resource "azurerm_container_app" "web" {
+  # Don't create the app until the UAMI's Key Vault Secrets User grant (and the
+  # deployer's Officer grant) have propagated — otherwise Container Apps fails
+  # resolving the versionless KV secret URIs at create time. Removing the
+  # azurerm_key_vault_secret resources dropped the implicit chain that used to
+  # enforce this, so the dependency is now explicit.
+  depends_on = [time_sleep.kv_rbac_propagation]
+
   name                         = "ca-project50-web-dev"
   container_app_environment_id = azurerm_container_app_environment.env.id
   resource_group_name          = module.onboard.resource_group_name
