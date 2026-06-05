@@ -25,5 +25,13 @@ module.exports = {
         "@typescript-eslint/no-require-imports": "off",
       },
     },
+    {
+      // Node/Metro config files (metro.config.js, etc.) are CommonJS and must
+      // use require() — they're loaded by tooling outside the ESM app bundle.
+      files: ["*.config.js"],
+      rules: {
+        "@typescript-eslint/no-require-imports": "off",
+      },
+    },
   ],
 };
