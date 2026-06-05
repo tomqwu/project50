@@ -106,7 +106,9 @@ export default async function DaySharePage({
         {/* The 7 rule rows */}
         <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
           {PROJECT50_RULES.map((rule, i) => {
-            const done = ruleChecks[i] ?? false;
+            // ruleChecks is always boolean[7] (built from PROJECT50_RULE_IDS in
+            // getPublicDay), so index i is always present for rule i.
+            const done = ruleChecks[i] === true;
             return (
               <li
                 key={rule.id}
