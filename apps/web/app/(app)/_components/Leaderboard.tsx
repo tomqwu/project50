@@ -26,6 +26,12 @@ export function Leaderboard({ friends, global }: LeaderboardProps) {
   const [scope, setScope] = useState<LeaderboardScope>("friends");
   const rows = scope === "friends" ? friends : global;
 
+  // Friends is fetched as followees ∪ self, so a user with no followees still
+  // gets their own row. Treat "no NON-SELF rows" as the empty (no-friends) case
+  // so the invite seam actually shows. Global is empty only when truly empty.
+  const isEmpty =
+    scope === "friends" ? rows.every((r) => r.isMe) : rows.length === 0;
+
   return (
     <section
       aria-label="Project 50 leaderboard"
@@ -68,7 +74,7 @@ export function Leaderboard({ friends, global }: LeaderboardProps) {
         })}
       </div>
 
-      {rows.length === 0 ? (
+      {isEmpty ? (
         <EmptyState scope={scope} />
       ) : (
         <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -120,8 +126,17 @@ function Row({ entry }: { entry: LeaderboardEntry }) {
         </span>
       </td>
       <td style={{ ...tdStyle, textAlign: "right" }}>
-        <span style={{ display: "block", color: "var(--text)", fontWeight: 600 }}>
-          Day {entry.currentDay}
+        <span
+          style={{
+            display: "block",
+            // Project 50 days are 1..50 — a currentDay of 0 means no live run
+            // today (stale/failed/completed), so show an inactive label, never
+            // an impossible "Day 0". The row stays for its historical total.
+            color: entry.currentDay === 0 ? "var(--muted)" : "var(--text)",
+            fontWeight: 600,
+          }}
+        >
+          {entry.currentDay === 0 ? "Not active" : `Day ${entry.currentDay}`}
         </span>
         <span style={{ display: "block", color: "var(--muted)", fontSize: "12px" }}>
           {entry.completedDays} days total

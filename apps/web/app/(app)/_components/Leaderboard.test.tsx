@@ -147,4 +147,43 @@ describe("Leaderboard", () => {
     // The friends-only invite seam must NOT appear on the global tab.
     expect(screen.queryByTestId("leaderboard-invite-seam")).not.toBeInTheDocument();
   });
+
+  it("renders an inactive label (not 'Day 0') for a currentDay:0 row, keeping the total", () => {
+    const withInactive: LeaderboardEntry[] = [
+      entry({ rank: 1, userId: "ua", displayName: "Alice", currentDay: 7, completedDays: 6 }),
+      // Stale/inactive run: currentDay 0 but has historical completed days.
+      entry({ rank: 2, userId: "zz", displayName: "Zed", currentDay: 0, completedDays: 4 }),
+    ];
+    render(<Leaderboard friends={withInactive} global={global} />);
+    const zedRow = screen.getByTestId("leaderboard-row-zz");
+    // Project 50 days are 1..50 — never "Day 0".
+    expect(within(zedRow).queryByText(/Day 0\b/)).not.toBeInTheDocument();
+    expect(within(zedRow).getByText(/not active/i)).toBeInTheDocument();
+    // The historical total is still shown for an inactive row.
+    expect(within(zedRow).getByText(/4 days total/)).toBeInTheDocument();
+  });
+
+  it("friends scope with only the viewer's own row shows the invite empty-state", () => {
+    // followees ∪ self → with no followees the array still has the self row, so
+    // the empty-state must key off non-self rows, not array length.
+    const onlyMe: LeaderboardEntry[] = [
+      entry({ rank: 1, userId: "me", displayName: "Me", currentDay: 5, completedDays: 4, isMe: true }),
+    ];
+    render(<Leaderboard friends={onlyMe} global={global} />);
+    expect(screen.getByTestId("leaderboard-empty-friends")).toBeInTheDocument();
+    expect(screen.getByText(/no friends yet/i)).toBeInTheDocument();
+    expect(screen.getByTestId("leaderboard-invite-seam")).toHaveAttribute("href", "/refer");
+    // The leaderboard table of just-yourself is not shown for the no-friends case.
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("friends scope with at least one non-self row renders the table, not the empty-state", () => {
+    const meAndFriend: LeaderboardEntry[] = [
+      entry({ rank: 1, userId: "ua", displayName: "Alice", currentDay: 12, completedDays: 11 }),
+      entry({ rank: 2, userId: "me", displayName: "Me", currentDay: 9, completedDays: 7, isMe: true }),
+    ];
+    render(<Leaderboard friends={meAndFriend} global={global} />);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.queryByTestId("leaderboard-empty-friends")).not.toBeInTheDocument();
+  });
 });

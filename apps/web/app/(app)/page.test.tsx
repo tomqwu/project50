@@ -164,6 +164,18 @@ describe("DashboardPage (Project 50)", () => {
               completedDays: 2,
               isMe: true,
             },
+            // A non-self friend so the friends table renders (a self-only friends
+            // list now shows the invite empty-state instead).
+            {
+              rank: 2,
+              userId: "u2",
+              handle: "ace",
+              displayName: "Ace",
+              avatarUrl: null,
+              currentDay: 2,
+              completedDays: 1,
+              isMe: false,
+            },
           ]
         : [],
     );
@@ -324,6 +336,17 @@ describe("DashboardPage (Project 50)", () => {
               currentDay: 9,
               completedDays: 8,
               isMe: true,
+            },
+            // A non-self friend so the friends table renders.
+            {
+              rank: 2,
+              userId: "u2",
+              handle: "ace",
+              displayName: "Ace",
+              avatarUrl: null,
+              currentDay: 4,
+              completedDays: 3,
+              isMe: false,
             },
           ]
         : [],
