@@ -8,10 +8,13 @@ export interface PublicDayMedia {
   url: string;
 }
 
+/** The PUBLIC challenge as loaded by getChallengeByShareId (never null here). */
+export type PublicChallenge = NonNullable<Awaited<ReturnType<typeof getChallengeByShareId>>>;
+
 /** The public, read-only view of a single Project 50 day. */
 export interface PublicDay {
   /** The PUBLIC challenge the day belongs to (as loaded by getChallengeByShareId). */
-  challenge: Awaited<ReturnType<typeof getChallengeByShareId>>;
+  challenge: PublicChallenge;
   /** 1-based day number within the run (1..lengthDays). */
   dayNumber: number;
   /** The run-local YYYY-MM-DD key for the day. */
