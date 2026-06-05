@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dayShareUrl, facebookSharerUrl } from "./share-links";
+import { dayShareUrl, facebookSharerUrl, referralUrl } from "./share-links";
 
 describe("dayShareUrl", () => {
   it("builds the public per-day URL from origin, shareId, and day number", () => {
@@ -31,6 +31,24 @@ describe("facebookSharerUrl", () => {
     const url = "https://x.test/c/a b/day/1?q=1&r=2";
     expect(facebookSharerUrl(url)).toBe(
       `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+    );
+  });
+});
+
+describe("referralUrl", () => {
+  it("builds the referral link from origin and code (matches the /?ref= convention)", () => {
+    expect(referralUrl("https://www.project50.fit", "ABCD2345")).toBe(
+      "https://www.project50.fit/?ref=ABCD2345",
+    );
+  });
+
+  it("does not duplicate or drop the slash when origin has no trailing slash", () => {
+    expect(referralUrl("https://app.test", "XYZ")).toBe("https://app.test/?ref=XYZ");
+  });
+
+  it("preserves a custom origin path/port verbatim", () => {
+    expect(referralUrl("http://localhost:3000", "code-1")).toBe(
+      "http://localhost:3000/?ref=code-1",
     );
   });
 });
