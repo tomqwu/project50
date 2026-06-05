@@ -92,15 +92,20 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 # footer badge links to the release notes — see scripts/release-build-args.sh and
 # infra/azure/README.md. ARGs must precede `next build`; ENV makes them visible to
 # next.config.mjs. Defaults mirror the local "dev" fallback when args are omitted.
+# NEXT_PUBLIC_RELEASE_TITLE_B64 is the feature intro base64-encoded: the title has
+# spaces + parens (e.g. "fix(deploy): ... (#300)") that break `az acr build`, which
+# runs the remote `docker build --build-arg ...` via /bin/sh WITHOUT quoting the
+# value. base64 keeps it a single shell-safe token; next.config.mjs decodes it back
+# into NEXT_PUBLIC_RELEASE_TITLE. See scripts/release-build-args.sh.
 ARG NEXT_PUBLIC_RELEASE_TAG=dev
 ARG NEXT_PUBLIC_RELEASE_SHA=local
 ARG NEXT_PUBLIC_RELEASE_TIME=
-ARG NEXT_PUBLIC_RELEASE_TITLE=Local development build
+ARG NEXT_PUBLIC_RELEASE_TITLE_B64=
 ARG NEXT_PUBLIC_RELEASE_URL=
 ENV NEXT_PUBLIC_RELEASE_TAG=$NEXT_PUBLIC_RELEASE_TAG \
     NEXT_PUBLIC_RELEASE_SHA=$NEXT_PUBLIC_RELEASE_SHA \
     NEXT_PUBLIC_RELEASE_TIME=$NEXT_PUBLIC_RELEASE_TIME \
-    NEXT_PUBLIC_RELEASE_TITLE=$NEXT_PUBLIC_RELEASE_TITLE \
+    NEXT_PUBLIC_RELEASE_TITLE_B64=$NEXT_PUBLIC_RELEASE_TITLE_B64 \
     NEXT_PUBLIC_RELEASE_URL=$NEXT_PUBLIC_RELEASE_URL
 RUN pnpm --filter @project50/web build
 

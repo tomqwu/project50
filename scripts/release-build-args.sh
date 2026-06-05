@@ -17,8 +17,11 @@
 #   # Splice the flags into az acr build (see infra/azure/README.md). CAPTURE the
 #   # output and ABORT on failure FIRST: an inline `$(...)` would swallow this
 #   # script's non-zero exit (HEAD not at tag / dirty tree) and build with the
-#   # Dockerfile's "dev" defaults. The release TITLE can contain spaces, so the
-#   # captured flags are shell-quoted and the build line MUST be run through `eval`:
+#   # Dockerfile's "dev" defaults. The release TITLE is emitted base64-encoded as
+#   # NEXT_PUBLIC_RELEASE_TITLE_B64 (next.config.mjs decodes it) so its spaces and
+#   # parens survive `az acr build`, which runs the remote `docker build
+#   # --build-arg ...` through /bin/sh WITHOUT quoting the value. The captured
+#   # flags are still shell-quoted and the build line MUST be run through `eval`:
 #   BUILD_ARGS=$(bash scripts/release-build-args.sh "<tag>") || exit 1
 #   eval "az acr build --registry acralztyhlgn6o --image project50-web:<sha> \
 #     --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
@@ -119,11 +122,18 @@ if command -v gh >/dev/null 2>&1; then
 fi
 
 # --- Emit ---------------------------------------------------------------------
+# Base64-encode the TITLE so the build-arg value is a single shell-safe token
+# ([A-Za-z0-9+/=], no spaces/parens). `az acr build` builds a remote
+# `docker build ... --build-arg NEXT_PUBLIC_RELEASE_TITLE_B64=<value> .` and runs
+# it via /bin/sh WITHOUT quoting the value; a raw title (spaces + `(#NNN)`) would
+# tokenize wrong and throw `syntax error near unexpected token '('`. next.config.mjs
+# decodes it back. `tr -d '\n'` strips base64's line wrapping to keep it one token.
+TITLE_B64="$(printf '%s' "$TITLE" | base64 | tr -d '\n')"
 FLAGS=(
   "--build-arg" "NEXT_PUBLIC_RELEASE_TAG=$TAG"
   "--build-arg" "NEXT_PUBLIC_RELEASE_SHA=$SHA"
   "--build-arg" "NEXT_PUBLIC_RELEASE_TIME=$TIME"
-  "--build-arg" "NEXT_PUBLIC_RELEASE_TITLE=$TITLE"
+  "--build-arg" "NEXT_PUBLIC_RELEASE_TITLE_B64=$TITLE_B64"
   "--build-arg" "NEXT_PUBLIC_RELEASE_URL=$URL"
 )
 

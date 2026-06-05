@@ -36,9 +36,34 @@ function resolveReleaseEnv() {
     NEXT_PUBLIC_RELEASE_TAG: tag,
     NEXT_PUBLIC_RELEASE_SHA: sha,
     NEXT_PUBLIC_RELEASE_TIME: process.env.NEXT_PUBLIC_RELEASE_TIME || new Date().toISOString(),
-    NEXT_PUBLIC_RELEASE_TITLE: process.env.NEXT_PUBLIC_RELEASE_TITLE || "Local development build",
+    // The deploy pipeline passes the title base64-encoded (NEXT_PUBLIC_RELEASE_TITLE_B64)
+    // so its spaces/parens survive `az acr build`'s unquoted remote docker build;
+    // decode it here. Falls back to the legacy raw NEXT_PUBLIC_RELEASE_TITLE, then
+    // the "dev" default. Mirrors lib/release-title.ts (resolveReleaseTitle), which
+    // next.config.mjs cannot import directly (it can't load TypeScript).
+    NEXT_PUBLIC_RELEASE_TITLE: resolveReleaseTitle(),
     NEXT_PUBLIC_RELEASE_URL: process.env.NEXT_PUBLIC_RELEASE_URL || "",
   };
+}
+
+/**
+ * Resolve the ReleaseBadge title, preferring a decoded NEXT_PUBLIC_RELEASE_TITLE_B64.
+ * Kept in sync with lib/release-title.ts (the unit-tested implementation); see
+ * that file for why the title is base64-encoded across the build boundary.
+ *
+ * @returns {string}
+ */
+function resolveReleaseTitle() {
+  const b64 = process.env.NEXT_PUBLIC_RELEASE_TITLE_B64;
+  if (b64) {
+    try {
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      if (decoded) return decoded;
+    } catch {
+      // Fall through to the legacy/dev sources on an undecodable value.
+    }
+  }
+  return process.env.NEXT_PUBLIC_RELEASE_TITLE || "Local development build";
 }
 
 /**
