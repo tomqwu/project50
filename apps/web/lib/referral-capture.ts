@@ -13,8 +13,10 @@
  * the referral is recorded via the SAME `recordReferral` attribution path used
  * by `/api/referral/claim` (idempotent + self-referral-safe), then cleared.
  *
- * This module is split into an edge-safe capture half (no DB) and a Node claim
- * half (delegates to `recordReferral`) so each can be unit-tested in isolation.
+ * EDGE-ONLY: this module is imported by the Edge `middleware`, so it must NOT
+ * import (statically OR dynamically) anything that pulls in Prisma or
+ * `node:crypto`. The Node-only claim helper that records via the DB lives in the
+ * sibling `referral-claim-server.ts` (imported only from server/route code).
  */
 import type { NextRequest, NextResponse } from "next/server";
 
@@ -119,24 +121,4 @@ export function captureReferralFromRequest(
     secure: shouldSecureReferralCookie(request),
   });
   return true;
-}
-
-/**
- * Record a captured referral `code` for `uid`, reusing the canonical
- * `recordReferral` attribution path (idempotent; self-referral / already-claimed
- * / unknown-code are safe no-ops). Returns whether a NEW referral was recorded.
- * A missing/blank/invalid code is a no-op that never touches the DB.
- *
- * Imported lazily so the edge `middleware` half of this module never pulls in
- * Prisma.
- */
-export async function claimReferralCode(
-  code: string | undefined,
-  uid: string,
-): Promise<boolean> {
-  if (!code) return false;
-  const trimmed = code.trim();
-  if (!isValidReferralCode(trimmed)) return false;
-  const { recordReferral } = await import("./api/referral");
-  return recordReferral(trimmed, uid);
 }

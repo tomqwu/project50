@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("./api/referral", () => ({ recordReferral: vi.fn() }));
 
 import { recordReferral } from "./api/referral";
-import { claimReferralCode } from "./referral-capture";
+import { claimReferralCode } from "./referral-claim-server";
 
 beforeEach(() => {
   vi.resetAllMocks();
