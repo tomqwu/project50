@@ -81,4 +81,21 @@ describe("Project50Calendar", () => {
     render(<Project50Calendar days={days} shareId="share-abc" todayCompletedCount={6} />);
     expect(screen.queryByTestId("share-day-button")).not.toBeInTheDocument();
   });
+
+  it("forwards instagramEnabled to each ShareDayButton (#285 kill-switch)", () => {
+    const days: Project50HistoryDay[] = [
+      { dayNumber: 1, dayKey: "2026-06-01", status: "complete" },
+      { dayNumber: 2, dayKey: "2026-06-02", status: "complete" },
+    ];
+
+    // Default ON → Instagram buttons present.
+    const { unmount } = render(<Project50Calendar days={days} shareId="share-abc" />);
+    expect(screen.getAllByTestId("share-instagram-button")).toHaveLength(2);
+    unmount();
+
+    // instagramEnabled=false → no Instagram buttons, share controls still render.
+    render(<Project50Calendar days={days} shareId="share-abc" instagramEnabled={false} />);
+    expect(screen.getAllByTestId("share-day-button")).toHaveLength(2);
+    expect(screen.queryByTestId("share-instagram-button")).not.toBeInTheDocument();
+  });
 });
