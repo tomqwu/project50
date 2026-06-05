@@ -131,14 +131,29 @@ resource "azurerm_storage_account" "media" {
   allow_nested_items_to_be_public = false
   tags                            = module.onboard.tags
 
-  # Soft delete intentionally DISABLED (no delete_retention_policy /
-  # container_delete_retention_policy) so deleteObject is a permanent
-  # hard-erase — required for the GDPR account-deletion contract in
-  # apps/web/lib/storage.ts. Do not enable.
+  # ⚠️ GDPR HARD-ERASE GUARANTEE — blob soft delete is intentionally DISABLED.
+  # Account deletion must PERMANENTLY destroy a user's media; that depends on
+  # deleteObject being an immediate hard-erase (no recoverable copy). This is
+  # the GDPR account-deletion contract in apps/web/lib/storage.ts. DO NOT enable
+  # blob soft delete or container soft delete — doing so would let deleted media
+  # be recovered and silently undermine erasure.
   #
-  # azurerm has no `enabled = false` form for soft delete: the disabled
-  # state is expressed by OMITTING the retention-policy blocks, so this
-  # block is intentionally left without them.
+  # azurerm has NO `enabled = false` form for soft delete: the DISABLED state is
+  # expressed by OMITTING both `delete_retention_policy` and
+  # `container_delete_retention_policy` from this `blob_properties` block — which
+  # is exactly what this block does (it carries only `cors_rule`). Omission is
+  # also the azurerm DEFAULT, so this is belt-and-braces, not a behavior change.
+  #
+  # Do NOT "make it explicit" by adding `delete_retention_policy { days = 0 }`:
+  # the azurerm `days` field is validated IntBetween(1, 365), so `days = 0` is
+  # REJECTED at plan time ("expected days to be in the range (1 - 365), got 0"),
+  # and any days >= 1 ENABLES retention — the opposite of what we want. The only
+  # way to express "disabled" is to OMIT the block (done here).
+  #
+  # Because "disabled = absence", Terraform cannot assert it with a precondition
+  # (there is nothing to reference). The post-deploy guard is the runtime check
+  # in README.md ("Verify blob soft delete is OFF") asserting the Azure Blob
+  # service property `deleteRetentionPolicy.enabled` is false/null.
   #
   # The cors_rule is required because the web app uploads media via direct
   # browser PUT to SAS URLs, so the Blob service must allow cross-origin
