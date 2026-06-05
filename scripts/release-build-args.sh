@@ -14,12 +14,14 @@
 #   bash scripts/release-build-args.sh [TAG]
 #     TAG  release tag to deploy (default: latest `git describe --tags --abbrev=0`)
 #
-#   # Splice the flags into az acr build (see infra/azure/README.md). The release
-#   # TITLE can contain spaces, so the flags are shell-quoted and MUST be expanded
-#   # with `eval` (a bare unquoted $(...) would word-split the title):
+#   # Splice the flags into az acr build (see infra/azure/README.md). CAPTURE the
+#   # output and ABORT on failure FIRST: an inline `$(...)` would swallow this
+#   # script's non-zero exit (HEAD not at tag / dirty tree) and build with the
+#   # Dockerfile's "dev" defaults. The release TITLE can contain spaces, so the
+#   # captured flags are shell-quoted and the build line MUST be run through `eval`:
+#   BUILD_ARGS=$(bash scripts/release-build-args.sh "<tag>") || exit 1
 #   eval "az acr build --registry acralztyhlgn6o --image project50-web:<sha> \
-#     --platform linux/amd64 --file apps/web/Dockerfile \
-#     $(bash scripts/release-build-args.sh <tag>) ."
+#     --platform linux/amd64 --file apps/web/Dockerfile $BUILD_ARGS ."
 #
 #   # Or have the script print the whole, ready-to-eval az acr build line:
 #   ACR_LINE=1 bash scripts/release-build-args.sh <tag>
@@ -58,6 +60,16 @@ if [ -z "$TAG_FULL" ]; then
 fi
 if [ "$TAG_FULL" != "$HEAD_FULL" ]; then
   echo "release-build-args: HEAD ($SHA) is not at tag $TAG — deploy from a tagged commit or pass the exact tag" >&2
+  exit 1
+fi
+
+# --- HARD GATE: the working tree must be CLEAN --------------------------------
+# `az acr build ... .` uploads the whole working dir, INCLUDING uncommitted /
+# staged changes. The tag/HEAD gate only proves committed HEAD is at $TAG, so a
+# dirty tree would bake the $TAG + release URL into an image built from code that
+# isn't in that release. Refuse to emit build args for a dirty tree.
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  echo "release-build-args: working tree has uncommitted changes — commit or stash before deploying" >&2
   exit 1
 fi
 
