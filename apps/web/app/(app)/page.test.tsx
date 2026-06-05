@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { Project50State } from "@/lib/project50";
 
@@ -12,6 +12,7 @@ const {
   mockGetChallenge,
   mockLocalDayKey,
   mockDayNumber,
+  mockGetLeaderboard,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockGetProject50State: vi.fn<() => Promise<Project50State>>(),
@@ -21,11 +22,14 @@ const {
   mockGetChallenge: vi.fn(),
   mockLocalDayKey: vi.fn(),
   mockDayNumber: vi.fn(),
+  mockGetLeaderboard: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
 // Mock the prisma-importing state module so the real module isn't loaded.
 vi.mock("@/lib/project50", () => ({ getProject50State: mockGetProject50State }));
+// Mock the prisma-importing leaderboard module.
+vi.mock("@/lib/leaderboard", () => ({ getLeaderboard: mockGetLeaderboard }));
 vi.mock("@/lib/api/challenges", () => ({
   listChallenges: mockListChallenges,
   getChallenge: mockGetChallenge,
@@ -64,6 +68,11 @@ import DashboardPage from "./page";
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+beforeEach(() => {
+  // Leaderboard scopes default to empty unless a test overrides them.
+  mockGetLeaderboard.mockResolvedValue([]);
 });
 
 describe("DashboardPage (Project 50)", () => {
@@ -221,6 +230,39 @@ describe("DashboardPage (Project 50)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /start project 50/i }));
     expect(mockStartAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("NONE + has challenges → loads both leaderboard scopes and renders the leaderboard", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetProject50State.mockResolvedValue({ status: "NONE" });
+    mockListChallenges.mockResolvedValue([{ id: "c1", title: "Run 5K", goalType: "TARGET" }]);
+    mockGetChallenge.mockResolvedValue(sampleChallenge);
+    mockLocalDayKey.mockReturnValue("2026-06-01");
+    mockDayNumber.mockReturnValue(32);
+    mockGetLeaderboard.mockImplementation(async (_uid: string, opts: { scope: string }) =>
+      opts.scope === "friends"
+        ? [
+            {
+              rank: 1,
+              userId: "u1",
+              handle: "me",
+              displayName: "Captain Me",
+              avatarUrl: null,
+              currentDay: 9,
+              completedDays: 8,
+              isMe: true,
+            },
+          ]
+        : [],
+    );
+
+    const ui = await DashboardPage();
+    render(ui);
+
+    expect(mockGetLeaderboard).toHaveBeenCalledWith("u1", { scope: "friends" });
+    expect(mockGetLeaderboard).toHaveBeenCalledWith("u1", { scope: "global" });
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Captain Me")).toBeInTheDocument();
   });
 
   it("NONE + has challenges → no today dayStatus falls back to 0 / 1 ring, null timezone → UTC", async () => {

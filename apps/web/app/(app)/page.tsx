@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/session";
 import { listChallenges, getChallenge } from "@/lib/api/challenges";
 import { localDayKey, dayNumber } from "@project50/core";
 import { getProject50State } from "@/lib/project50";
+import { getLeaderboard } from "@/lib/leaderboard";
 import { Project50Client } from "./_components/Project50Client";
 import { StartProject50Button } from "./_components/StartProject50Button";
 import { DashboardView } from "./_components/DashboardView";
@@ -40,10 +41,21 @@ export default async function DashboardPage() {
   };
   const challengeItems: ChallengeItem[] = challenges.map((c) => ({ id: c.id, title: c.title, goalType: c.goalType as "TARGET" | "BINARY" }));
 
+  // Load both leaderboard scopes for the dashboard's ranked area.
+  const [friendsLeaderboard, globalLeaderboard] = await Promise.all([
+    getLeaderboard(uid, { scope: "friends" }),
+    getLeaderboard(uid, { scope: "global" }),
+  ]);
+
   return (
     <>
       <StartProject50Button />
-      <DashboardView primary={primary} challenges={challengeItems} />
+      <DashboardView
+        primary={primary}
+        challenges={challengeItems}
+        friendsLeaderboard={friendsLeaderboard}
+        globalLeaderboard={globalLeaderboard}
+      />
     </>
   );
 }

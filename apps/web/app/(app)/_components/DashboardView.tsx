@@ -1,5 +1,7 @@
 import { Button, Card, StatTile, ProgressRing, Label } from "@project50/ui";
 import Link from "next/link";
+import { Leaderboard } from "./Leaderboard";
+import type { LeaderboardEntry } from "@/lib/leaderboard";
 
 export interface DayProgress {
   totalAmount: number;
@@ -28,9 +30,18 @@ export interface ChallengeItem {
 export interface DashboardViewProps {
   primary: PrimaryChallenge | null;
   challenges: ChallengeItem[];
+  /** Friends-scope leaderboard rows (followees ∪ self). */
+  friendsLeaderboard?: LeaderboardEntry[];
+  /** Global-scope leaderboard rows. */
+  globalLeaderboard?: LeaderboardEntry[];
 }
 
-export function DashboardView({ primary, challenges }: DashboardViewProps) {
+export function DashboardView({
+  primary,
+  challenges,
+  friendsLeaderboard = [],
+  globalLeaderboard = [],
+}: DashboardViewProps) {
   if (!primary) {
     return (
       <div
@@ -146,6 +157,9 @@ export function DashboardView({ primary, challenges }: DashboardViewProps) {
           <Button variant="ghost">Edit challenge</Button>
         </Link>
       </div>
+
+      {/* Leaderboard (friends + global) — fills the previously-flat area. */}
+      <Leaderboard friends={friendsLeaderboard} global={globalLeaderboard} />
 
       {/* Other challenges */}
       {others.length > 0 && (
