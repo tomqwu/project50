@@ -6,6 +6,7 @@ import {
   startProject50,
   toggleRule,
   attachProject50DayMedia,
+  removeProject50DayMedia,
 } from "@/lib/project50";
 import { withActionLogging } from "@/lib/log-action";
 
@@ -32,6 +33,15 @@ export const attachProject50MediaAction = withActionLogging(
   async (objectKey: string, width: number, height: number) => {
     const uid = await requireUser();
     await attachProject50DayMedia(uid, { objectKey, width, height });
+    revalidatePath("/");
+  },
+);
+
+export const removeProject50MediaAction = withActionLogging(
+  "removeProject50MediaAction",
+  async (mediaId: string) => {
+    const uid = await requireUser();
+    await removeProject50DayMedia(uid, mediaId);
     revalidatePath("/");
   },
 );
