@@ -49,21 +49,49 @@ function resolveReleaseEnv() {
 /**
  * Resolve the ReleaseBadge title, preferring a decoded NEXT_PUBLIC_RELEASE_TITLE_B64.
  * Kept in sync with lib/release-title.ts (the unit-tested implementation); see
- * that file for why the title is base64-encoded across the build boundary.
+ * that file for why the title is base64-encoded across the build boundary AND why
+ * the decode is validated (Buffer.from is lenient, so a malformed/raw value would
+ * otherwise inline garbage instead of falling back).
  *
  * @returns {string}
  */
 function resolveReleaseTitle() {
-  const b64 = process.env.NEXT_PUBLIC_RELEASE_TITLE_B64;
-  if (b64) {
-    try {
-      const decoded = Buffer.from(b64, "base64").toString("utf8");
-      if (decoded) return decoded;
-    } catch {
-      // Fall through to the legacy/dev sources on an undecodable value.
-    }
-  }
+  const decoded = decodeReleaseTitleB64(process.env.NEXT_PUBLIC_RELEASE_TITLE_B64);
+  if (decoded) return decoded;
   return process.env.NEXT_PUBLIC_RELEASE_TITLE || "Local development build";
+}
+
+/**
+ * Mirror of lib/release-title.ts:decodeReleaseTitleB64 (which can't be imported —
+ * next.config.mjs loads as plain JS, not TypeScript). Validates the input is a
+ * genuine, pipeline-produced value before trusting the lenient
+ * `Buffer.from(x,"base64")` decode: standard base64 (charset + length%4 + exact
+ * round-trip), then a SENTINEL prefix that distinguishes our encoding from an
+ * arbitrary base64-looking string (e.g. "TWFu"->"Man"), then a printable-UTF-8
+ * title. Returns "" for anything malformed/un-sentineled so the caller falls back.
+ * The sentinel ("p50" + U+001F) is kept byte-for-byte in sync with
+ * lib/release-title.ts and scripts/release-build-args.sh.
+ *
+ * @param {string | undefined} b64
+ * @returns {string}
+ */
+function decodeReleaseTitleB64(b64) {
+  if (!b64) return "";
+  const input = b64.trim();
+  if (!input || input.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(input)) return "";
+  const sentinel = `p50${String.fromCharCode(0x1f)}`;
+  try {
+    const decoded = Buffer.from(input, "base64").toString("utf8");
+    if (Buffer.from(decoded, "utf8").toString("base64") !== input) return "";
+    if (!decoded.startsWith(sentinel)) return "";
+    const title = decoded.slice(sentinel.length);
+    if (!title || title.includes("�")) return "";
+    // eslint-disable-next-line no-control-regex
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(title)) return "";
+    return title;
+  } catch {
+    return "";
+  }
 }
 
 /**

@@ -128,7 +128,16 @@ fi
 # it via /bin/sh WITHOUT quoting the value; a raw title (spaces + `(#NNN)`) would
 # tokenize wrong and throw `syntax error near unexpected token '('`. next.config.mjs
 # decodes it back. `tr -d '\n'` strips base64's line wrapping to keep it one token.
-TITLE_B64="$(printf '%s' "$TITLE" | base64 | tr -d '\n')"
+#
+# We prepend a SENTINEL ("p50" + a U+001F unit-separator byte, \037 octal) to the
+# title BEFORE encoding. The decoder (apps/web/lib/release-title.ts +
+# next.config.mjs) only accepts a value whose decoded payload starts with this
+# sentinel, then strips it. This distinguishes our encoding from an arbitrary
+# string that merely happens to be valid base64 (e.g. a bare word like "Man" is
+# "TWFu" in base64) — so a mis-passed raw/garbage value cleanly falls back to the
+# legacy title instead of inlining decoded nonsense. U+001F can't appear in a real
+# title (it's a disallowed control char), making the marker un-spoofable.
+TITLE_B64="$(printf 'p50\037%s' "$TITLE" | base64 | tr -d '\n')"
 FLAGS=(
   "--build-arg" "NEXT_PUBLIC_RELEASE_TAG=$TAG"
   "--build-arg" "NEXT_PUBLIC_RELEASE_SHA=$SHA"
