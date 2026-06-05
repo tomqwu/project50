@@ -101,4 +101,42 @@ describe("project50CurrentDay", () => {
       }),
     ).toBe(0);
   });
+
+  it("returns 50 for a run that finished all 50 days but is still ACTIVE on day 52", () => {
+    // Only days 1..50 have DayStatus rows; today is day 52 (program over). The
+    // compliance check must clamp to the program window and NOT demand day-51/52
+    // rows that can never exist — a finished run is not "dead".
+    const completed: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const d = new Date("2026-01-01T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + i);
+      completed.push(d.toISOString().slice(0, 10));
+    }
+    // start 2026-01-01 → day 50 is 2026-02-19, day 52 is 2026-02-21.
+    expect(
+      project50CurrentDay({
+        startDate: "2026-01-01",
+        todayKey: "2026-02-21",
+        completedDayKeys: completed,
+      }),
+    ).toBe(50);
+  });
+
+  it("returns 0 when a finished run MISSED a day within the 1..50 window", () => {
+    // Today is past day 50 but day 2 was never completed → the run died long ago.
+    const completed: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      if (i === 1) continue; // skip day 2
+      const d = new Date("2026-01-01T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + i);
+      completed.push(d.toISOString().slice(0, 10));
+    }
+    expect(
+      project50CurrentDay({
+        startDate: "2026-01-01",
+        todayKey: "2026-02-21",
+        completedDayKeys: completed,
+      }),
+    ).toBe(0);
+  });
 });
