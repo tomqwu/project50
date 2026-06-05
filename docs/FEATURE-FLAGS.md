@@ -84,6 +84,69 @@ deterministic FNV-1a hash, stable per `(key, user)` across processes.
 > original `#126` scaffold and stay until they have a genuine use. Keep this
 > table honest — a flag with no consumer is dead code.
 
+## Operating flags in production (runbook)
+
+Flag values are **environment variables on the Azure Container App**
+(`ca-project50-web-dev` in `rg-project50-dev-canadacentral`). The flag state is
+resolved from `process.env` on the server on each request, so flipping a flag is
+purely an env change — **no image rebuild for a server-only flag** like
+`shareInstagram`.
+
+> ⚠️ **An env change only takes effect on a NEW revision.** A running revision keeps
+> the env it started with, so every flag change must **roll a Container App
+> revision**. Use `--revision-suffix` to do the env change and the roll in one step.
+
+### Pull Instagram sharing (the `shareInstagram` kill-switch)
+
+The fastest incident lever — instantly removes the Instagram option across all four
+surfaces (capabilities API, celebrate UI, publish endpoint, day-share button)
+without a code change or image rebuild:
+
+```bash
+# Force the flag OFF and roll a fresh revision in one step:
+az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+  --set-env-vars FLAG_SHARE_INSTAGRAM=false \
+  --revision-suffix "killig$(date +%Y%m%d%H%M)"
+```
+
+Restore it by removing the override (it is default-ON) and rolling again:
+
+```bash
+az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+  --remove-env-vars FLAG_SHARE_INSTAGRAM \
+  --revision-suffix "restoreig$(date +%Y%m%d%H%M)"
+```
+
+> Reminder: **removing `shareInstagram` from `NEXT_PUBLIC_FLAGS` does NOT disable
+> it** — it is default-ON, so it falls back to ON. Only `FLAG_SHARE_INSTAGRAM=false`
+> (or `=0`) turns it off.
+
+### Enable / disable any flag
+
+- **Enable:** `--set-env-vars FLAG_<NAME>=true` (per-flag override, wins over
+  everything), or add the camelCase name to `NEXT_PUBLIC_FLAGS` (allow-list, forces
+  ON only). Then roll a revision.
+- **Disable a default-OFF flag:** remove the `FLAG_<NAME>=true` and/or its
+  `NEXT_PUBLIC_FLAGS` entry, then roll a revision.
+- **Disable a default-ON flag:** `--set-env-vars FLAG_<NAME>=false` — the only way.
+
+> **`NEXT_PUBLIC_FLAGS` is inlined at BUILD time** as well (it is a `NEXT_PUBLIC_*`
+> var), so changing the set of force-ON **client-safe** flags requires rebuilding
+> the image — see the deploy runbook in
+> [`infra/azure/README.md`](../infra/azure/README.md). The server-resolved snapshot
+> (`getClientFlags()` / `isFeatureEnabled`) is always recomputed from the running
+> env, so server-only flags (`shareInstagram`, `newOnboarding`) need no rebuild.
+
+### Local development
+
+Set the same env vars in your shell or root `.env`:
+
+```bash
+FLAG_SHARE_INSTAGRAM=false pnpm --filter @project50/web dev
+# or force a client-safe flag ON:
+NEXT_PUBLIC_FLAGS=newOnboarding,publicBanner
+```
+
 ## Adding a flag
 
 1. Add an entry to `FLAGS` in `apps/web/lib/flags.ts` (default OFF unless it

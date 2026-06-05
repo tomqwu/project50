@@ -39,6 +39,43 @@ via subscription, shipped on web first, then native iOS and Android.
 
 ## Status
 
-- ✅ Mobile Facebook OAuth (end-to-end) — merged (PR #14)
-- 🔜 Project 50 program (web) — spec + plan in `docs/superpowers/`
-- 🔜 This backlog — see GitHub Issues / Milestones
+The **web app is live in production** at `https://www.project50.fit` (Azure Container
+Apps, Canada Central). Snapshot of what has shipped vs. what's open:
+
+**Shipped — M1 engagement/social epic (#263, closed):**
+
+- ✅ Mobile Facebook OAuth (end-to-end) — PR #14
+- ✅ Project 50 program (web) — 7 fixed daily rules, 50 days, all-or-nothing hard reset, + custom plans
+- ✅ F1 — daily journal (wins + lessons) — #262
+- ✅ F2 — share a single completed day (public page + OG card) — #286
+- ✅ F3 — leaderboard (friends + global) on the dashboard — #287
+- ✅ F4 — invite friends on Facebook (Share Dialog + referral) — #299
+- ✅ Feature-flag API + **Instagram-share kill-switch** + analytics events — #285 / #316
+  (operator runbook: [`docs/FEATURE-FLAGS.md`](docs/FEATURE-FLAGS.md))
+
+**Shipped — M0 foundation & hardening (largely done):**
+
+- ✅ Lock down `/api/metrics` (was publicly reachable without auth) — #290
+- ✅ Security review executed against the live deployment — #274
+- ✅ Auth hardening (no `AUTH_E2E` in prod, secure cookies) — #277
+- ✅ Monitoring, dashboards & alerts (5xx, restarts, Postgres CPU/storage/connections) — #271
+- ✅ Automated Postgres backups + tested restore drill — #272
+- ✅ DB/Auth secret **values** removed from Terraform state — #267
+- ✅ Custom-domain (`www`) binding + cert + policy exemptions in Terraform — #268
+- ✅ Hardening/perf: disable `x-powered-by` (#292), paginate the feed (#293),
+  collapse the `getProject50State` hard-reset N+1 (#294), assert Blob soft-delete OFF
+  for GDPR hard-erase (#295), harden release-title base64 decode (#305)
+
+**Open follow-ups:**
+
+- 🔜 Rate limiter is per-replica in-memory — move to a shared store (Redis) now that `max_replicas=4` — #319
+- 🔜 Media (Blob) backup — cross-account private-container mirror — #320
+- 🔜 Backup hardening — dedicated read-only backup DB role + drill verification-target fix — #321
+- 🔜 Apex `project50.fit` not bound (TLS reset, no apex→www redirect) — #291
+- 🔜 Rotate the leaked Facebook App Secret — #269
+- 🔜 Sentry error monitoring live in prod — #270
+- 🔜 Stand up / formally designate a hardened PROD environment — #273
+- 🔜 Google OAuth in production — #275
+- 🔜 Email magic-link sign-in in production — #276
+
+See GitHub Issues / Milestones for the full backlog and live state.
