@@ -175,22 +175,27 @@ terraform output -raw app_url
 
 ### Bootstrap / secret recovery
 
-Use this path only on a **green-field bootstrap** (no server yet) or to
-**recreate `database-url-admin`** after the state-history scrub. The server admin
-password comes from the `db_admin_password` Terraform output, and **that output
-does not exist in state until AFTER a successful `terraform apply`** — so the
-apply runs FIRST, then the outputs are read.
+Use this path only on a **green-field bootstrap** (no vault/server yet) or to
+**recreate `database-url-admin`** after the state-history scrub.
 
-**Root cause to design around:** the Container App resolves **every** KV secret
-reference at create time, so **all** referenced secrets must already exist in Key
-Vault before its first `terraform apply` — otherwise creating
-`azurerm_container_app.web` fails. The real `database-url` (and the
-deployer-only `database-url-admin`) can't be built until the server exists, so we
-**seed placeholders** for everything first, apply, then overwrite the real DB
-values once the server + outputs exist.
+**Root cause — why a true bootstrap must be STAGED:** there is a circular
+ordering on a fresh environment.
 
-The Container App references these five secrets (must exist before apply):
-`database-url`, `auth-secret`, `metrics-token`, `facebook-client-id`,
+- The Container App resolves **every** KV secret reference at create time, so all
+  referenced secrets must already exist in Key Vault before
+  `azurerm_container_app.web` is created — otherwise its create fails.
+- But writing those secrets (`az keyvault secret set`) requires the **vault** and
+  the deployer's **Key Vault Secrets Officer** RBAC grant to already exist and
+  have propagated — and on a fresh env those don't exist until a `terraform
+  apply` has run.
+
+You can't do a single full apply (Container App needs secrets that can't be
+written yet), and you can't seed secrets first (vault/grant don't exist yet). The
+fix is a **targeted Stage-1 apply** that builds the vault + RBAC **without** the
+Container App, so secrets can be written, then a full apply.
+
+The Container App references these five secrets (must exist before the full
+apply): `database-url`, `auth-secret`, `metrics-token`, `facebook-client-id`,
 `facebook-client-secret`. (`database-url-admin` is deployer-only — NOT referenced
 by the app — so it isn't required pre-apply, only before migrations.)
 
@@ -200,42 +205,60 @@ TAG=v2026.06.04.3   # any pushed image; on first bootstrap this is the initial i
 cd infra/azure
 terraform init
 
-# 1. SEED every referenced secret so the first apply can resolve them. Use
-#    show-or-create so re-running never clobbers a real value. database-url gets
-#    a throwaway placeholder (overwritten in step 4 once the server exists);
-#    auth-secret/metrics-token get real generated values; facebook-* need REAL
-#    OAuth credentials (use the actual app id/secret, or a placeholder if Facebook
-#    login isn't wired yet — login just won't work until set).
-for s in database-url auth-secret metrics-token facebook-client-id facebook-client-secret; do
+# ── Stage 1: create the vault + KV RBAC grants ONLY (NOT the Container App) ──
+#    Targeted apply so the secret-writes in Stage 2 have a vault + the deployer's
+#    Secrets Officer grant, and the app UAMI's Secrets User grant + the
+#    propagation wait exist — WITHOUT creating azurerm_container_app.web (which
+#    would fail: the secrets it references don't exist yet). module.onboard
+#    creates the Key Vault + the UAMI's "Key Vault Secrets User" grant;
+#    azurerm_role_assignment.deployer_kv_secrets is the deployer's "Secrets
+#    Officer" grant; time_sleep.kv_rbac_propagation is the 60s wait covering both.
+terraform apply \
+  -target=module.onboard \
+  -target=azurerm_role_assignment.deployer_kv_secrets \
+  -target=time_sleep.kv_rbac_propagation
+
+# ── Stage 2: wait for RBAC to propagate, then SEED every referenced secret ──
+#    The deployer now has KV data-plane access (the Stage-1 time_sleep already
+#    waited 60s for it). Show-or-create so re-running never clobbers a real value.
+#    database-url gets a throwaway placeholder (overwritten in Stage 4 once the
+#    server exists); auth-secret/metrics-token get real generated values;
+#    facebook-* need REAL OAuth credentials (use the actual app id/secret, or a
+#    placeholder if Facebook login isn't wired yet — login just won't work until
+#    set). Also seed database-url-admin (deployer-only) with a placeholder for now.
+for s in database-url database-url-admin auth-secret metrics-token \
+         facebook-client-id facebook-client-secret; do
   az keyvault secret show --vault-name "$KV" --name "$s" >/dev/null 2>&1 \
     || az keyvault secret set --vault-name "$KV" --name "$s" \
          --value "placeholder-$(openssl rand -hex 8)" >/dev/null
 done
 
-# 2. APPLY FIRST — creates the Postgres server + the random_password.db_admin
-#    value + the db_admin_* / postgres_fqdn outputs (+ the Container App, which
-#    now resolves all five seeded secrets). On a fresh DB the app pointing at $TAG
-#    is fine: there's no live traffic / old schema yet, so image-before-migrate is
-#    safe here. (On an EXISTING deployment, do NOT use this path — use the normal
-#    path above, which reads the admin URL from KV and migrates before the image.)
+# ── Stage 3: full apply — now creates azurerm_container_app.web ──
+#    All five referenced secrets exist, so the Container App resolves them. This
+#    also creates the Postgres server + random_password.db_admin + the db_admin_*
+#    / postgres_fqdn outputs. On a fresh DB the app pointing at $TAG is fine:
+#    there's no live traffic / old schema yet, so image-before-migrate is safe
+#    here. (On an EXISTING deployment, do NOT use this path — use the normal path
+#    above, which reads the admin URL from KV and migrates before the image.)
 terraform apply -var "image_tag=$TAG"
 
-# 3. Reconstruct database-url-admin from the now-existing outputs (Azure never
-#    reveals an existing admin password; the output is the only source — see the
-#    db_admin_password note in outputs.tf).
+# ── Stage 4: reconstruct database-url-admin from outputs, migrate, set real
+#             database-url, roll a revision ──
+#    Azure never reveals an existing admin password; the db_admin_password output
+#    is the only source (see the note in outputs.tf), and it exists now that
+#    Stage 3 applied.
 PG_HOST="$(terraform output -raw postgres_fqdn)"
 ADMIN_LOGIN="$(terraform output -raw db_admin_login)"
 ADMIN_PW="$(terraform output -raw db_admin_password)"
 ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
 ADMIN_URL="postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
 az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
-
-# 4. Migrate + bootstrap the p50app role, then OVERWRITE the placeholder
-#    database-url with the real p50app connection string, set real auth-secret /
-#    facebook-* values if you seeded placeholders, then roll a fresh revision so
-#    the app stops serving the placeholders — i.e. continue from step 3 of the
-#    normal deploy path above (open firewall → migrate → set REAL database-url →
-#    `az containerapp update --revision-suffix ...` to pick up the new values).
+# Then migrate + bootstrap the p50app role, OVERWRITE the placeholder database-url
+# with the real p50app connection string, set real auth-secret / facebook-* values
+# if you seeded placeholders, and roll a fresh revision so the app stops serving
+# the placeholders — i.e. continue from step 3 of the normal deploy path above
+# (open firewall → migrate → set REAL database-url →
+# `az containerapp update --revision-suffix ...` to pick up the new values).
 ```
 
 ### Key Vault secrets — create / rotate (out of band)
