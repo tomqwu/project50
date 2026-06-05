@@ -397,7 +397,11 @@ export function Project50View({
           onSaveJournal?.(wins, lessons, dayKey) ?? Promise.resolve()
         }
       />
-      <Project50Calendar days={state.history?.days ?? []} />
+      <Project50Calendar
+        days={state.history?.days ?? []}
+        shareId={state.shareId}
+        todayCompletedCount={today.completedCount}
+      />
     </div>
   );
 }
