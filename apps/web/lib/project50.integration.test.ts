@@ -409,6 +409,67 @@ describe("Project 50 day media", () => {
     expect(await prisma.project50DayMedia.findUnique({ where: { id: rows[1]!.id } })).toBeNull();
   });
 
+  it("removeProject50DayMedia keeps the blob when an ActivityMedia row still references the same key", async () => {
+    // The same media/<uid>/ blob can be shared with a general Activity photo.
+    // Removing the Project 50 row must NOT delete the blob the activity still
+    // shows — that would break the activity thumbnail.
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/cross.jpg`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 2, height: 2 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    // An Activity (on the same run) whose media points at the SAME blob.
+    const activity = await prisma.activity.create({
+      data: { challengeId: runId, userId: u.id, dayKey: "2026-06-02", done: true },
+    });
+    await prisma.activityMedia.create({
+      data: { activityId: activity.id, objectKey: key, width: 2, height: 2 },
+    });
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    // Blob retained (still referenced by the activity), but the P50 row is gone.
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    expect(await prisma.activityMedia.count({ where: { objectKey: key } })).toBe(1);
+  });
+
+  it("removeProject50DayMedia keeps the blob when a Recap row still references the same key", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/recap-shared.mp4`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 2, height: 2 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    await prisma.recap.create({ data: { challengeId: runId, kind: "DAY", objectKey: key } });
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    expect(deleteObjectMock).not.toHaveBeenCalled();
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+    expect(await prisma.recap.count({ where: { objectKey: key } })).toBe(1);
+  });
+
+  it("removeProject50DayMedia deletes the blob only when NO Project50DayMedia AND no Activity/Recap row references it", async () => {
+    const u = await makeUser();
+    const runId = await startProject50(u.id, "UTC", NOW);
+    const key = `media/${u.id}/lastref.jpg`;
+    await attachProject50DayMedia(u.id, { objectKey: key, width: 2, height: 2 }, NOW);
+    const row = await prisma.project50DayMedia.findFirstOrThrow({ where: { challengeId: runId } });
+    // An activity media that references a DIFFERENT key — must not keep this blob alive.
+    const activity = await prisma.activity.create({
+      data: { challengeId: runId, userId: u.id, dayKey: "2026-06-02", done: true },
+    });
+    await prisma.activityMedia.create({
+      data: { activityId: activity.id, objectKey: `media/${u.id}/other.jpg`, width: 2, height: 2 },
+    });
+
+    await removeProject50DayMedia(u.id, row.id);
+
+    // No other table references `key`, so the blob is deleted.
+    expect(deleteObjectMock).toHaveBeenCalledWith(key);
+    expect(await prisma.project50DayMedia.findUnique({ where: { id: row.id } })).toBeNull();
+  });
+
   it("removeProject50DayMedia rejects a non-owner and deletes NOTHING (security)", async () => {
     const owner = await makeUser();
     const attacker = await prisma.user.create({ data: { handle: "atk", displayName: "Atk" } });

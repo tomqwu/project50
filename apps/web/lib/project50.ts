@@ -332,10 +332,17 @@ export async function attachProject50DayMedia(
  * ever call deleteObject for keys under THIS user's own `media/<uid>/` prefix —
  * a row whose key is out-of-prefix has its DB row removed but no blob deleted.
  *
- * SHARED BLOBS: the same image can be attached to multiple days (multiple rows
- * sharing one objectKey). We only delete the blob when NO OTHER row references
- * that objectKey — otherwise we'd orphan the other rows' thumbnails. The row
- * being removed is always deleted; the blob survives until its last reference.
+ * SHARED BLOBS: the same `media/<uid>/` blob can be referenced by MORE than the
+ * one row being removed — another Project 50 day's photo (the same image
+ * attached to multiple days), a general Activity photo (ActivityMedia), or a
+ * rendered recap video (Recap) can all point at the same objectKey. We only
+ * delete the blob when NO OTHER reference remains across ALL of those media
+ * tables; otherwise we'd orphan a still-live thumbnail/video. The row being
+ * removed is always deleted; the blob survives until its last reference is gone.
+ *
+ * BIAS: when in doubt we RETAIN the blob. A wrongly-deleted blob breaks a live
+ * image; a wrongly-retained one is merely orphaned, and the GDPR account-
+ * deletion prefix sweep (deleteUserMedia) removes orphans under `media/<uid>/`.
  */
 export async function removeProject50DayMedia(
   uid: string,
@@ -348,12 +355,18 @@ export async function removeProject50DayMedia(
   // Unknown id, or a row whose challenge is owned by someone else → no-op.
   if (!row || row.challenge.ownerId !== uid) return;
 
-  // Don't delete a blob still referenced by another row (same image attached to
-  // another day, etc.) — that would break the other row's thumbnail.
-  const stillReferenced =
-    (await prisma.project50DayMedia.count({
+  // Don't delete a blob any OTHER media row still references — across every table
+  // that stores an objectKey (Project 50 day photos, activity photos, recaps).
+  // We exclude only the Project50DayMedia row being removed; any remaining
+  // reference in any table means another view still shows this blob.
+  const [otherDayMedia, activityRefs, recapRefs] = await Promise.all([
+    prisma.project50DayMedia.count({
       where: { objectKey: row.objectKey, id: { not: row.id } },
-    })) > 0;
+    }),
+    prisma.activityMedia.count({ where: { objectKey: row.objectKey } }),
+    prisma.recap.count({ where: { objectKey: row.objectKey } }),
+  ]);
+  const stillReferenced = otherDayMedia + activityRefs + recapRefs > 0;
 
   // Only delete blobs under the user's own media prefix; never touch another
   // user's (or an arbitrary) key, even if a crafted/legacy row references one.
