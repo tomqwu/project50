@@ -5,12 +5,14 @@ const {
   mockStartProject50,
   mockToggleRule,
   mockAttachMedia,
+  mockRemoveMedia,
   mockRevalidatePath,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockStartProject50: vi.fn(),
   mockToggleRule: vi.fn(),
   mockAttachMedia: vi.fn(),
+  mockRemoveMedia: vi.fn(),
   mockRevalidatePath: vi.fn(),
 }));
 
@@ -20,12 +22,14 @@ vi.mock("@/lib/project50", () => ({
   startProject50: mockStartProject50,
   toggleRule: mockToggleRule,
   attachProject50DayMedia: mockAttachMedia,
+  removeProject50DayMedia: mockRemoveMedia,
 }));
 
 import {
   startProject50Action,
   toggleRuleAction,
   attachProject50MediaAction,
+  removeProject50MediaAction,
 } from "./project50";
 
 beforeEach(() => {
@@ -116,6 +120,34 @@ describe("attachProject50MediaAction", () => {
       scope: "action",
       action: "attachProject50MediaAction",
       error: { name: "Error", message: "no run" },
+    });
+
+    errorSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+  });
+});
+
+describe("removeProject50MediaAction", () => {
+  it("removes the photo for the resolved user and revalidates", async () => {
+    await removeProject50MediaAction("media-1");
+
+    expect(mockRemoveMedia).toHaveBeenCalledWith("u1", "media-1");
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("logs and rethrows when removing the photo fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.LOG_LEVEL = "error";
+    mockRemoveMedia.mockRejectedValueOnce(new Error("delete failed"));
+
+    await expect(removeProject50MediaAction("m")).rejects.toThrow("delete failed");
+
+    expect(errorSpy).toHaveBeenCalledOnce();
+    const line = JSON.parse(errorSpy.mock.calls[0]![0] as string);
+    expect(line).toMatchObject({
+      scope: "action",
+      action: "removeProject50MediaAction",
+      error: { name: "Error", message: "delete failed" },
     });
 
     errorSpy.mockRestore();

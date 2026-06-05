@@ -214,8 +214,8 @@ describe("Project50View — today's photo section", () => {
     render(
       <Project50View
         state={activeStateWithMedia([
-          { objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
-          { objectKey: "k2", width: 20, height: 20, url: "https://cdn/k2" },
+          { id: "m1", objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
+          { id: "m2", objectKey: "k2", width: 20, height: 20, url: "https://cdn/k2" },
         ])}
         onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
       />,
@@ -456,6 +456,81 @@ describe("Project50View — today's photo section", () => {
     );
     fireEvent.click(screen.getByTestId("journal-save"));
     expect(await screen.findByTestId("journal-saved")).toBeInTheDocument();
+  });
+
+  it("renders an accessible remove button per photo and calls onRemoveMedia(id) after confirm", () => {
+    const onRemoveMedia = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <Project50View
+        state={activeStateWithMedia([
+          { id: "m1", objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
+          { id: "m2", objectKey: "k2", width: 20, height: 20, url: "https://cdn/k2" },
+        ])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+        onRemoveMedia={onRemoveMedia}
+      />,
+    );
+    const removeButtons = screen.getAllByTestId("today-photo-remove");
+    expect(removeButtons).toHaveLength(2);
+    // accessible, keyboard-focusable labels per photo
+    expect(removeButtons[0]).toHaveAttribute("aria-label", "Remove photo 1");
+    expect(removeButtons[1]).toHaveAttribute("aria-label", "Remove photo 2");
+
+    fireEvent.click(removeButtons[0]!);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onRemoveMedia).toHaveBeenCalledWith("m1");
+  });
+
+  it("does NOT call onRemoveMedia when the confirm is cancelled", () => {
+    const onRemoveMedia = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(
+      <Project50View
+        state={activeStateWithMedia([
+          { id: "m1", objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
+        ])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+        onRemoveMedia={onRemoveMedia}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("today-photo-remove"));
+    expect(onRemoveMedia).not.toHaveBeenCalled();
+  });
+
+  it("disables the remove button and shows a pending state while a removal is in flight", () => {
+    const onRemoveMedia = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <Project50View
+        state={activeStateWithMedia([
+          { id: "m1", objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
+          { id: "m2", objectKey: "k2", width: 20, height: 20, url: "https://cdn/k2" },
+        ])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+        onRemoveMedia={onRemoveMedia}
+      />,
+    );
+    const buttons = screen.getAllByTestId("today-photo-remove");
+    fireEvent.click(buttons[0]!);
+    // the clicked photo's remove button becomes disabled (pending)
+    expect(buttons[0]).toBeDisabled();
+    // a second click on the same pending button does not re-fire the callback
+    fireEvent.click(buttons[0]!);
+    expect(onRemoveMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders thumbnails with no remove button when onRemoveMedia is not provided", () => {
+    render(
+      <Project50View
+        state={activeStateWithMedia([
+          { id: "m1", objectKey: "k1", width: 10, height: 10, url: "https://cdn/k1" },
+        ])}
+        onStart={vi.fn()} onToggle={vi.fn()} onRestart={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("today-photo-thumb")).toBeInTheDocument();
+    expect(screen.queryByTestId("today-photo-remove")).not.toBeInTheDocument();
   });
 
   it("uploads successfully even when onAttachMedia is not provided (optional callback)", async () => {

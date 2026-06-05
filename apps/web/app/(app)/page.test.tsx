@@ -52,6 +52,7 @@ vi.mock("./_actions/project50", () => ({
   startProject50Action: mockStartAction,
   toggleRuleAction: mockToggleAction,
   attachProject50MediaAction: vi.fn(),
+  removeProject50MediaAction: vi.fn(),
 }));
 vi.mock("next/link", () => ({
   default: ({
