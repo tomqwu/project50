@@ -1,30 +1,49 @@
 # Backups & tested restore
 
-How Project 50 backs up its **two** stateful systems and — critically — how we
-**verify** those backups actually restore. A backup you have never restored is a
-hypothesis, not a backup.
+How Project 50 backs up its stateful systems on **Azure** — and, critically, how
+we **verify** the Postgres backup actually restores. A backup you have never
+restored is a hypothesis, not a backup.
 
-Read alongside [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md) (provisioning the
-media bucket + its backup target), [`RUNBOOKS.md`](./RUNBOOKS.md) (recovery
-runbooks), [`DEPLOY.md`](./DEPLOY.md) (CD pipeline) and
-[`SECRETS.md`](./SECRETS.md) (where the backup creds live).
+Live infra (see [`infra/azure/README.md`](../infra/azure/README.md)): the app
+runs on **Azure Container Apps** in `rg-project50-dev-canadacentral` with
+**Postgres Flexible Server** (`psql-project50-dev-zv34o5`) and **Blob storage**
+(`stp50mediazv34o5`). Admin DB creds live only in the Key Vault secret
+`database-url-admin` (vault `kv-project50-dev-6z7n`).
 
-> **TODO (your infra):** anything that depends on a provisioned cloud account
-> (the offsite bucket, its lifecycle/versioning, IAM creds, the scheduler host)
-> is marked **TODO** below. The scripts and workflow in this repo are real and
-> runnable; they go live the moment the secrets exist.
+Read alongside [`OBJECT-STORAGE.md`](./OBJECT-STORAGE.md) (media storage),
+[`RUNBOOKS.md`](./RUNBOOKS.md) (recovery), [`DEPLOY.md`](./DEPLOY.md) and
+[`infra/azure/README.md`](../infra/azure/README.md) (deploy/secrets) and
+[`SECRETS.md`](./SECRETS.md).
+
+> **Honest status — automated vs manual.** The **backup workflow + scripts are
+> real and runnable** the moment the secrets exist (they are env-gated/inert
+> until then, so nothing fakes a backup). What still needs the operator: (1)
+> creating the backup **storage account/container**, (2) adding the **repo
+> secrets** (or running locally with `az login`), and (3) running the **first
+> backup and the restore drill** by hand to confirm. Everything marked **TODO**
+> below is an Azure-account step we cannot do from this repo.
 
 ## What we back up
 
-| System | What | Tool | Script |
+| System | What | Tool | Where it goes |
 | --- | --- | --- | --- |
-| **Postgres** | Full logical dump (schema + data) | `pg_dump -Fc \| gzip` | [`scripts/backup/pg-backup.sh`](../scripts/backup/pg-backup.sh) |
-| **Object storage** | User media (photos, recap MP4s) | `aws s3 sync` / `mc mirror` | [`scripts/backup/storage-sync.sh`](../scripts/backup/storage-sync.sh) |
-| **Restore** | Restore a dump into a target DB | `pg_restore` | [`scripts/backup/pg-restore.sh`](../scripts/backup/pg-restore.sh) |
+| **Postgres** | Full logical dump (schema + data) | `pg_dump -Fc \| gzip` (via `postgres:16` docker) | Azure Blob container `db-backups` |
+| **Object storage (media)** | User media (photos, recap MP4s) | bucket/container mirror | a second backup container/account |
+| **Restore drill** | Restore a dump into a THROWAWAY DB + sanity-check | `pg_restore` + checks | local docker Postgres (no prod touch) |
 
-Everything else is **rebuildable from source** and needs no backup: the app code
-(git), infra config (this repo), and secrets (the secret store — see
-`SECRETS.md`; back up the secret store per your provider, separately).
+Scripts:
+
+- [`scripts/pg-backup.sh`](../scripts/pg-backup.sh) — Azure-native Postgres dump
+  → Blob, with retention. Powers `backup.yml` and a local `az login` run.
+- [`scripts/pg-restore-drill.sh`](../scripts/pg-restore-drill.sh) — the **tested
+  restore**: restore the latest backup into a throwaway DB, verify, tear down.
+- [`scripts/backup/`](../scripts/backup/) — portable S3/MinIO variants of the
+  dump/restore/media-sync (for non-Azure / generic hosts). The Azure deployment
+  uses the two scripts above.
+
+Everything else is **rebuildable from source** and needs no backup: app code
+(git), infra config (this repo), and secrets (held in Key Vault — back up the
+vault per Azure's soft-delete/purge-protection, separately; see `SECRETS.md`).
 
 ## Strategy
 
@@ -32,220 +51,286 @@ Everything else is **rebuildable from source** and needs no backup: the app code
 
 | What | Cadence | Mechanism |
 | --- | --- | --- |
-| Postgres dump | **Daily** (03:17 UTC) | `.github/workflows/backup.yml` `schedule`, or cron — see [Scheduling](#scheduling) |
-| Media sync | **Daily** (same run) | same workflow, `storage-sync` job |
-| Restore **test** | **Quarterly** | manual/automated — see [Tested-restore runbook](#tested-restore-runbook) |
+| Postgres dump | **Daily** (03:17 UTC) | [`.github/workflows/backup.yml`](../.github/workflows/backup.yml) `schedule`, or a local cron — see [Scheduling](#scheduling) |
+| Media sync | **Daily** | manual / `scripts/backup/storage-sync.sh` (see [Media](#media-backup--restore)) — **TODO: wire to the schedule** |
+| Restore **drill** | **Quarterly** + after any backup/schema-tooling change | [`scripts/pg-restore-drill.sh`](../scripts/pg-restore-drill.sh) — see [Restore drill](#tested-restore-drill) |
 
-> Daily is the baseline. If write volume grows, layer **PITR** (continuous WAL
-> archiving / a managed provider's point-in-time recovery) on top of the daily
-> logical dump. **TODO:** enable PITR on the managed Postgres provider.
+> Daily logical dump is the baseline. Azure Flexible Server **also** runs its own
+> automated backups with **point-in-time restore (PITR)** within its retention
+> window (default 7 days) — that is the first line of defence for an
+> oops-recovery. Our logical dump is the **independent, offsite, app-controlled**
+> copy that survives the server/subscription itself. Both layers matter.
 
 ### Retention
 
 | Tier | Where | Retention | Enforced by |
 | --- | --- | --- | --- |
-| Local working copy | backup host `./backups` | `BACKUP_RETENTION_DAYS` (default **14d**) | `pg-backup.sh` prune step |
-| Offsite, recent | backup bucket | **30 daily** | bucket **lifecycle** rule (TODO) |
-| Offsite, long-term | backup bucket (or Glacier/IA) | **12 monthly** | bucket lifecycle transition (TODO) |
+| Local working copy | backup host `./backups` | `BACKUP_RETENTION_DAYS` (default **14**) | `pg-backup.sh` prune step |
+| Offsite, Blob | `db-backups` container | `BACKUP_RETENTION_DAYS` (default **14 daily**) | `pg-backup.sh` blob prune (by timestamped name) |
+| Azure PITR | Flexible Server | provider window (default **7 days**) | Azure-managed (separate from our dumps) |
 
-Offsite retention is enforced by the **bucket lifecycle policy**, never by the
-backup host — a compromised or buggy host must not be able to delete history.
-See `OBJECT-STORAGE.md` for the lifecycle JSON.
+> **Hardening (TODO, Azure-account steps):** the script prunes the offsite blobs
+> by date, which is convenient but means the backup identity can delete history.
+> For a stronger guarantee, layer an Azure **lifecycle-management policy** to
+> expire/tier old blobs and/or **immutability (time-based retention / legal
+> hold)** on the container so a compromised identity cannot erase recent
+> backups. Enable **blob versioning + soft-delete on the BACKUP account** (note:
+> the *media* account deliberately keeps soft-delete OFF for GDPR hard-erase —
+> these are different accounts; see `infra/azure/README.md`).
 
-### Offsite & isolation
+### Isolation & encryption
 
-- The dump is uploaded to an **offsite** bucket (`BACKUP_S3_BUCKET`) — ideally a
-  **separate cloud account / region** from the primary DB and media bucket, so a
-  single account compromise or region outage cannot take out both.
-- The media backup bucket (`MEDIA_DST`) should likewise be **cross-region** from
-  the live media bucket (`MEDIA_SRC`).
-- Enable **versioning** on backup buckets so an overwrite/delete is recoverable.
-
-### Encryption
-
-- **In transit:** all uploads use TLS (S3/R2 HTTPS endpoints).
-- **At rest:** enable **bucket default encryption** (SSE-S3, or SSE-KMS with a
-  dedicated key) on the backup bucket — **TODO** (cloud-account step). The dump
-  itself contains user PII, so encryption at rest is required, not optional.
-- The connection string and S3 creds are **secrets** — they live only in the
-  CI/secret store (`SECRETS.md`), never in the repo.
+- Put the backup container on a **separate storage account** from the media
+  account (ideally a different region) so one account compromise/outage can't
+  take out both live data and its backup. **TODO:** create
+  `stp50backups<suffix>` + the `db-backups` container.
+- **In transit:** all uploads use TLS (Azure Blob HTTPS).
+- **At rest:** Azure Storage is encrypted at rest by default (SSE). The dump
+  contains user PII, so keep the backup account private (no anonymous access);
+  consider a customer-managed key.
+- The connection string + storage access are **secrets** (Key Vault / GitHub
+  Actions secrets) — never in the repo. The backup uses `--auth-mode login`
+  (managed identity / federated identity), not an account key.
 
 ## RPO / RTO targets
 
-> Placeholders — set real numbers with the business once SLAs are agreed.
+> Placeholders — agree real numbers with the business once SLAs are set.
 
 | Metric | Target (placeholder) | Notes |
 | --- | --- | --- |
-| **RPO** (max data loss) | **24h** | = daily dump cadence. Tighten with PITR (→ minutes). |
-| **RTO** (time to restore) | **≤ 2h** | dominated by dump size + restore + app redeploy. |
-| Restore-test cadence | **Quarterly** | proves RTO is achievable, not theoretical. |
+| **RPO** (max data loss) | **24h** from our logical dump; **~minutes** from Azure PITR | The daily dump bounds worst case if PITR is unavailable. |
+| **RTO** (time to restore) | **≤ 2h** | dominated by dump size + `pg_restore` + role/secret + revision roll. The drill prints the actual restore wall-clock to validate this. |
+| Restore-drill cadence | **Quarterly** | proves RTO is achievable, not theoretical. |
 
-## Running a backup manually
+## Running a backup
+
+### Locally (operator, `az login`)
 
 ```bash
-# Postgres — local dump only:
-DATABASE_URL="postgresql://user:pass@host:5432/db" ./scripts/backup/pg-backup.sh
-
-# Postgres — dump + offsite upload (AWS creds in env):
-DATABASE_URL="...prod..." \
-BACKUP_S3_BUCKET="s3://project50-backups/pg" \
-  ./scripts/backup/pg-backup.sh
-
-# Media — mirror live bucket to backup bucket:
-SRC="s3://project50-media-prod" DST="s3://project50-media-backup" \
-  ./scripts/backup/storage-sync.sh
+az login
+BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> \
+  ./scripts/pg-backup.sh
+# reads database-url-admin from Key Vault (kv-project50-dev-6z7n) by default,
+# dumps via the postgres:16 docker image, uploads to the db-backups container,
+# and prunes blobs older than BACKUP_RETENTION_DAYS (14).
 ```
 
-`DIRECT_URL` is preferred for dumps when a connection pooler is in front of the
-DB (the dump uses a normal session connection — see `INFRA-STAGING.md`); the
-script picks `DIRECT_URL` over `DATABASE_URL` automatically when set.
+Override the connection (e.g. an explicit admin URL, skipping Key Vault):
 
-## Tested-restore runbook
+```bash
+DATABASE_URL="postgresql://<admin>:<pw>@psql-project50-dev-zv34o5.postgres.database.azure.com:5432/project50?sslmode=require" \
+BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> \
+  ./scripts/pg-backup.sh
+```
 
-**Goal:** prove a backup restores into a clean, scratch database and that the
+Local dump only (no upload) — omit `BACKUP_STORAGE_ACCOUNT`:
+
+```bash
+DATABASE_URL="...admin..." ./scripts/pg-backup.sh   # writes ./backups/*.dump.gz
+```
+
+### In CI (`backup.yml`)
+
+Daily + on demand from the Actions tab. **Inert until secrets are set** (like
+`deploy.yml`): a `preflight` job gates the backup, so on a fork / before setup it
+is **skipped, not failed**, and CI stays green. Required secrets — provide a
+connection path AND a blob target:
+
+| Secret | Purpose |
+| --- | --- |
+| `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | Federated (OIDC) login — preferred. The app registration needs **Key Vault Secrets User** on `kv-project50-dev-6z7n` and **Storage Blob Data Contributor** on the backup container. |
+| `DATABASE_URL` | *Alternative* to Azure login: a direct admin conn string. |
+| `BACKUP_STORAGE_ACCOUNT` | Backup storage account (e.g. `stp50backups<suffix>`). |
+| `BACKUP_CONTAINER` | (optional) container name; default `db-backups`. |
+| `KEY_VAULT_NAME` | (optional) override; default `kv-project50-dev-6z7n`. |
+| `BACKUP_RETENTION_DAYS` | (optional) daily dumps to keep; default `14`. |
+
+> **Least privilege:** the backup identity needs only **read** on the Key Vault
+> secret + **read on the DB** (the admin string is used read-only for `pg_dump`)
+> and **write** on the backup container — and, for retention, delete on the
+> backup container only. Never delete on the source DB or media account.
+
+## Tested restore drill
+
+**Goal:** prove a backup restores into a clean, throwaway database and that the
 restored data is structurally sound. Run **quarterly** and after any change to
-the schema-migration or backup tooling.
+the schema-migration or backup tooling. This is a **drill**, not recovery — it
+never touches prod.
 
-### 1. Pick a dump to test
+[`scripts/pg-restore-drill.sh`](../scripts/pg-restore-drill.sh):
 
-Use the most recent offsite dump (download it) or a local one:
+1. Obtains a dump — a local `--dump PATH`, or (default) downloads the **latest**
+   blob from `$BACKUP_STORAGE_ACCOUNT/$BACKUP_CONTAINER`.
+2. Stands up a **throwaway local Postgres** in docker (no cloud access needed)
+   — or targets a `--scratch-url` you pass (with a guard that **refuses** to use
+   `DATABASE_URL`).
+3. Restores into a disposable DB (`project50_restore_test`), **timing** the
+   restore (validates the RTO target).
+4. **Sanity checks:** `_prisma_migrations` is present and non-empty, the core
+   `User` table exists (extend via `EXPECTED_TABLES`), and prints per-table row
+   counts so an unexpectedly-empty restore is obvious.
+5. **Tears down** the throwaway DB/container (unless `--keep`).
+
+Exit is **non-zero if the restore or any check fails** — a failed drill is an
+incident-class finding; fix the backup tooling before the next cycle.
+
+### Run it
 
 ```bash
-# (offsite) pull the latest dump locally
-aws s3 cp "$(aws s3 ls s3://project50-backups/pg/ | sort | tail -1 | awk '{print $4}' | sed 's#^#s3://project50-backups/pg/#')" ./restore-test.dump.gz
+# Drill the latest offsite backup (operator with az + docker):
+az login
+BACKUP_STORAGE_ACCOUNT=stp50backups<suffix> BACKUP_CONTAINER=db-backups \
+  ./scripts/pg-restore-drill.sh
+
+# Or drill a specific local dump (no Azure needed at all):
+./scripts/pg-restore-drill.sh --dump ./backups/project50-20260605T031700Z.dump.gz
 ```
 
-### 2. Create a throwaway scratch database
+Record the result (date, dump tested, pass/fail, restore wall-clock) wherever ops
+changes are tracked. The wall-clock validates the **RTO** target above.
 
-Never restore into prod for a test. Use a local/disposable Postgres:
+### Deeper checks (optional, manual)
 
-```bash
-# local docker Postgres is already available (docker-compose.yml)
-docker compose up -d postgres
-createdb -h localhost -U project50 project50_restore_test \
-  || psql -h localhost -U project50 -c 'CREATE DATABASE project50_restore_test;'
-```
-
-### 3. Restore into the scratch DB
-
-The restore script **refuses** to target your live `DATABASE_URL`/`DIRECT_URL`
-and requires confirmation; for the automated test pass `RESTORE_CONFIRM=YES`:
+Beyond the script's automated checks, for a thorough quarterly drill also verify
+the restored schema matches the code's migrations and the app boots against it:
 
 ```bash
-RESTORE_CONFIRM=YES ./scripts/backup/pg-restore.sh \
-  --dump ./restore-test.dump.gz \
-  --target "postgresql://project50:project50@localhost:5432/project50_restore_test" \
-  --clean
-```
+SCRATCH="postgresql://postgres:drill@127.0.0.1:5432/project50_restore_test"  # from a --keep run
 
-### 4. Integrity check
-
-Verify the restore is non-empty and structurally consistent. Two layers:
-
-**a) Schema + row sanity** — core Project 50 tables exist and have rows:
-
-```bash
-SCRATCH="postgresql://project50:project50@localhost:5432/project50_restore_test"
-
-# Every expected table is present (adjust list as the schema grows):
-psql "$SCRATCH" -Atc "
-  SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1;"
-
-# Row counts across all public tables (look for unexpected zeros):
-psql "$SCRATCH" -Atc "
-  SELECT relname, n_live_tup
-  FROM pg_stat_user_tables
-  ORDER BY n_live_tup DESC;"
-
-# Prisma migration history restored & all applied (no failed/rolled-back rows):
-psql "$SCRATCH" -Atc "
-  SELECT migration_name, finished_at, rolled_back_at
-  FROM _prisma_migrations ORDER BY started_at;"
-```
-
-**b) Migration drift** — the restored schema matches the code's migrations:
-
-```bash
-# Should report "Database schema is up to date!" — i.e. the dump's schema is at
-# the same migration head the app expects (no pending/extra migrations).
+# Restored schema is at the migration head the app expects (no drift):
 DATABASE_URL="$SCRATCH" pnpm --filter @project50/db exec prisma migrate status
-```
+# -> expect "Database schema is up to date!"
 
-**c) App-level smoke (optional but recommended)** — point a local app at the
-scratch DB and hit readiness:
-
-```bash
+# App-level smoke: point a local app at the scratch DB and hit readiness:
 DATABASE_URL="$SCRATCH" pnpm --filter @project50/web dev &
 curl -sS http://localhost:3000/api/ready | jq   # expect database:true
 ```
 
-### 5. Record & tear down
+> **TODO (automate the drill):** a `schedule: cron` Actions job can run the drill
+> quarterly against the latest blob and fail (alert) on a bad restore. Kept
+> manual here to stay inert without infra and because it needs `az` + docker.
+
+## Restoring for real (incident recovery)
+
+> **This DROPs/recreates objects in the target. For prod recovery only.** Prefer
+> **Azure PITR** (`az postgres flexible-server restore`) for an oops-recovery
+> within the provider window — it's faster and needs no dump. Use the logical
+> dump when PITR can't reach far enough back or the server/subscription is gone.
 
 ```bash
-dropdb -h localhost -U project50 project50_restore_test \
-  || psql -h localhost -U project50 -c 'DROP DATABASE project50_restore_test;'
-rm -f ./restore-test.dump.gz
+# 1. Pull the dump to restore (latest, or a specific blob):
+az storage blob download --account-name stp50backups<suffix> \
+  --container-name db-backups --auth-mode login \
+  --name project50-<ts>.dump.gz --file ./restore.dump.gz
+
+# 2. Open the Postgres firewall to your IP, read the admin URL from Key Vault:
+MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g rg-project50-dev-canadacentral \
+  --server-name psql-project50-dev-zv34o5 --name temp-restore \
+  --start-ip-address "$MYIP" --end-ip-address "$MYIP"
+ADMIN_URL=$(az keyvault secret show --vault-name kv-project50-dev-6z7n \
+  --name database-url-admin --query value -o tsv)
+
+# 3. Restore (custom-format, --clean). The portable scripts/backup/pg-restore.sh
+#    has a production-safety guard; run via docker so the client is >= server 16:
+gunzip -c ./restore.dump.gz | docker run --rm -i postgres:16 \
+  pg_restore --no-owner --no-privileges --clean --if-exists --dbname "$ADMIN_URL"
+
+# 4. Remove the temp firewall rule, roll a fresh Container App revision.
+az postgres flexible-server firewall-rule delete -g rg-project50-dev-canadacentral \
+  --server-name psql-project50-dev-zv34o5 --name temp-restore --yes
 ```
 
-Record the result (date, dump tested, pass/fail, restore wall-clock time) wherever
-ops changes are tracked. A failed or slow restore is an incident-class finding —
-fix the backup tooling before the next cycle. The wall-clock time validates the
-**RTO** target above.
+See [`RUNBOOKS.md`](./RUNBOOKS.md) and [`INCIDENT-RESPONSE.md`](./INCIDENT-RESPONSE.md)
+for the full recovery flow.
 
-> **TODO:** schedule the quarterly test — a calendar reminder, or a
-> `schedule: cron` GitHub Actions job that spins up an ephemeral Postgres
-> service, runs steps 2–4 against the latest offsite dump, and fails the run if
-> the integrity checks fail. (Kept manual here to stay inert without infra.)
+## Media backup & restore
 
-## Media restore
+User media lives in the `media` container on `stp50mediazv34o5`. Keys are
+content-addressed and immutable (`media/<userId>/<suffix>.<ext>`, see
+[`CDN.md`](./CDN.md)), so an additive mirror to a **backup container/account** is
+safe and idempotent. Mirror it to a separate (ideally cross-region) account.
 
-The media backup is a plain bucket mirror, so "restore" is a reverse sync:
+> **TODO:** create the media backup container/account and wire a daily mirror
+> (`az storage blob copy` / AzCopy `sync`, or the portable
+> [`scripts/backup/storage-sync.sh`](../scripts/backup/storage-sync.sh) against
+> an S3-compatible target). After a restore, `/api/ready` should report
+> `storage:true` (see `RUNBOOKS.md` → Object storage).
+
+> **Note on soft-delete:** the *media* account deliberately keeps blob
+> soft-delete **OFF** so account deletion is a true GDPR hard-erase
+> (`infra/azure/README.md`). Recoverability for media therefore comes from the
+> **separate backup container**, not from soft-delete on the live account.
+
+## CRON_SECRET — reminder / nudge cron routes
+
+The reminder and streak-nudge senders are HTTP routes that **only run when a
+caller presents the shared secret**:
+
+- `apps/web/app/api/cron/reminders/route.ts`
+- `apps/web/app/api/cron/streak-nudges/route.ts`
+
+Both **refuse to run (503) when `CRON_SECRET` is unset**, and otherwise require
+`Authorization: Bearer ${CRON_SECRET}` (constant-time compared — see
+`apps/web/lib/cron-auth.ts`). So until `CRON_SECRET` is set in prod, **no
+reminders or nudges are ever sent** (fail-closed, by design).
+
+It's documented here because it's an ops/prod-readiness secret tied to scheduled
+jobs, like the backup schedule.
+
+**Set it (Azure — same pattern as the other app secrets):**
 
 ```bash
-# restore media from backup bucket back into a (new) primary bucket:
-SRC="s3://project50-media-backup" DST="s3://project50-media-prod" \
-  ./scripts/backup/storage-sync.sh
+KV=kv-project50-dev-6z7n
+# 1. Create the secret value (high-entropy):
+az keyvault secret set --vault-name "$KV" --name cron-secret \
+  --value "$(openssl rand -base64 32)"
 ```
 
-Media keys are content-addressed and immutable (`media/<userId>/<suffix>.<ext>`
-— see `CDN.md`), so an additive restore is safe and idempotent. After restore,
-`/api/ready` should report `storage:true` (see `RUNBOOKS.md` → Object storage).
+2. **Wire it into the Container App** as the `CRON_SECRET` env var, sourced from
+   the `cron-secret` Key Vault secret (a versionless KV reference, like the other
+   app secrets in `main.tf` — that wiring is owned by `infra/azure/main.tf`, not
+   changed here). Then roll a revision so the app picks it up:
+
+   ```bash
+   az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+     --revision-suffix "cron$(date +%Y%m%d%H%M)"
+   ```
+
+3. **Schedule the caller** to hit the routes with the bearer token (the actual
+   scheduler is a **TODO** — an Azure Logic App timer, a Container Apps Job on a
+   cron, or any external scheduler):
+
+   ```bash
+   curl -fsS -X POST https://www.project50.fit/api/cron/reminders \
+     -H "Authorization: Bearer $CRON_SECRET"
+   curl -fsS -X POST https://www.project50.fit/api/cron/streak-nudges \
+     -H "Authorization: Bearer $CRON_SECRET"
+   ```
+
+> Rotate `CRON_SECRET` together with the scheduler's stored token. Cadence: 180
+> days / on suspicion. (Add it to the inventory in `SECRETS.md` when wiring the
+> KV reference in `main.tf`.)
 
 ## Scheduling
 
 ### GitHub Actions (default — `backup.yml`)
 
 [`.github/workflows/backup.yml`](../.github/workflows/backup.yml) runs the
-Postgres backup + media sync **daily** and on demand. Like `deploy.yml`, it is
-**inert until secrets are configured**: a `preflight` job surfaces secret
-presence as boolean outputs and gates each job, so on a fork or before setup the
-jobs are **skipped, not failed**, and CI stays green.
+Postgres backup **daily** (03:17 UTC) and on demand. Inert until the secrets
+above are set (skipped, not failed).
 
-Required secrets (add under **Settings → Secrets and variables → Actions**, see
-`SECRETS.md`):
+### Local cron (self-hosted alternative)
 
-| Secret | Purpose |
-| --- | --- |
-| `DATABASE_URL` | DB to dump (`DIRECT_URL` optional, preferred for dumps) |
-| `BACKUP_S3_BUCKET` | offsite dump target, e.g. `s3://project50-backups/pg` |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | backup-bucket creds |
-| `BACKUP_S3_ENDPOINT` | (optional) custom endpoint for R2 / MinIO |
-| `MEDIA_SRC` / `MEDIA_DST` | live + backup media buckets |
-
-> **Least privilege:** the backup creds need only **read** on the source DB /
-> media bucket and **write** on the backup bucket — never delete on the source.
-
-### cron (self-hosted alternative)
-
-On any host with `pg_dump`, the AWS CLI, and a checkout of this repo:
+On any host with docker, the Azure CLI (`az login` / a service principal), and a
+checkout of this repo:
 
 ```cron
-# daily Postgres dump + media sync at 03:17 UTC (creds via the host env / a
-# sourced secrets file — NOT committed; see SECRETS.md)
-17 3 * * *  cd /opt/project50 && ./scripts/backup/pg-backup.sh   >> /var/log/p50-backup.log 2>&1
-27 3 * * *  cd /opt/project50 && ./scripts/backup/storage-sync.sh >> /var/log/p50-sync.log   2>&1
+# daily Postgres dump -> Blob at 03:17 UTC (BACKUP_STORAGE_ACCOUNT etc. from the
+# host env / a sourced, NOT-committed secrets file; az already authenticated)
+17 3 * * *  cd /opt/project50 && ./scripts/pg-backup.sh >> /var/log/p50-backup.log 2>&1
 ```
 
-> **TODO:** if self-hosting the scheduler, provision the host, install the
-> Postgres-16 client + AWS CLI, and supply the secrets via the host's env / a
-> protected secrets file.
+> **TODO:** if self-hosting the scheduler, provision the host, install docker +
+> the Azure CLI, authenticate `az` (managed identity or a service principal),
+> and supply the config via the host env.
