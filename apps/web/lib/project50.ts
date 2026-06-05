@@ -25,6 +25,8 @@ export interface Project50Today {
   completedCount: number;
   /** Photos attached to today, oldest first, each with a signed view URL. */
   media: Project50DayMediaItem[];
+  /** Today's journal reflection (rule #7), present only once the user saves one. */
+  journal?: { wins: string; lessons: string };
 }
 
 export type Project50DayStatus = "complete" | "incomplete" | "today" | "future";
@@ -50,7 +52,7 @@ export interface Project50State {
 }
 
 /** The active Project 50 run for a user, or null. */
-async function activeRun(uid: string) {
+export async function activeRun(uid: string) {
   return prisma.challenge.findFirst({
     where: { ownerId: uid, kind: "PROJECT50", status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -102,12 +104,17 @@ async function buildToday(
   const doneIds = new Set(checksRows.map((c) => c.ruleId));
   const checks = PROJECT50_RULE_IDS.map((id) => doneIds.has(id));
   const media = await listProject50DayMedia(runId, todayKey);
+  const journalRow = await prisma.dayJournal.findUnique({
+    where: { challengeId_dayKey: { challengeId: runId, dayKey: todayKey } },
+    select: { wins: true, lessons: true },
+  });
   return {
     dayKey: todayKey,
     dayNumber: Math.max(1, dayNumber(startDate, todayKey)),
     checks,
     completedCount: checks.filter(Boolean).length,
     media,
+    ...(journalRow ? { journal: { wins: journalRow.wins, lessons: journalRow.lessons } } : {}),
   };
 }
 

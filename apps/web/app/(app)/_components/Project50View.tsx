@@ -6,6 +6,7 @@ import { Button, Card, Label } from "@project50/ui";
 import { PROJECT50_RULES, PROJECT50_LENGTH_DAYS } from "@project50/core";
 import type { Project50State, Project50DayMediaItem } from "@/lib/project50";
 import { Project50Calendar } from "./Project50Calendar";
+import { DayJournalSection } from "./DayJournalSection";
 import { readImageDimensions } from "../challenges/[id]/log/LogActivityForm";
 
 /** Content-types accepted for a Project 50 day photo (images only — no video). */
@@ -18,6 +19,12 @@ interface Props {
   onRestart: () => void;
   /** Persist an uploaded photo against today (objectKey already PUT to storage). */
   onAttachMedia?: (objectKey: string, width: number, height: number) => void;
+  /**
+   * Persist today's journal (wins + lessons) for the active run. Resolves only on
+   * a successful save (and rejects on failure) so the editor can gate its
+   * "Saved" confirmation on the real outcome.
+   */
+  onSaveJournal?: (wins: string, lessons: string, dayKey?: string) => Promise<void>;
   /** Injectable for testing — defaults to readImageDimensions. */
   readDimensions?: (file: File) => Promise<{ width: number; height: number }>;
 }
@@ -198,6 +205,7 @@ export function Project50View({
   onToggle,
   onRestart,
   onAttachMedia,
+  onSaveJournal,
   readDimensions,
 }: Props) {
   const [openHelpId, setOpenHelpId] = useState<number | null>(null);
@@ -381,6 +389,13 @@ export function Project50View({
         media={today.media}
         onAttachMedia={onAttachMedia}
         readDimensions={readDimensions}
+      />
+      <DayJournalSection
+        dayKey={today.dayKey}
+        journal={today.journal}
+        onSave={(wins, lessons, dayKey) =>
+          onSaveJournal?.(wins, lessons, dayKey) ?? Promise.resolve()
+        }
       />
       <Project50Calendar days={state.history?.days ?? []} />
     </div>
