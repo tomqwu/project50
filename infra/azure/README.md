@@ -141,18 +141,24 @@ az postgres flexible-server firewall-rule create -g "$RG" \
   --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
 
 # 4. Read the ADMIN connection string straight from Key Vault (it already exists
-#    on an existing deployment — no dependency on the new TF outputs). MIGRATE
-#    FIRST (as ADMIN), BEFORE switching the image, so the new revision never
-#    serves traffic against the old schema. Then refresh the least-privilege
-#    p50app role + store the app connection string out of band.
+#    on an existing deployment — read-only, so no Secrets Officer grant needed,
+#    and no dependency on the new TF outputs). MIGRATE FIRST (as ADMIN), BEFORE
+#    switching the image, so the new revision never serves traffic against the
+#    old schema.
+#
+#    Do NOT rotate the p50app password or re-write `database-url` on a routine
+#    deploy: the app's `database-url` already exists in KV, and an unconditional
+#    `az keyvault secret set` would (a) require the deployer to already hold
+#    Key Vault Secrets Officer and (b) needlessly rotate a live credential each
+#    deploy. The role bootstrap below is run ONLY when the p50app password is
+#    being (re)set — i.e. first bootstrap or a deliberate DB-credential rotation
+#    (see "create / rotate" below) — and if you run it you MUST also overwrite
+#    `database-url` to match (that write is a deliberate rotation, which assumes
+#    the deployer holds Secrets Officer from the one-time bootstrap).
 ADMIN_URL="$(az keyvault secret show --vault-name "$KV" --name database-url-admin --query value -o tsv)"
-PG_HOST="$(echo "$ADMIN_URL" | sed -E 's#.*@([^:/]+).*#\1#')"
-APP_DB_PW="p50app_$(openssl rand -hex 12)"
 DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
-docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
-  -f infra/azure/sql/app-role.sql
-az keyvault secret set --vault-name "$KV" --name database-url \
-  --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
+# (p50app role + database-url already exist from the bootstrap — nothing to write
+#  here. To intentionally rotate the p50app credential, see "create / rotate".)
 
 # 5. NOW switch the Container App to the new image (schema is already migrated).
 #    No secret VALUES pass through Terraform. `plan` MUST show no destroy of the
@@ -162,8 +168,8 @@ terraform init
 terraform plan  -var "image_tag=$TAG"   # ~$13/mo Postgres; review for unexpected destroys
 terraform apply -var "image_tag=$TAG"
 
-# 6. Roll a fresh revision so it picks up the (possibly just-changed) DB
-#    credentials immediately, then remove the temp firewall rule.
+# 6. Roll a fresh revision onto the new image, then remove the temp firewall rule.
+#    (No secret values changed on a routine deploy, so this is just the image roll.)
 az containerapp revision restart -g "$RG" -n ca-project50-web-dev \
   --revision "$(az containerapp show -g "$RG" -n ca-project50-web-dev --query 'properties.latestRevisionName' -o tsv)"
 az postgres flexible-server firewall-rule delete -g "$RG" \
@@ -220,17 +226,34 @@ terraform apply \
 
 # ── Stage 2: wait for RBAC to propagate, then SEED every referenced secret ──
 #    The deployer now has KV data-plane access (the Stage-1 time_sleep already
-#    waited 60s for it). Show-or-create so re-running never clobbers a real value.
-#    database-url gets a throwaway placeholder (overwritten in Stage 4 once the
-#    server exists); auth-secret/metrics-token get real generated values;
-#    facebook-* need REAL OAuth credentials (use the actual app id/secret, or a
-#    placeholder if Facebook login isn't wired yet — login just won't work until
-#    set). Also seed database-url-admin (deployer-only) with a placeholder for now.
-for s in database-url database-url-admin auth-secret metrics-token \
-         facebook-client-id facebook-client-secret; do
+#    waited 60s for it). All show-or-create, so re-running never clobbers a real
+#    value. SECURITY: do NOT seed live credentials with weak placeholders — if the
+#    env goes live before they're replaced, the app would run on known creds.
+#
+#    CREDENTIAL secrets get REAL high-entropy values right here (no placeholder):
+for s in auth-secret metrics-token; do
   az keyvault secret show --vault-name "$KV" --name "$s" >/dev/null 2>&1 \
     || az keyvault secret set --vault-name "$KV" --name "$s" \
-         --value "placeholder-$(openssl rand -hex 8)" >/dev/null
+         --value "$(openssl rand -base64 32)" >/dev/null
+done
+#
+#    DB connection strings get a TEMPORARY placeholder ONLY because their real
+#    value genuinely can't exist until the Postgres server is created in Stage 3.
+#    Both MUST be overwritten with real values in Stage 4 (database-url with the
+#    p50app connection string, database-url-admin reconstructed from the outputs):
+for s in database-url database-url-admin; do
+  az keyvault secret show --vault-name "$KV" --name "$s" >/dev/null 2>&1 \
+    || az keyvault secret set --vault-name "$KV" --name "$s" \
+         --value "placeholder-overwrite-in-stage-4" >/dev/null
+done
+#
+#    OAuth credentials: set the REAL Meta app id/secret (login won't work until
+#    they're real). If Facebook login isn't wired yet, the operator can set them
+#    later — but seed SOMETHING so the Container App create resolves the refs:
+for s in facebook-client-id facebook-client-secret; do
+  az keyvault secret show --vault-name "$KV" --name "$s" >/dev/null 2>&1 \
+    || az keyvault secret set --vault-name "$KV" --name "$s" \
+         --value "REPLACE-with-real-facebook-value" >/dev/null   # set the real Meta app id/secret
 done
 
 # ── Stage 3: full apply — now creates azurerm_container_app.web ──
@@ -253,12 +276,28 @@ ADMIN_PW="$(terraform output -raw db_admin_password)"
 ENC_PW="$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$ADMIN_PW")"
 ADMIN_URL="postgresql://${ADMIN_LOGIN}:${ENC_PW}@${PG_HOST}:5432/project50?sslmode=require"
 az keyvault secret set --vault-name "$KV" --name database-url-admin --value "$ADMIN_URL" >/dev/null
-# Then migrate + bootstrap the p50app role, OVERWRITE the placeholder database-url
-# with the real p50app connection string, set real auth-secret / facebook-* values
-# if you seeded placeholders, and roll a fresh revision so the app stops serving
-# the placeholders — i.e. continue from step 3 of the normal deploy path above
-# (open firewall → migrate → set REAL database-url →
-# `az containerapp update --revision-suffix ...` to pick up the new values).
+
+# Open the firewall, migrate as admin, bootstrap the p50app role with a fresh
+# password, then OVERWRITE the placeholder database-url with the REAL p50app
+# connection string (this write is fine here — bootstrap holds Secrets Officer).
+MYIP=$(curl -s https://api.ipify.org)
+az postgres flexible-server firewall-rule create -g rg-project50-dev-canadacentral \
+  --server-name <psql-name> --name temp-deploy --start-ip-address $MYIP --end-ip-address $MYIP
+APP_DB_PW="p50app_$(openssl rand -hex 12)"
+DATABASE_URL="$ADMIN_URL" pnpm --filter @project50/db exec prisma migrate deploy
+docker run --rm -i postgres:16 psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -v pw="$APP_DB_PW" \
+  -f infra/azure/sql/app-role.sql
+az keyvault secret set --vault-name "$KV" --name database-url \
+  --value "postgresql://p50app:$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$APP_DB_PW")@${PG_HOST}:5432/project50?sslmode=require" >/dev/null
+az postgres flexible-server firewall-rule delete -g rg-project50-dev-canadacentral \
+  --server-name <psql-name> --name temp-deploy --yes
+
+# If you seeded auth-secret / facebook-* with placeholders above, set their REAL
+# values now (auth-secret was generated for real by the seed loop; facebook-*
+# need the real Meta app id/secret). Then roll a fresh revision so the app stops
+# serving any placeholders:
+az containerapp update -g rg-project50-dev-canadacentral -n ca-project50-web-dev \
+  --revision-suffix "bootstrap$(date +%Y%m%d%H%M)"
 ```
 
 ### Key Vault secrets — create / rotate (out of band)
