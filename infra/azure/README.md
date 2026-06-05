@@ -591,8 +591,10 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
 - **Media backup** — [`scripts/media-sync.sh`](../../scripts/media-sync.sh)
   server-side mirrors the live media container (`stp50mediazv34o5`/`media`) to a
   backup container (`media-backup` on `BACKUP_STORAGE_ACCOUNT`) — additive, never
-  deletes from the backup. User media is stateful + unrecoverable if lost, so it
-  runs on the same daily schedule (`media-sync` job).
+  deletes from the backup. It **polls the copy status until all copies complete**
+  and **exits non-zero** on any `failed`/`aborted` copy or timeout, so the job
+  never reports success with missing blobs. User media is stateful + unrecoverable
+  if lost, so it runs on the same daily schedule (`media-sync` job).
 - **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
   runs **both jobs daily 03:17 UTC**, INERT until secrets are set (mirrors
   `deploy.yml`'s preflight gate). The Blob ops use `--auth-mode login`, so **CI

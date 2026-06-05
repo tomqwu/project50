@@ -283,7 +283,17 @@ idempotent.
 a daily **server-side** blob-to-blob copy from the live container to a backup
 container (`media-backup`, on `BACKUP_STORAGE_ACCOUNT`). No data flows through the
 runner; the copy is **additive** — it never deletes from the backup, so an
-accidental/malicious wipe of the live container can't propagate. Run locally too:
+accidental/malicious wipe of the live container can't propagate.
+
+> **It waits for completion.** `az storage blob copy start-batch` only *queues*
+> Azure's async server-side copies. The script then **polls each destination
+> blob's `copy.status` until none are pending** and only then reports success. If
+> any copy ends `failed`/`aborted`, or copies are still pending at the timeout
+> (`MEDIA_SYNC_TIMEOUT`, default 1800s), it **exits non-zero** so the workflow
+> fails — it will never record a "successful" media backup with missing or
+> still-copying blobs.
+
+Run locally too:
 
 ```bash
 az login
