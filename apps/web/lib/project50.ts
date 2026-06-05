@@ -44,6 +44,8 @@ export interface Project50History {
 export interface Project50State {
   status: "NONE" | "ACTIVE" | "FAILED" | "COMPLETED";
   runId?: string;
+  /** Public shareId of the active run, for building per-day share links. */
+  shareId?: string;
   today?: Project50Today;
   history?: Project50History;
   failedDayNumber?: number;
@@ -229,6 +231,7 @@ export async function getProject50State(
   return {
     status: "ACTIVE",
     runId: run.id,
+    shareId: run.shareId,
     today: await buildToday(run.id, run.startDate, todayKey),
     history: await buildHistory(run.id, run.startDate, todayKey),
   };

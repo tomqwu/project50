@@ -35,6 +35,10 @@ describe("getProject50State", () => {
     expect(state.today?.dayNumber).toBe(1);
     expect(state.today?.completedCount).toBe(0);
     expect(state.today?.checks).toEqual([false, false, false, false, false, false, false]);
+    // The active state exposes the run's public shareId for per-day share links.
+    const run = await prisma.challenge.findFirstOrThrow({ where: { ownerId: u.id } });
+    expect(state.shareId).toBe(run.shareId);
+    expect(state.shareId).toBeTruthy();
   });
 
   it("startProject50 normalizes a malformed timezone to UTC before storing", async () => {
