@@ -76,7 +76,7 @@ deterministic FNV-1a hash, stable per `(key, user)` across processes.
 
 | Flag | Default | Client-safe | Wired at | Purpose |
 | --- | --- | --- | --- | --- |
-| `shareInstagram` | **ON** | no | **Defense in depth:** UI filter in `apps/web/lib/publish/visible-capabilities.ts` (celebrate page hides the button) **and** the authoritative publish path `apps/web/lib/api/publish.ts` (rejects an `INSTAGRAM` publish with `422 PLATFORM_DISABLED` when OFF). | **Kill-switch** for Instagram sharing. Flip OFF (`FLAG_SHARE_INSTAGRAM=false`) to instantly pull it — server-side, no deploy — if the Graph API / deeplink misbehaves. The endpoint enforcement holds even if the UI is bypassed (direct API call / stale client). |
+| `shareInstagram` | **ON** | no | **Defense in depth, three layers that all agree (via `visibleCapabilities` / `isFeatureEnabled`):** (1) capabilities API `app/api/publish/capabilities/route.ts` stops advertising `INSTAGRAM`; (2) celebrate-page UI `apps/web/lib/publish/visible-capabilities.ts` hides the button; (3) the authoritative publish path `apps/web/lib/api/publish.ts` rejects an `INSTAGRAM` publish with `422 PLATFORM_DISABLED`. | **Kill-switch** for Instagram sharing. Flip OFF (`FLAG_SHARE_INSTAGRAM=false`) to instantly pull it — server-side, no deploy — if the Graph API / deeplink misbehaves. Enforcement holds even if the UI/capabilities are bypassed (direct API call / stale client). |
 | `newOnboarding` | off | no | _(reserved)_ | Server-gated experimental onboarding flow. |
 | `publicBanner` | off | yes | _(reserved)_ | Client-visible marketing banner toggle. |
 

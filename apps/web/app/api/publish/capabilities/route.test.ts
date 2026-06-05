@@ -11,6 +11,7 @@ afterEach(() => {
   delete process.env.IG_USER_ID;
   delete process.env.IG_TOKEN;
   delete process.env.WECHAT_APP_ID;
+  delete process.env.FLAG_SHARE_INSTAGRAM;
 });
 
 describe("GET /api/publish/capabilities", () => {
@@ -59,5 +60,28 @@ describe("GET /api/publish/capabilities", () => {
     const fb = body.find((c: { platform: string }) => c.platform === "FACEBOOK");
     expect(fb.method).toBe("API");
     expect(fb.apiAvailable).toBe(true);
+  });
+
+  describe("shareInstagram kill-switch (#285)", () => {
+    it("advertises INSTAGRAM when the flag is ON (default)", async () => {
+      const res = await GET();
+      const body = await res.json();
+      const platforms = body.map((c: { platform: string }) => c.platform);
+      expect(platforms).toContain("INSTAGRAM");
+      expect(body).toHaveLength(4);
+    });
+
+    it("does NOT advertise INSTAGRAM when FLAG_SHARE_INSTAGRAM=false", async () => {
+      process.env.FLAG_SHARE_INSTAGRAM = "false";
+      const res = await GET();
+      const body = await res.json();
+      const platforms = body.map((c: { platform: string }) => c.platform);
+      expect(platforms).not.toContain("INSTAGRAM");
+      // Other platforms remain advertised — only Instagram is pulled.
+      expect(platforms).toEqual(
+        expect.arrayContaining(["FACEBOOK", "WECHAT", "WEBSHARE"]),
+      );
+      expect(body).toHaveLength(3);
+    });
   });
 });
