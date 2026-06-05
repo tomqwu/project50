@@ -4,10 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, Label } from "@project50/ui";
 import type { LeaderboardEntry, LeaderboardScope } from "@/lib/leaderboard";
+import { InviteFriendsButton } from "./InviteFriendsButton";
 
 export interface LeaderboardProps {
   friends: LeaderboardEntry[];
   global: LeaderboardEntry[];
+  /**
+   * The viewer's referral code. When present, the no-friends empty state wires
+   * the real F4 InviteFriendsButton (FB Share Dialog) alongside the /refer seam
+   * link. Optional so callers without a code (e.g. legacy renders) still work.
+   */
+  referralCode?: string;
 }
 
 const TABS: { scope: LeaderboardScope; label: string }[] = [
@@ -22,7 +29,7 @@ const TABS: { scope: LeaderboardScope; label: string }[] = [
  * follows no one — its link is the F4 invite *seam* (a plain placeholder; F4
  * will later wire the real invite button here).
  */
-export function Leaderboard({ friends, global }: LeaderboardProps) {
+export function Leaderboard({ friends, global, referralCode }: LeaderboardProps) {
   const [scope, setScope] = useState<LeaderboardScope>("friends");
   const rows = scope === "friends" ? friends : global;
 
@@ -75,7 +82,7 @@ export function Leaderboard({ friends, global }: LeaderboardProps) {
       </div>
 
       {isEmpty ? (
-        <EmptyState scope={scope} />
+        <EmptyState scope={scope} referralCode={referralCode} />
       ) : (
         <Card style={{ padding: 0, overflow: "hidden" }}>
           <table
@@ -180,22 +187,36 @@ function Avatar({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-function EmptyState({ scope }: { scope: LeaderboardScope }) {
+function EmptyState({
+  scope,
+  referralCode,
+}: {
+  scope: LeaderboardScope;
+  referralCode?: string;
+}) {
   if (scope === "friends") {
     return (
       <Card>
         <div
           data-testid="leaderboard-empty-friends"
-          style={{ padding: "24px", textAlign: "center" }}
+          style={{
+            padding: "24px",
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "16px",
+          }}
         >
-          <p style={{ color: "var(--muted)", marginBottom: "16px" }}>
+          <p style={{ color: "var(--muted)", margin: 0 }}>
             No friends yet — invite some to race the program together.
           </p>
           {/*
-            F4 INVITE SEAM: placeholder link to the referral page. Feature F4
-            will replace this with the real invite button/flow. Intentionally
-            does NOT import F4 code.
+            F4 INVITE SEAM: the real InviteFriendsButton (FB Share Dialog) is
+            wired here when the viewer's referralCode is available. The /refer
+            seam link below is kept as a stable fallback / e2e selector.
           */}
+          {referralCode ? <InviteFriendsButton referralCode={referralCode} /> : null}
           <Link
             href="/refer"
             data-testid="leaderboard-invite-seam"

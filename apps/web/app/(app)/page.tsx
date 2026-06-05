@@ -3,6 +3,7 @@ import { listChallenges, getChallenge } from "@/lib/api/challenges";
 import { localDayKey, dayNumber } from "@project50/core";
 import { getProject50State } from "@/lib/project50";
 import { getLeaderboard } from "@/lib/leaderboard";
+import { getOrCreateReferralCode } from "@/lib/api/referral";
 import { Project50Client } from "./_components/Project50Client";
 import { StartProject50Button } from "./_components/StartProject50Button";
 import { DashboardView } from "./_components/DashboardView";
@@ -17,15 +18,20 @@ export default async function DashboardPage() {
   // alongside their Project 50 dashboard (loaded once, both scopes).
   const p50 = await getProject50State(uid);
   if (p50.status !== "NONE") {
-    const [friendsLeaderboard, globalLeaderboard] = await Promise.all([
+    const [friendsLeaderboard, globalLeaderboard, referralCode] = await Promise.all([
       getLeaderboard(uid, { scope: "friends" }),
       getLeaderboard(uid, { scope: "global" }),
+      getOrCreateReferralCode(uid),
     ]);
     return (
       <>
         <Project50Client state={p50} />
         <div style={{ padding: "0 32px 32px", maxWidth: "480px", margin: "0 auto" }}>
-          <Leaderboard friends={friendsLeaderboard} global={globalLeaderboard} />
+          <Leaderboard
+            friends={friendsLeaderboard}
+            global={globalLeaderboard}
+            referralCode={referralCode}
+          />
         </div>
       </>
     );
@@ -55,10 +61,12 @@ export default async function DashboardPage() {
   };
   const challengeItems: ChallengeItem[] = challenges.map((c) => ({ id: c.id, title: c.title, goalType: c.goalType as "TARGET" | "BINARY" }));
 
-  // Load both leaderboard scopes for the dashboard's ranked area.
-  const [friendsLeaderboard, globalLeaderboard] = await Promise.all([
+  // Load both leaderboard scopes + the viewer's referral code for the
+  // dashboard's ranked area (the leaderboard's invite empty-state).
+  const [friendsLeaderboard, globalLeaderboard, referralCode] = await Promise.all([
     getLeaderboard(uid, { scope: "friends" }),
     getLeaderboard(uid, { scope: "global" }),
+    getOrCreateReferralCode(uid),
   ]);
 
   return (
@@ -69,6 +77,7 @@ export default async function DashboardPage() {
         challenges={challengeItems}
         friendsLeaderboard={friendsLeaderboard}
         globalLeaderboard={globalLeaderboard}
+        referralCode={referralCode}
       />
     </>
   );

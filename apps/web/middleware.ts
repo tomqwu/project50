@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { captureReferralFromRequest } from "@/lib/referral-capture";
 
 /**
  * Security headers (M0 #31).
@@ -61,7 +62,7 @@ function storageOrigins(): string[] {
   return origins;
 }
 
-export function middleware(): NextResponse {
+export function middleware(request?: NextRequest): NextResponse {
   const storage = storageOrigins();
   const withS3 = (...sources: string[]) =>
     [...sources, ...storage].filter(Boolean).join(" ");
@@ -107,6 +108,14 @@ export function middleware(): NextResponse {
     "permissions-policy",
     "camera=(), microphone=(), geolocation=()",
   );
+
+  // Referral capture (#266): if the request carries `?ref=<code>`, persist it to
+  // a short-lived httpOnly cookie BEFORE any auth redirect / OAuth bounce, so a
+  // signed-out invitee's referral isn't dropped. No-op without a request (the
+  // header-only unit-test path) or without a valid `ref`.
+  if (request) {
+    captureReferralFromRequest(request, response);
+  }
 
   return response;
 }

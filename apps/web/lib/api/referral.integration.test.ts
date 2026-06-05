@@ -8,6 +8,7 @@ import {
   getOrCreateReferralCode,
   getReferralStats,
   recordReferral,
+  getUserCreatedAt,
 } from "./referral";
 
 beforeEach(resetDb);
@@ -136,5 +137,27 @@ describe("getReferralStats", () => {
 
     expect(stats.code).toBe(code);
     expect(stats.referredCount).toBe(2);
+  });
+});
+
+describe("getUserCreatedAt", () => {
+  it("returns the account's createdAt for a known user", async () => {
+    const u = await createUser({ handle: "known" });
+    const stored = (await prisma.user.findUnique({ where: { id: u.id } }))!.createdAt;
+    const got = await getUserCreatedAt(u.id);
+    expect(got).toBeInstanceOf(Date);
+    expect(got!.getTime()).toBe(stored.getTime());
+  });
+
+  it("reflects an updated createdAt", async () => {
+    const u = await createUser({ handle: "aged" });
+    const when = new Date(Date.now() - 60 * 60 * 1000);
+    await prisma.user.update({ where: { id: u.id }, data: { createdAt: when } });
+    const got = await getUserCreatedAt(u.id);
+    expect(got!.getTime()).toBe(when.getTime());
+  });
+
+  it("returns null for an unknown user id", async () => {
+    await expect(getUserCreatedAt("does-not-exist")).resolves.toBeNull();
   });
 });

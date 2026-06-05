@@ -13,6 +13,7 @@ const {
   mockLocalDayKey,
   mockDayNumber,
   mockGetLeaderboard,
+  mockGetOrCreateReferralCode,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockGetProject50State: vi.fn<() => Promise<Project50State>>(),
@@ -23,6 +24,7 @@ const {
   mockLocalDayKey: vi.fn(),
   mockDayNumber: vi.fn(),
   mockGetLeaderboard: vi.fn(),
+  mockGetOrCreateReferralCode: vi.fn<() => Promise<string>>(),
 }));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
@@ -30,6 +32,10 @@ vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
 vi.mock("@/lib/project50", () => ({ getProject50State: mockGetProject50State }));
 // Mock the prisma-importing leaderboard module.
 vi.mock("@/lib/leaderboard", () => ({ getLeaderboard: mockGetLeaderboard }));
+// Mock the prisma-importing referral module (referral code for the invite seam).
+vi.mock("@/lib/api/referral", () => ({
+  getOrCreateReferralCode: mockGetOrCreateReferralCode,
+}));
 vi.mock("@/lib/api/challenges", () => ({
   listChallenges: mockListChallenges,
   getChallenge: mockGetChallenge,
@@ -73,6 +79,8 @@ afterEach(() => {
 beforeEach(() => {
   // Leaderboard scopes default to empty unless a test overrides them.
   mockGetLeaderboard.mockResolvedValue([]);
+  // Referral code for the leaderboard invite seam.
+  mockGetOrCreateReferralCode.mockResolvedValue("ABCD2345");
 });
 
 describe("DashboardPage (Project 50)", () => {

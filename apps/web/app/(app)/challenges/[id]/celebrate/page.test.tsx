@@ -9,6 +9,7 @@ const {
   mockLocalDayKey,
   mockDayNumber,
   mockGetCapabilities,
+  mockGetOrCreateReferralCode,
 } = vi.hoisted(() => ({
   mockRequireUser: vi.fn<() => Promise<string>>(),
   mockGetChallenge: vi.fn(),
@@ -17,6 +18,7 @@ const {
   mockLocalDayKey: vi.fn(),
   mockDayNumber: vi.fn(),
   mockGetCapabilities: vi.fn(),
+  mockGetOrCreateReferralCode: vi.fn<() => Promise<string>>(),
 }));
 
 vi.mock("@/lib/session", () => ({ requireUser: mockRequireUser }));
@@ -27,6 +29,9 @@ vi.mock("@/lib/api/challenges", () => ({
 vi.mock("@/lib/api/recap", () => ({ listRecaps: mockListRecaps }));
 vi.mock("@/lib/publish/registry", () => ({
   getCapabilities: mockGetCapabilities,
+}));
+vi.mock("@/lib/api/referral", () => ({
+  getOrCreateReferralCode: mockGetOrCreateReferralCode,
 }));
 vi.mock("@project50/core", () => ({
   localDayKey: mockLocalDayKey,
@@ -72,6 +77,8 @@ beforeEach(() => {
   mockListRecaps.mockResolvedValue([]);
   // Default: empty capabilities
   mockGetCapabilities.mockReturnValue([]);
+  // Default referral code for the celebrate invite action.
+  mockGetOrCreateReferralCode.mockResolvedValue("ABCD2345");
 });
 
 afterEach(() => {
@@ -132,6 +139,21 @@ describe("CelebratePage", () => {
     expect(sa).toHaveAttribute("data-challenge-id", "c1");
     expect(sa).toHaveAttribute("data-share-id", "share-abc123");
     expect(sa).toHaveAttribute("data-visibility", "PUBLIC");
+  });
+
+  it("surfaces the Invite friends action with the viewer's referral code", async () => {
+    mockRequireUser.mockResolvedValue("u1");
+    mockGetChallenge.mockResolvedValue(baseChallenge);
+    mockGetMilestones.mockResolvedValue([]);
+    mockLocalDayKey.mockReturnValue("2026-05-03");
+    mockDayNumber.mockReturnValue(3);
+
+    const ui = await CelebratePage({ params: Promise.resolve({ id: "c1" }) });
+    render(ui);
+
+    expect(mockGetOrCreateReferralCode).toHaveBeenCalledWith("u1");
+    expect(screen.getByTestId("celebrate-invite")).toBeInTheDocument();
+    expect(screen.getByTestId("invite-friends-button")).toBeInTheDocument();
   });
 
   it("renders CelebrateView for day-50 complete", async () => {
