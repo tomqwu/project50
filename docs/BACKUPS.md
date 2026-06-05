@@ -192,10 +192,13 @@ never touches prod.
 1. Obtains a dump — a local `--dump PATH`, or (default) downloads the **latest**
    blob from `$BACKUP_STORAGE_ACCOUNT/$BACKUP_CONTAINER`.
 2. Stands up a **throwaway local Postgres** in docker (no cloud access needed)
-   — or targets a `--scratch-url` you pass (with a guard that **refuses** to use
-   `DATABASE_URL`).
+   — or targets a `--scratch-url` you pass.
 3. Restores into a disposable DB (`project50_restore_test`), **timing** the
-   restore (validates the RTO target).
+   restore (validates the RTO target). **Safety:** the script `DROP`s the scratch
+   DB, so before any drop it **hard-rejects protected/production names**
+   (`project50`, `postgres`, the `template*`/`azure_*` system DBs) and **refuses
+   if the normalized scratch target (host + DB name) collides with the live
+   `DATABASE_URL`** — it can never drop a non-scratch database.
 4. **Sanity checks:** `_prisma_migrations` is present and non-empty, the core
    `User` table exists (extend via `EXPECTED_TABLES`), and prints per-table row
    counts so an unexpectedly-empty restore is obvious.
@@ -284,13 +287,19 @@ idempotent.
 **Backup ([`scripts/media-sync.sh`](../scripts/media-sync.sh), `media-sync` job):**
 a daily **server-side** blob-to-blob copy from the live container to a backup
 container (`media-backup`, on `BACKUP_STORAGE_ACCOUNT`). No data flows through the
-runner; the copy is **additive** — it never deletes from the backup, so an
-accidental/malicious wipe of the live container can't propagate.
+runner.
 
-> **It waits for completion.** `az storage blob copy start-batch` only *queues*
-> Azure's async server-side copies. The script then **polls each destination
-> blob's `copy.status` until none are pending** and only then reports success. If
-> any copy ends `failed`/`aborted`, or copies are still pending at the timeout
+> **Truly additive — only copies MISSING blobs.** The script diffs the source
+> against the backup and copies **only the source blobs not already in the
+> backup**; it **never overwrites an existing backup blob** and never deletes
+> from the backup. So neither a wipe of the live container nor a corrupted/
+> overwritten live blob can clobber the good backup copy. (Media keys are
+> content-addressed + immutable, so a present backup blob is already correct.)
+
+> **It waits for completion.** `az storage blob copy start` only *queues* Azure's
+> async server-side copies. The script then **polls each destination blob's
+> `copy.status` until none are pending** and only then reports success. If any
+> copy ends `failed`/`aborted`, or copies are still pending at the timeout
 > (`MEDIA_SYNC_TIMEOUT`, default 1800s), it **exits non-zero** so the workflow
 > fails — it will never record a "successful" media backup with missing or
 > still-copying blobs.

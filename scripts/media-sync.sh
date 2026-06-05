@@ -9,24 +9,25 @@
 #
 # What it does
 # ------------
-#   1. Server-side copies every blob from the live media container
-#      ($MEDIA_SRC_ACCOUNT/$MEDIA_SRC_CONTAINER) into the backup container
-#      ($BACKUP_STORAGE_ACCOUNT/$MEDIA_BACKUP_CONTAINER) using
-#      `az storage blob copy start-batch` (no data flows through the runner;
-#      Azure copies blob-to-blob).
+#   1. DIFFs the live media container ($MEDIA_SRC_ACCOUNT/$MEDIA_SRC_CONTAINER)
+#      against the backup container ($BACKUP_STORAGE_ACCOUNT/$MEDIA_BACKUP_CONTAINER)
+#      and server-side copies ONLY the source blobs that are MISSING from the
+#      backup (no data flows through the runner; Azure copies blob-to-blob).
+#      Existing backup blobs are NEVER overwritten — truly additive.
 #   2. WAITS for those async server-side copies to COMPLETE — it polls each
 #      destination blob's `properties.copy.status` until none are `pending`. If
 #      any copy ends `failed`/`aborted`, or copies are still pending at the
 #      timeout, it EXITS NON-ZERO so the workflow surfaces a real failure rather
 #      than recording a "successful" backup with missing blobs.
-#   The sync is ADDITIVE by default — it never deletes from the backup, so an
-#   accidental/malicious wipe of the live container can't propagate. Point-in-time
-#   recovery comes from versioning + soft-delete on the BACKUP account (see
+#   ADDITIVE both ways: it never deletes from the backup (a wipe of the live
+#   container can't propagate) AND never overwrites a backup blob (a corrupted/
+#   overwritten live blob can't clobber the good backup copy). Point-in-time
+#   recovery still comes from versioning + soft-delete on the BACKUP account (see
 #   docs/BACKUPS.md / docs/OBJECT-STORAGE.md).
 #
 # Media keys are content-addressed + immutable (media/<userId>/<suffix>.<ext>,
-# see docs/CDN.md), so an additive copy is idempotent: existing blobs are skipped
-# (start-batch does not overwrite identical destination blobs by default).
+# see docs/CDN.md), so a present backup blob is already the correct bytes — only
+# missing names need copying, making the run idempotent.
 #
 # Inert without config: exits 0 (no-op) if the media/backup vars aren't set, so
 # CI gating can call it unconditionally; the workflow also gates the job.
@@ -79,18 +80,55 @@ echo "[media-sync] mode        : additive (never deletes from the backup)"
   --name "$MEDIA_BACKUP_CONTAINER" \
   --auth-mode login --only-show-errors >/dev/null
 
-# Server-side batch copy: source container -> backup container. `--pattern '*'`
-# copies all blobs; existing identical destination blobs are left as-is. The
-# copy is async on Azure's side; start-batch returns once the copies are queued.
+# --- ADDITIVE copy: only blobs MISSING from the backup ------------------------
+# `start-batch --pattern '*'` would re-copy EVERY source blob, OVERWRITING the
+# existing backup copies each run — so if a live blob were corrupted/overwritten
+# before the next run, the good backup copy would be overwritten too. Instead we
+# diff: list source names, list backup names, and copy ONLY the source blobs that
+# are not already in the backup. Existing backup blobs are NEVER touched (keys are
+# content-addressed + immutable, so a present blob is already the correct bytes).
 # NB: requires Storage Blob Delegator (or Contributor) on the SOURCE account —
 # CLI mints a source user-delegation SAS for the cross-account copy (see header).
-"$AZ" storage blob copy start-batch \
-  --account-name "$BACKUP_STORAGE_ACCOUNT" \
-  --destination-container "$MEDIA_BACKUP_CONTAINER" \
-  --source-account-name "$MEDIA_SRC_ACCOUNT" \
-  --source-container "$MEDIA_SRC_CONTAINER" \
-  --pattern "*" \
-  --auth-mode login --only-show-errors
+list_names() {  # <account> <container>
+  "$AZ" storage blob list \
+    --account-name "$1" --container-name "$2" \
+    --auth-mode login --query "[].name" -o tsv --only-show-errors
+}
+
+SRC_NAMES="$(list_names "$MEDIA_SRC_ACCOUNT" "$MEDIA_SRC_CONTAINER")"
+DST_NAMES="$(list_names "$BACKUP_STORAGE_ACCOUNT" "$MEDIA_BACKUP_CONTAINER")"
+
+# Names present in SRC but not in DST (set difference; names have no spaces —
+# content-addressed media keys). comm needs sorted input.
+MISSING="$(comm -23 \
+  <(printf '%s\n' "$SRC_NAMES" | sort -u) \
+  <(printf '%s\n' "$DST_NAMES" | sort -u))"
+# Drop any empty line (e.g. when SRC is empty).
+MISSING="$(printf '%s\n' "$MISSING" | sed '/^$/d')"
+
+MISSING_COUNT="$(printf '%s' "$MISSING" | grep -c . || true)"
+echo "[media-sync] source blobs missing from backup: ${MISSING_COUNT}"
+if [ "$MISSING_COUNT" -eq 0 ]; then
+  echo "[media-sync] backup already has every source blob — nothing to copy."
+  echo "[media-sync] done."
+  exit 0
+fi
+
+# Queue a server-side copy for each missing blob. We DON'T overwrite, so even if
+# a name slipped in concurrently, --requires-sync false keeps it async and the
+# poll below confirms completion. (Per-blob start, not start-batch, so we only
+# ever target the missing set — existing backup blobs are never re-copied.)
+SRC_PREFIX="https://${MEDIA_SRC_ACCOUNT}.blob.core.windows.net/${MEDIA_SRC_CONTAINER}"
+printf '%s\n' "$MISSING" | while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  echo "[media-sync]   copy: ${name}"
+  "$AZ" storage blob copy start \
+    --account-name "$BACKUP_STORAGE_ACCOUNT" \
+    --destination-container "$MEDIA_BACKUP_CONTAINER" \
+    --destination-blob "$name" \
+    --source-uri "${SRC_PREFIX}/${name}" \
+    --auth-mode login --only-show-errors >/dev/null
+done
 
 # --- wait for the async server-side copies to COMPLETE ------------------------
 # Poll every destination blob's copy.status until none are `pending`. Any

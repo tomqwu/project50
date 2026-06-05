@@ -70,6 +70,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# --- SAFETY: the scratch DB name must be disposable ---------------------------
+# This script issues `DROP DATABASE ... $SCRATCH_DB`. If SCRATCH_DB were ever a
+# real/production database name, the drill would DELETE it. Hard-reject a set of
+# protected names BEFORE any drop can run (this guard sits before cleanup() is
+# even registered, so the protected name can never reach a DROP on any path —
+# local-docker or external --scratch-url).
+PROTECTED_DBS="${PROTECTED_DBS:-project50 postgres template0 template1 azure_maintenance azure_sys}"
+# shellcheck disable=SC2086  # intentional word-splitting of the space-sep list
+for protected in $PROTECTED_DBS; do
+  if [ "$SCRATCH_DB" = "$protected" ]; then
+    echo "REFUSING: SCRATCH_DB='${SCRATCH_DB}' is a protected/production database name." >&2
+    echo "The drill DROPs the scratch DB; it must be a throwaway name (default" >&2
+    echo "project50_restore_test). Pick a disposable SCRATCH_DB and re-run." >&2
+    exit 3
+  fi
+done
+
 WORKDIR="$(mktemp -d)"
 CONTAINER_NAME="p50-restore-drill-$$"
 STARTED_DOCKER="0"
@@ -155,10 +172,19 @@ if [ -z "$SCRATCH_URL" ]; then
   }
 else
   # External scratch server: guard against accidentally targeting the source.
-  SCRATCH_ID="$(printf '%s' "$SCRATCH_URL" | sed -E 's#^[a-zA-Z]+://[^@]*@##')"
-  SRC_ID="$(printf '%s' "${DATABASE_URL:-}" | sed -E 's#^[a-zA-Z]+://[^@]*@##')"
-  if [ -n "$SRC_ID" ] && [ "$SCRATCH_ID" = "$SRC_ID" ]; then
-    echo "REFUSING: --scratch-url matches DATABASE_URL — a drill must use a throwaway DB." >&2
+  # Compare the NORMALIZED restore target (host:port + the scratch DB name we
+  # will actually create/drop) against the live DATABASE_URL — not just the
+  # raw --scratch-url (which is typically an admin /postgres URL whose db name
+  # differs). strip_creds() drops user:pass and any querystring so we compare
+  # host:port/db only.
+  strip_creds() { printf '%s' "$1" | sed -E 's#^[a-zA-Z]+://[^@]*@##; s#\?.*$##'; }
+  # The actual target = scratch host with SCRATCH_DB as the database.
+  TARGET_URL="$(printf '%s' "$SCRATCH_URL" | sed -E "s#/[^/?]+(\?|\$)#/${SCRATCH_DB}\1#")"
+  TARGET_ID="$(strip_creds "$TARGET_URL")"
+  SRC_ID="$(strip_creds "${DATABASE_URL:-}")"
+  if [ -n "$SRC_ID" ] && [ "$TARGET_ID" = "$SRC_ID" ]; then
+    echo "REFUSING: the scratch target (${TARGET_ID}) collides with the live DATABASE_URL." >&2
+    echo "A drill must restore into a throwaway DB on a non-live host/name." >&2
     exit 3
   fi
   echo "[drill] creating throwaway DB ${SCRATCH_DB} on the scratch server"
@@ -166,7 +192,7 @@ else
   docker run --rm "$PG_IMAGE" psql "$ADMIN_DB_URL" -v ON_ERROR_STOP=1 \
     -c "DROP DATABASE IF EXISTS ${SCRATCH_DB} WITH (FORCE);" \
     -c "CREATE DATABASE ${SCRATCH_DB};"
-  SCRATCH_URL="$(printf '%s' "$SCRATCH_URL" | sed -E "s#/[^/?]+(\?|\$)#/${SCRATCH_DB}\1#")"
+  SCRATCH_URL="$TARGET_URL"
   PSQL() { docker run --rm "$PG_IMAGE" psql "$SCRATCH_URL" "$@"; }
   RESTORE() {
     case "$DUMP" in
