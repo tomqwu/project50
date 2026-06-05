@@ -71,6 +71,23 @@ export function InviteFriendsButton({ referralCode }: Props) {
       </Button>
       <button
         type="button"
+        data-testid="invite-facebook-button"
+        aria-label="Invite friends on Facebook"
+        onClick={() => openFacebook(url())}
+        style={{
+          background: "transparent",
+          border: "1px solid var(--hairline)",
+          borderRadius: 8,
+          color: "var(--text)",
+          padding: "6px 12px",
+          fontSize: 12,
+          cursor: "pointer",
+        }}
+      >
+        Facebook
+      </button>
+      <button
+        type="button"
         data-testid="copy-invite-link-button"
         onClick={handleCopy}
         style={{

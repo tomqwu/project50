@@ -67,6 +67,23 @@ describe("InviteFriendsButton", () => {
     );
   });
 
+  it("exposes an explicit Facebook button that opens the sharer for the referral URL", () => {
+    vi.stubGlobal("navigator", {});
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+
+    render(<InviteFriendsButton referralCode={CODE} />);
+    const fb = screen.getByTestId("invite-facebook-button");
+    expect(fb).toHaveAttribute("aria-label", "Invite friends on Facebook");
+    fireEvent.click(fb);
+
+    expect(open).toHaveBeenCalledWith(
+      `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(REF_URL)}`,
+      "_blank",
+      "noopener,width=600,height=600",
+    );
+  });
+
   it("copy-link fallback writes the referral URL to the clipboard and confirms", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
