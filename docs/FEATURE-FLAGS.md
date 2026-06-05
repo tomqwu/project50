@@ -37,13 +37,18 @@ if (isFeatureEnabled("shareInstagram")) { /* show the Instagram share */ }
 
 Resolution precedence (most specific first):
 
-1. **`FLAG_<NAME>` env override** — `true/false/1/0`, case-insensitive, trimmed.
-   `<NAME>` is the camelCase key in UPPER_SNAKE (`shareInstagram` →
-   `FLAG_SHARE_INSTAGRAM`). An explicit `false` here is honoured even when the
-   flag is in the allow-list, so it doubles as a hard **kill-switch**.
-2. **`NEXT_PUBLIC_FLAGS`** — a comma-list *allow-list* that forces the named
-   flags ON (e.g. `NEXT_PUBLIC_FLAGS=newOnboarding,publicBanner`). Entries are
-   matched case-insensitively; unknown tokens are ignored.
+1. **`FLAG_<NAME>=true|false` env override** — `true/false/1/0`,
+   case-insensitive, trimmed. `<NAME>` is the camelCase key in UPPER_SNAKE
+   (`shareInstagram` → `FLAG_SHARE_INSTAGRAM`). This is the **only** thing that
+   can force a default-ON flag **OFF**, so it is the real kill-switch; an
+   explicit value here wins even when the flag is also in the allow-list.
+2. **`NEXT_PUBLIC_FLAGS`** — a comma-list *allow-list that only forces flags ON*
+   (e.g. `NEXT_PUBLIC_FLAGS=newOnboarding,publicBanner`). Entries are matched
+   case-insensitively; unknown tokens are ignored. **It cannot disable
+   anything** — omitting a flag from this list does not turn it off, it just
+   falls back to the registry default. So for a default-ON flag like
+   `shareInstagram`, editing `NEXT_PUBLIC_FLAGS` has no effect; use
+   `FLAG_SHARE_INSTAGRAM=false`.
 3. The registry **`default`**.
 
 `isFlagEnabled(name)` (the original `#126` API) reads only the per-flag
@@ -70,6 +75,6 @@ deterministic FNV-1a hash, stable per `(key, user)` across processes.
 1. Add an entry to `FLAGS` in `apps/web/lib/flags.ts` (default OFF unless it
    gates stable behaviour as a kill-switch).
 2. Gate code with `isFeatureEnabled("yourFlag")`.
-3. Override per-environment with `FLAG_YOUR_FLAG=true|false` or list it in
-   `NEXT_PUBLIC_FLAGS`.
+3. Override per-environment with `FLAG_YOUR_FLAG=true|false` (the only way to
+   force a flag OFF), or list it in `NEXT_PUBLIC_FLAGS` to force it ON.
 4. Add a row to the table above and a test (the lib is at 100% coverage).

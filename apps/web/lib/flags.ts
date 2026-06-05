@@ -48,12 +48,15 @@ export const FLAGS = {
   /**
    * Kill-switch for the **Instagram** option in the celebrate-screen social
    * share panel (#285). Default **ON** — this gates an already-shipped,
-   * stable behaviour, so merging the flag changes nothing. Flip it OFF (e.g.
-   * `FLAG_SHARE_INSTAGRAM=false` or drop `shareInstagram` from
-   * `NEXT_PUBLIC_FLAGS`) to instantly pull the Instagram share button if the
-   * Graph API / deeplink starts misbehaving — no deploy required. Server-gated
-   * (the celebrate page filters capabilities on the server), so `clientSafe`
-   * stays `false`.
+   * stable behaviour, so merging the flag changes nothing.
+   *
+   * To pull the Instagram share button in an incident, set the explicit
+   * per-flag override **`FLAG_SHARE_INSTAGRAM=false`** — that is the only thing
+   * that can force a default-ON flag OFF (it has top precedence). Note that
+   * `NEXT_PUBLIC_FLAGS` is an *allow-list that only forces flags ON*: omitting
+   * `shareInstagram` from it does NOT disable this flag, it just falls back to
+   * the `default: true`. Server-gated (the celebrate page filters capabilities
+   * on the server), so `clientSafe` stays `false`.
    */
   shareInstagram: { default: true, clientSafe: false },
 } as const satisfies Record<string, FlagDefinition>;

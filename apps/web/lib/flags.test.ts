@@ -62,6 +62,20 @@ describe("shareInstagram flag", () => {
   it("is server-only (not client-safe)", () => {
     expect(FLAGS.shareInstagram.clientSafe).toBe(false);
   });
+
+  it("is disabled ONLY by the explicit FLAG_SHARE_INSTAGRAM=false override", () => {
+    expect(isFeatureEnabled("shareInstagram", env({ FLAG_SHARE_INSTAGRAM: "false" }))).toBe(false);
+  });
+
+  it("stays ON when absent from NEXT_PUBLIC_FLAGS (allow-list cannot disable it)", () => {
+    // The allow-list only forces flags ON; omitting a default-ON flag does not
+    // turn it off — it falls back to default: true. This is the documented
+    // kill-switch contract (#285): use FLAG_SHARE_INSTAGRAM=false, not the list.
+    expect(isFeatureEnabled("shareInstagram", env({ NEXT_PUBLIC_FLAGS: "publicBanner" }))).toBe(
+      true,
+    );
+    expect(isFeatureEnabled("shareInstagram", env({ NEXT_PUBLIC_FLAGS: "" }))).toBe(true);
+  });
 });
 
 describe("isFeatureEnabled", () => {
