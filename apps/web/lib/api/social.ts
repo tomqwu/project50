@@ -23,12 +23,42 @@ export async function unfollow(followerId: string, followeeId: string) {
   });
 }
 
+/** Default number of feed items returned per page. */
+export const FEED_DEFAULT_LIMIT = 30;
+/** Hard upper bound on feed page size, regardless of requested limit. */
+export const FEED_MAX_LIMIT = 50;
+
+export interface FeedParams {
+  /** Activity id to page after (exclusive). Omit for the first page. */
+  cursor?: string;
+  /** Requested page size. Clamped to [1, FEED_MAX_LIMIT]; defaults to FEED_DEFAULT_LIMIT. */
+  limit?: number;
+}
+
+/**
+ * Clamp a requested feed limit into [1, FEED_MAX_LIMIT], falling back to
+ * FEED_DEFAULT_LIMIT for missing / non-finite / non-positive values.
+ */
+export function clampFeedLimit(limit?: number): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1) {
+    return FEED_DEFAULT_LIMIT;
+  }
+  return Math.min(Math.floor(limit), FEED_MAX_LIMIT);
+}
+
 /**
  * Feed for viewerId: activities from users the viewer follows,
  * where the activity's challenge visibility is PUBLIC or FOLLOWERS.
  * Newest first. Includes challenge, user, media (with signed URLs), and cheer count.
+ *
+ * Cursor-paginated and bounded: returns at most `limit` items (default 30, cap
+ * 50). `nextCursor` is the last item's id when another page exists, else null.
+ * Pass that value back as `cursor` to fetch the following page.
  */
-export async function feed(viewerId: string) {
+export async function feed(viewerId: string, params: FeedParams = {}) {
+  const limit = clampFeedLimit(params.limit);
+  const cursor = params.cursor;
+
   const activities = await prisma.activity.findMany({
     where: {
       user: {
@@ -44,7 +74,12 @@ export async function feed(viewerId: string) {
         visibility: { in: ["PUBLIC", "FOLLOWERS"] },
       },
     },
-    orderBy: { createdAt: "desc" },
+    // Stable, deterministic ordering so cursor pagination never skips or repeats
+    // rows that share a createdAt timestamp.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    // Fetch one extra row to detect whether a further page exists.
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     include: {
       challenge: true,
       user: true,
@@ -53,8 +88,13 @@ export async function feed(viewerId: string) {
     },
   });
 
-  const withUrls = await withMediaUrls(activities);
-  return withUrls.map((a) => {
+  // The (limit + 1)th row, if present, only signals there's another page.
+  const hasMore = activities.length > limit;
+  const page = hasMore ? activities.slice(0, limit) : activities;
+  const nextCursor = hasMore ? page[page.length - 1]!.id : null;
+
+  const withUrls = await withMediaUrls(page);
+  const items = withUrls.map((a) => {
     // Project 50 runs are visually distinguished in the feed. The challenge's
     // kind/startDate/timezone are already loaded via `include: { challenge }`;
     // surface a 1-based day number for PROJECT50 activities so the UI can show
@@ -71,6 +111,8 @@ export async function feed(viewerId: string) {
       project50Day,
     };
   });
+
+  return { items, nextCursor };
 }
 
 /** React to an activity. CHEER ignores text; COMMENT requires non-empty text. */

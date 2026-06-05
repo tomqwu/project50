@@ -29,7 +29,7 @@ afterEach(() => {
 describe("FeedPage", () => {
   it("renders FeedView with empty items when feed is empty", async () => {
     mockRequireUser.mockResolvedValue("u1");
-    mockFeed.mockResolvedValue([]);
+    mockFeed.mockResolvedValue({ items: [], nextCursor: null });
 
     const ui = await FeedPage();
     render(ui);
@@ -39,7 +39,9 @@ describe("FeedPage", () => {
 
   it("maps feed activities to FeedActivity items with real cheerCount and hasPhoto", async () => {
     mockRequireUser.mockResolvedValue("u1");
-    mockFeed.mockResolvedValue([
+    mockFeed.mockResolvedValue({
+      nextCursor: null,
+      items: [
       {
         id: "a1",
         user: { handle: "alice" },
@@ -66,7 +68,8 @@ describe("FeedPage", () => {
         project50Day: undefined,
         media: [],
       },
-    ]);
+      ],
+    });
 
     const ui = await FeedPage();
     render(ui);

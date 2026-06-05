@@ -355,19 +355,33 @@ describe("logActivity", () => {
 describe("getFeed", () => {
   const client = new ApiClient("http://localhost:3000");
 
-  it("calls GET /api/feed", async () => {
-    mockFetchOk([]);
+  it("calls GET /api/feed with no query when no opts given", async () => {
+    mockFetchOk({ items: [], nextCursor: null });
     await client.getFeed();
     const [url, init] = lastCall();
     expect(url).toBe("http://localhost:3000/api/feed");
     expect(init.method).toBe("GET");
   });
 
-  it("returns feed activities", async () => {
-    const data = [{ id: "a1", cheerCount: 2 }];
+  it("returns the { items, nextCursor } page", async () => {
+    const data = { items: [{ id: "a1", cheerCount: 2 }], nextCursor: "a1" };
     mockFetchOk(data);
     const result = await client.getFeed();
     expect(result).toEqual(data);
+  });
+
+  it("passes cursor and limit as query params", async () => {
+    mockFetchOk({ items: [], nextCursor: null });
+    await client.getFeed({ cursor: "a9", limit: 20 });
+    const [url] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/feed?cursor=a9&limit=20");
+  });
+
+  it("passes only limit when cursor is omitted", async () => {
+    mockFetchOk({ items: [], nextCursor: null });
+    await client.getFeed({ limit: 5 });
+    const [url] = lastCall();
+    expect(url).toBe("http://localhost:3000/api/feed?limit=5");
   });
 
   it("throws ApiError on 401", async () => {
