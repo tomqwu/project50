@@ -1,9 +1,9 @@
 # Azure deployment — project50-web
 
-Deploys the web app to **Azure Container Apps** (scale-to-zero) on the cloud
-landing zone, with **Postgres Flexible Server** (B1ms) and **Blob storage** for
-media. Extends the landing-pad onboarding (same Terraform state,
-`apps/project50.tfstate`).
+Deploys the web app to **Azure Container Apps** (min 1 warm replica, scales out
+under load) on the cloud landing zone, with **Postgres Flexible Server** (B1ms)
+and **Blob storage** for media. Extends the landing-pad onboarding (same
+Terraform state, `apps/project50.tfstate`).
 
 ## What it creates (in `rg-project50-dev-canadacentral`)
 
@@ -12,10 +12,47 @@ media. Extends the landing-pad onboarding (same Terraform state,
 | Postgres Flexible Server B1ms + `project50` db | burstable, public endpoint + SSL | ~$13/mo |
 | Storage account + `media` container | LRS, TLS1.2, private (SAS URLs) | pennies |
 | Container Apps Environment | logs → platform LAW | $0 |
-| Container App `ca-project50-web-dev` | min-replicas 0, image from ACR, secrets from Key Vault | ~$0 idle |
+| Container App `ca-project50-web-dev` | min 1 / max 4 replicas (0.5 vCPU + 1Gi each), image from ACR, secrets from Key Vault | ~$0 idle scale-to-zero **or** one warm replica 24/7 (see Scaling) |
 
 The app's managed identity (`uami-project50-dev`, from onboard) pulls the image
 (AcrPull) and reads the Key Vault secrets (Key Vault Secrets User).
+
+## Scaling (warm baseline → scales out)
+
+The Container App keeps **`min_replicas = 1`** so one small replica stays warm at
+all times — the first request after an idle period skips the multi-second Next.js
+cold start. Under concurrent load it **scales out** toward **`max_replicas = 4`**,
+then back to 1 when traffic subsides.
+
+- **Scale rule** — an HTTP concurrency rule (`http_scale_rule`) targets **80
+  concurrent requests per replica**: KEDA adds replicas as in-flight requests
+  climb past that, and removes them as they fall.
+- **Per-replica resources** — `cpu = 0.5` / `memory = 1Gi`, kept deliberately
+  minimal. We scale OUT (more replicas), not down per replica; 0.25 vCPU / 0.5Gi
+  risks OOM for the Next standalone server, so don't shrink it.
+- **Health probes** (port 3000) — because a warm replica is always in the
+  routing pool: `startup_probe` and `liveness_probe` hit `/api/health` (a static,
+  dependency-free check — a startup probe failure kills the revision, so it must
+  not depend on Postgres/Blob), while `readiness_probe` hits `/api/ready` (checks
+  the deps and withholds traffic from a not-yet-ready replica without restarting
+  it). So a still-booting or wedged replica is kept out of / restarted in the
+  ingress rotation.
+- **Cost tradeoff** — at min 1 that one replica runs **24/7** (~0.5 vCPU + 1Gi),
+  billing active-usage rates against the Azure Sponsorship credits instead of
+  going to $0 at idle. The warm-baseline cost buys away the cold start.
+- **Revert to scale-to-zero** — set the floor back to zero at apply time:
+
+  ```bash
+  terraform apply -var image_tag=<sha> -var min_replicas=0
+  ```
+
+  This restores no-idle-cost behavior (cold starts return). `min_replicas` /
+  `max_replicas` are plain `number` vars in `variables.tf` (defaults 1 / 4).
+
+Changing the replica floor/ceiling, the scale rule, or the probes is an
+**in-place revision update** of the Container App — it does **not** force
+replacement of `azurerm_container_app.web` (a new revision rolls out under the
+existing app/FQDN).
 
 ## Monitoring & alerts (#271)
 

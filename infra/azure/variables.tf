@@ -28,3 +28,15 @@ variable "auth_url" {
   type        = string
   default     = "https://project50.fit"
 }
+
+variable "min_replicas" {
+  description = "Minimum number of Container App replicas to keep running. Default 1 keeps ONE small replica always warm so the first request after idle skips the multi-second cold start (the Next.js standalone server boot). COST TRADEOFF: at min 1 that single replica runs 24/7 (~0.5 vCPU + 1Gi) and bills active-usage rates against the Azure Sponsorship credits instead of scaling to zero at idle. Set to 0 (e.g. `-var min_replicas=0`) to restore scale-to-zero (no idle cost, but cold starts return)."
+  type        = number
+  default     = 1
+}
+
+variable "max_replicas" {
+  description = "Maximum number of Container App replicas. The app scales OUT from min_replicas toward this ceiling under concurrent load (driven by the http_scale_rule), then back down to min_replicas when idle. Default 4 gives headroom above the warm baseline for traffic spikes."
+  type        = number
+  default     = 4
+}

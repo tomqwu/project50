@@ -244,7 +244,7 @@ resource "azurerm_container_app_environment" "env" {
   tags                       = module.onboard.tags
 }
 
-# ── The web app (scale-to-zero) ─────────────────────────────────────────────
+# ── The web app (min 1 warm replica → scales out under load) ────────────────
 resource "azurerm_container_app" "web" {
   # Don't create the app until the UAMI's Key Vault Secrets User grant (and the
   # deployer's Officer grant) have propagated — otherwise Container Apps fails
@@ -315,12 +315,29 @@ resource "azurerm_container_app" "web" {
   }
 
   template {
-    min_replicas = 0
-    max_replicas = 2
+    # min 1 keeps a replica always warm (no scale-to-zero cold start); max gives
+    # headroom to scale OUT under load. Both are vars so the warm-baseline cost
+    # can be reverted to scale-to-zero with `-var min_replicas=0`.
+    min_replicas = var.min_replicas
+    max_replicas = var.max_replicas
+
+    # HTTP concurrency scale rule: KEDA scales replicas from min→max based on
+    # concurrent in-flight requests, then back to min when idle. 80 concurrent
+    # requests/replica is a conservative target for the Next.js standalone server
+    # at 0.5 vCPU — high enough not to scale on light traffic, low enough to add a
+    # replica before a single one saturates. (concurrent_requests is a string.)
+    http_scale_rule {
+      name                = "http-concurrency"
+      concurrent_requests = "80"
+    }
 
     container {
-      name   = "web"
-      image  = "${module.onboard.acr_login_server}/project50-web:${var.image_tag}"
+      name  = "web"
+      image = "${module.onboard.acr_login_server}/project50-web:${var.image_tag}"
+      # Keep per-replica resources minimal but SAFE: 0.5 vCPU / 1Gi is already a
+      # modest footprint for the Next.js standalone server. Do NOT drop to
+      # 0.25/0.5Gi — the Node server can OOM under load at 0.5Gi. Scale OUT (more
+      # replicas via the http_scale_rule above), not down per replica.
       cpu    = 0.5
       memory = "1Gi"
 
@@ -374,6 +391,46 @@ resource "azurerm_container_app" "web" {
       env {
         name  = "NODE_ENV"
         value = "production"
+      }
+
+      # Health probes — because min_replicas > 0 means a warm replica is in the
+      # routing pool, gate traffic on readiness so a still-booting (or unhealthy)
+      # replica isn't sent requests. The app exposes /api/health (a static,
+      # dependency-free liveness check) and /api/ready (checks Postgres + Blob).
+      # port = 3000 matches the ingress target_port.
+      #
+      # startup: confirm only that the Node/Next process is up and serving —
+      # MUST stay dependency-free, so it hits /api/health, NOT /api/ready. A
+      # failed startup probe KILLS the starting revision; if it depended on
+      # external services (DB/Blob/KV) a transient outage during a rollout would
+      # make the probe never succeed and flap/wedge the deploy. Dependency
+      # readiness is gated by the readiness probe below (which only withholds
+      # traffic, never restarts).
+      startup_probe {
+        transport        = "HTTP"
+        port             = 3000
+        path             = "/api/health"
+        initial_delay    = 5
+        interval_seconds = 5
+        timeout          = 3
+      }
+      # readiness: keep a not-yet-ready replica OUT of the ingress rotation.
+      readiness_probe {
+        transport        = "HTTP"
+        port             = 3000
+        path             = "/api/ready"
+        initial_delay    = 3
+        interval_seconds = 10
+        timeout          = 3
+      }
+      # liveness: restart a wedged replica that stops answering /api/health.
+      liveness_probe {
+        transport        = "HTTP"
+        port             = 3000
+        path             = "/api/health"
+        initial_delay    = 10
+        interval_seconds = 15
+        timeout          = 3
       }
     }
   }
