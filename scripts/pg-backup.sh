@@ -25,18 +25,19 @@
 #
 # Env / config (see docs/BACKUPS.md, infra/azure/README.md)
 # ---------------------------------------------------------
-#   Connection (one of):
+#   Connection — the ADMIN conn string is read from Key Vault BY DEFAULT:
 #     KEY_VAULT_NAME          Key Vault to read the ADMIN conn string from.
-#                             Default: kv-project50-dev-6z7n. This is the CI /
-#                             default source of truth (the scheduled backup uses
-#                             ONLY this — see backup.yml).
+#                             Default: kv-project50-dev-6z7n. This is the source of
+#                             truth for both CI and the local path.
 #     KV_SECRET_NAME          KV secret name. Default: database-url-admin
-#     DATABASE_URL            LOCAL-OPERATOR OVERRIDE ONLY. If set, it is used
-#                             instead of the Key Vault read. It MUST be the prod
-#                             ADMIN connection (sslmode=require) — do NOT pass the
-#                             app/pooler `p50app` DATABASE_URL here (wrong role /
-#                             possibly a pooler host, unsuitable for pg_dump).
-#                             NOT wired into CI (CI always reads Key Vault).
+#     BACKUP_DATABASE_URL     DELIBERATE OVERRIDE ONLY (a DEDICATED var — NOT the
+#                             ambient DATABASE_URL, which is the app/pooler p50app
+#                             connection and the WRONG role/host for pg_dump). If
+#                             set, it is used instead of the Key Vault read and
+#                             MUST be the prod ADMIN connection (sslmode=require).
+#                             The ambient DATABASE_URL is intentionally IGNORED so
+#                             a shell that has the app DB exported can't dump the
+#                             wrong connection by accident. NOT wired into CI.
 #
 #   Blob upload target (optional — skipped if BACKUP_STORAGE_ACCOUNT unset):
 #     BACKUP_STORAGE_ACCOUNT  Storage account for backups (e.g. a dedicated
@@ -64,13 +65,15 @@ BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 PGDUMP_IMAGE="${PGDUMP_IMAGE:-postgres:16}"
 
 # --- resolve the connection string -------------------------------------------
-# Read the admin conn string from Key Vault (the default / CI source of truth).
-# A local operator MAY override with an explicit admin DATABASE_URL env (NOT the
-# app/pooler p50app one). Never echo the connection string (it carries the pw).
-CONN="${DATABASE_URL:-}"
+# Read the admin conn string from Key Vault BY DEFAULT (the source of truth). A
+# local operator may DELIBERATELY override with the dedicated BACKUP_DATABASE_URL
+# env (must be the prod ADMIN URL). The ambient DATABASE_URL is intentionally
+# IGNORED here, so a shell with the app/pooler p50app DB exported can't dump the
+# wrong connection by accident. Never echo the conn string (it carries the pw).
+CONN="${BACKUP_DATABASE_URL:-}"
 if [ -z "$CONN" ]; then
   if [ -z "$KEY_VAULT_NAME" ]; then
-    echo "ERROR: set DATABASE_URL, or KEY_VAULT_NAME to read '${KV_SECRET_NAME}' from Key Vault." >&2
+    echo "ERROR: set BACKUP_DATABASE_URL (admin URL), or KEY_VAULT_NAME to read '${KV_SECRET_NAME}' from Key Vault." >&2
     exit 2
   fi
   echo "[pg-backup] reading ${KV_SECRET_NAME} from Key Vault ${KEY_VAULT_NAME}"

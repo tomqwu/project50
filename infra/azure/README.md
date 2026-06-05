@@ -585,17 +585,22 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
   retention (default 14). It reads the prod **admin** conn string from the
   `database-url-admin` Key Vault secret (the single source of truth — NOT the
   shared `DATABASE_URL`/`p50app` app connection, which is the wrong role/host for
-  `pg_dump`; a local operator may override via an explicit admin `DATABASE_URL`
-  env). It uploads with `--auth-mode login` (no account key).
+  `pg_dump`; a local operator may override via the dedicated `BACKUP_DATABASE_URL`
+  env, never the ambient `DATABASE_URL`). It uploads with `--auth-mode login` (no
+  account key).
+- **Media backup** — [`scripts/media-sync.sh`](../../scripts/media-sync.sh)
+  server-side mirrors the live media container (`stp50mediazv34o5`/`media`) to a
+  backup container (`media-backup` on `BACKUP_STORAGE_ACCOUNT`) — additive, never
+  deletes from the backup. User media is stateful + unrecoverable if lost, so it
+  runs on the same daily schedule (`media-sync` job).
 - **Schedule** — [`.github/workflows/backup.yml`](../../.github/workflows/backup.yml)
-  runs it **daily 03:17 UTC**, INERT until secrets are set (mirrors `deploy.yml`'s
-  preflight gate). The Blob upload uses `--auth-mode login`, so **CI requires the
-  Azure federated (OIDC) creds** (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`)
-  plus `BACKUP_STORAGE_ACCOUNT`. CI passes **no DB conn string** — it reads the
-  admin URL from Key Vault (so it never backs up the wrong `p50app` connection;
-  the `DATABASE_URL` override is for the local operator only). Azure Flexible
-  Server's own **PITR** (provider window) is a separate,
-  complementary layer.
+  runs **both jobs daily 03:17 UTC**, INERT until secrets are set (mirrors
+  `deploy.yml`'s preflight gate). The Blob ops use `--auth-mode login`, so **CI
+  requires the Azure federated (OIDC) creds**
+  (`AZURE_CLIENT_ID`/`TENANT_ID`/`SUBSCRIPTION_ID`) plus `BACKUP_STORAGE_ACCOUNT`.
+  CI passes **no DB conn string** — it reads the admin URL from Key Vault (so it
+  never backs up the wrong `p50app` connection). Azure Flexible Server's own
+  **PITR** (provider window) is a separate, complementary layer.
 - **Tested restore drill** — [`scripts/pg-restore-drill.sh`](../../scripts/pg-restore-drill.sh)
   restores the latest backup into a **throwaway** DB (`project50_restore_test`,
   local docker by default), sanity-checks it (migration ledger + core tables +
@@ -606,10 +611,12 @@ Full details in [`docs/BACKUPS.md`](../../docs/BACKUPS.md). Summary for this inf
 
 1. Create a **separate** backup storage account (e.g. `stp50backups<suffix>`,
    ideally cross-region from `stp50mediazv34o5`) + a private `db-backups`
-   container. Enable **versioning + soft-delete on this BACKUP account** (the
-   *media* account keeps soft-delete OFF for GDPR hard-erase — different account).
-2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`)
-   and **Storage Blob Data Contributor** (on the backup container).
+   container (DB dumps) and a `media-backup` container (media mirror). Enable
+   **versioning + soft-delete on this BACKUP account** (the *live media* account
+   keeps soft-delete OFF for GDPR hard-erase — different account).
+2. Grant the backup identity **Key Vault Secrets User** (on `kv-project50-dev-6z7n`),
+   **Storage Blob Data Contributor** (on the backup account), and **Storage Blob
+   Data Reader** (on the live media account `stp50mediazv34o5`, for the mirror).
 3. Add the repo secrets (`AZURE_CLIENT_ID`/`TENANT`/`SUBSCRIPTION` for federated
    login — **required for CI** — plus `BACKUP_STORAGE_ACCOUNT`) — see
    `docs/BACKUPS.md`.
