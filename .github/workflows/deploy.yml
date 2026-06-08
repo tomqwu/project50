@@ -131,7 +131,7 @@ jobs:
       # `--prod` is passed via vercel-args. Build env (DATABASE_URL, AUTH_SECRET,
       # S3_*, etc.) is configured in the Vercel project settings, not here.
       - name: Deploy to Vercel (production)
-        uses: amondnet/vercel-action@v25
+        uses: amondnet/vercel-action@v42
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
