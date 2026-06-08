@@ -26,6 +26,21 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      # Expo SDK pins these RN/Expo-ecosystem packages to exact versions per SDK
+      # release. They must be upgraded together via `expo install` during a
+      # deliberate Expo SDK bump — piecemeal minor/patch bumps break the native
+      # iOS/Android build and the jest-expo preset (the failed grouped PR #329:
+      # expo-asset 11.0.5->11.1.7 undid the SDK-52 pin from #326, expo-notifications
+      # 0.29->0.32, @sentry/react-native 6.10->6.22). They move with the SDK, not
+      # on dependabot's schedule.
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
+      - dependency-name: "@react-native-async-storage/*"
+      - dependency-name: "@react-native-community/*"
+      - dependency-name: "@react-navigation/*"
+      - dependency-name: "@sentry/react-native"
     labels:
       - dependencies
     commit-message:
