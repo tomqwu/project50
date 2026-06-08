@@ -27,7 +27,8 @@ privacy answers below derive from them — do not copy a generic template.
 | Fact | Value | Source |
 | --- | --- | --- |
 | Framework | Expo SDK **52** / React Native 0.76 | `apps/mobile/package.json` |
-| Bundle identifier | `com.anonymous.project50` today → **decided target `fit.project50.app`** (confirm it matches the App ID registered for the App Store Connect app below; the bundle id is **permanent** once shipped) | `apps/mobile/app.json` |
+| Bundle identifier | **`com.project50`** (registered App ID for app 6777206380; permanent) — set in `apps/mobile/app.json` | `apps/mobile/app.json` |
+| Apple Developer Team ID | **`T32FW7PZ3S`** | Apple Developer → Membership |
 | App name (home-screen label) | `project50` today → **decided `Project 50`** (short, so iOS doesn't truncate under the icon) | `apps/mobile/app.json` |
 | App Store Connect app | **created** — Apple ID **`6777206380`** (draft) | App Store Connect |
 | Store listing name | **`Project 50: Live in Respect`** (27 chars; verified no App Store collision) | §2 |
@@ -65,9 +66,8 @@ to an Apple data category.
    - Platform: iOS.
    - Name: `Project 50: Live in Respect` (see §2).
    - Primary language: English (U.S.) — **TODO** confirm.
-   - Bundle ID: must be the App ID for `fit.project50.app` (register it under
-     **Certificates, Identifiers & Profiles → Identifiers** if not done, and make
-     `apps/mobile/app.json` `ios.bundleIdentifier` match exactly).
+   - Bundle ID: **`com.project50`** (App ID already registered; `apps/mobile/app.json`
+     `ios.bundleIdentifier` is set to match exactly).
    - SKU: an internal string, e.g. `project50-ios`.
 4. **TODO** — Under **Users and Access → Integrations → App Store Connect API**,
    create an **API key** (App Manager role). With the local-Xcode/Transporter
@@ -306,12 +306,14 @@ simulator** (Xcode 26.5 / iOS 26 SDK). Getting there required fixes now on
 
 ### Local Xcode archive → Transporter
 
-1. Set the real identity in `apps/mobile/app.json` first: `ios.bundleIdentifier`
-   = `fit.project50.app`, `name` = `Project 50` (the held app-identity PR), then
+1. The real identity is already set in `apps/mobile/app.json`: `ios.bundleIdentifier`
+   = `com.project50`, `name` = `Project 50`. On a fresh checkout run
    `npx expo prebuild --platform ios` + `pod install`.
-2. Open `apps/mobile/ios/project50.xcworkspace` in Xcode. Under **Signing &
-   Capabilities**, select your **Team** (`TODO` — your 10-char Apple Developer
-   Team ID) with automatic signing; set the build config to **Release**.
+2. Open the generated `apps/mobile/ios/*.xcworkspace` in Xcode (Expo derives the
+   native project name from the sanitized `expo.name`, so with `name: "Project 50"`
+   it is `Project50.xcworkspace`). Under **Signing &
+   Capabilities**, select your **Team** (Team ID **`T32FW7PZ3S`**) with automatic
+   signing; set the build config to **Release**.
 3. Set the run destination to **Any iOS Device (arm64)** and **Product → Archive**.
 4. In the **Organizer**, either **Distribute App → App Store Connect → Upload**,
    or **Export** the `.ipa` and upload it with the **Transporter** app (sign in
@@ -342,7 +344,7 @@ The repo has no `eas.json` — create one. Builds via **EAS Build**, submission 
          "ios": {
            "appleId": "TODO@example.com",
            "ascAppId": "6777206380",
-           "appleTeamId": "TODO_team_id"
+           "appleTeamId": "T32FW7PZ3S"
          }
        }
      }
