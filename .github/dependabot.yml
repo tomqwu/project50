@@ -26,6 +26,21 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      # Expo SDK 52 pins these bundled native modules to exact versions; they must
+      # be upgraded together via `expo install` during a deliberate SDK bump —
+      # piecemeal minor/patch bumps break the native build and the jest-expo preset
+      # (the failed grouped PR #329 bumped expo-asset 11.0.5->11.1.7, undoing the
+      # SDK-52 pin from #326). Only the genuinely Expo-managed modules are listed —
+      # third-party libs like react-native-purchases and @react-navigation/* are
+      # NOT pinned and keep getting dependabot PRs.
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-safe-area-context"
+      - dependency-name: "react-native-screens"
+      - dependency-name: "react-native-gesture-handler"
+      - dependency-name: "@react-native-async-storage/async-storage"
+      - dependency-name: "@react-native-community/netinfo"
     labels:
       - dependencies
     commit-message:
