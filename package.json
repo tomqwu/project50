@@ -16,8 +16,8 @@
   },
   "devDependencies": {
     "@project50/config": "workspace:^",
-    "@typescript-eslint/eslint-plugin": "^8.60.0",
-    "@typescript-eslint/parser": "^8.60.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
     "@vitest/coverage-v8": "^2.1.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^10.1.8",

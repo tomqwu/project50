@@ -11,10 +11,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1058.0",
-    "@aws-sdk/s3-request-presigner": "^3.1058.0",
+    "@aws-sdk/client-s3": "^3.1064.0",
+    "@aws-sdk/s3-request-presigner": "^3.1064.0",
     "@azure/identity": "^4.13.1",
-    "@azure/storage-blob": "^12.31.0",
+    "@azure/storage-blob": "^12.32.0",
     "@project50/core": "workspace:*",
     "@project50/db": "workspace:*",
     "@project50/recap": "workspace:*",
@@ -33,7 +33,7 @@
     "@project50/config": "workspace:*",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.0",
-    "@types/node": "20.17.6",
+    "@types/node": "20.19.42",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "dotenv-cli": "^11.0.0",
