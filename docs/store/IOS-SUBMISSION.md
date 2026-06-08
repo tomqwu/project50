@@ -309,7 +309,9 @@ simulator** (Xcode 26.5 / iOS 26 SDK). Getting there required fixes now on
 1. The real identity is already set in `apps/mobile/app.json`: `ios.bundleIdentifier`
    = `com.project50`, `name` = `Project 50`. On a fresh checkout run
    `npx expo prebuild --platform ios` + `pod install`.
-2. Open `apps/mobile/ios/project50.xcworkspace` in Xcode. Under **Signing &
+2. Open the generated `apps/mobile/ios/*.xcworkspace` in Xcode (Expo derives the
+   native project name from the sanitized `expo.name`, so with `name: "Project 50"`
+   it is `Project50.xcworkspace`). Under **Signing &
    Capabilities**, select your **Team** (Team ID **`T32FW7PZ3S`**) with automatic
    signing; set the build config to **Release**.
 3. Set the run destination to **Any iOS Device (arm64)** and **Product → Archive**.
