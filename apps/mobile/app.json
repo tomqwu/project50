@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "project50",
+    "name": "Project 50",
     "slug": "project50",
     "scheme": "project50",
     "version": "1.0.0",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.project50",
+      "bundleIdentifier": "com.project50",
       "associatedDomains": [
         "applinks:project50.app"
       ]
