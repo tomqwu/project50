@@ -6,12 +6,20 @@ import {
   signInWithFacebook,
   signInWithGoogle,
   handleDeepLinkRedirect,
+  signInDev,
   REDIRECT_URI,
 } from "../lib/session";
 import { subscribeToDeepLinks } from "../lib/deeplink";
 import { registerAndSavePushToken } from "../lib/push";
 import { colors } from "../theme";
 import { elevation, ripple, uiFontFamily } from "../components/platform";
+
+/**
+ * Handle used by the dev-only "Skip login" button. The backend's gated e2e
+ * sign-in path (`/api/auth/callback/e2e`, armed by `AUTH_E2E=1` on a local
+ * non-prod server) upserts a user for this handle.
+ */
+const DEV_LOGIN_HANDLE = "dev";
 
 interface SignInScreenProps {
   /** Called once a session token has been obtained and stored. */
@@ -61,6 +69,20 @@ export function SignInScreen({
     }
   }, [effectiveGoogle, onSignedIn]);
 
+  // Dev-only: skip OAuth by signing in through the backend's gated e2e path.
+  // Never rendered in a production build (the `__DEV__` guard below).
+  const onDevSignIn = (): void => {
+    void signInDev(DEV_LOGIN_HANDLE)
+      .then(onToken)
+      .catch((err: unknown) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[dev sign-in] failed — is a local backend running with AUTH_E2E=1 at the API base URL?",
+          err,
+        );
+      });
+  };
+
   // Handle out-of-band OAuth redirects that return to the app via a deep link
   // (custom scheme or Universal/App Link), incl. cold-start launch URLs.
   useEffect(() => {
@@ -101,6 +123,19 @@ export function SignInScreen({
       >
         <Text style={styles.buttonText}>Continue with Google</Text>
       </Pressable>
+      {__DEV__ ? (
+        <Pressable
+          testID="signin-dev"
+          style={[styles.button, styles.devButton]}
+          android_ripple={ripple("rgba(255, 255, 255, 0.24)")}
+          accessibilityRole="button"
+          accessibilityLabel="Skip login (dev)"
+          accessibilityHint="Signs in via the local dev backend, bypassing OAuth"
+          onPress={onDevSignIn}
+        >
+          <Text style={styles.buttonText}>Skip login (dev)</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -130,5 +165,6 @@ const styles = StyleSheet.create({
     ...elevation(2),
   },
   googleButton: { backgroundColor: "#DB4437" },
+  devButton: { backgroundColor: "#3A3A3A" },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });
