@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, beforeEach, it, expect, afterAll } from "vitest";
-import { resolveOAuthUser } from "./auth-callbacks";
+import { resolveOAuthUser, resolveE2eUser } from "./auth-callbacks";
 import { prisma, resetDb } from "@/test/db";
 
 beforeEach(resetDb);
@@ -56,5 +56,21 @@ describe("resolveOAuthUser", () => {
     const ua = await prisma.user.findUnique({ where: { id: a } });
     const ub = await prisma.user.findUnique({ where: { id: b } });
     expect(new Set([ua?.handle, ub?.handle]).size).toBe(2);
+  });
+});
+
+describe("resolveE2eUser", () => {
+  it("creates a user for a new handle and returns its id + displayName", async () => {
+    const { id, displayName } = await resolveE2eUser("dev");
+    expect(displayName).toBe("dev");
+    const user = await prisma.user.findUnique({ where: { id } });
+    expect(user?.handle).toBe("dev");
+    expect(user?.displayName).toBe("dev");
+  });
+
+  it("reuses the existing user for a known handle (idempotent upsert)", async () => {
+    const first = await resolveE2eUser("dev");
+    const second = await resolveE2eUser("dev");
+    expect(second.id).toBe(first.id);
   });
 });

@@ -5,10 +5,12 @@ import { POST } from "./route";
 // Mock @/auth so importing @/lib/session (via @/lib/api/http) does not pull in
 // the real NextAuth module graph, which this endpoint does not exercise.
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
-vi.mock("@/lib/auth-callbacks", () => ({ resolveOAuthUser: vi.fn() }));
+vi.mock("@/lib/auth-callbacks", () => ({ resolveOAuthUser: vi.fn(), resolveE2eUser: vi.fn() }));
 vi.mock("@/lib/mobile-session", () => ({ mintSessionToken: vi.fn(), readBearerUser: vi.fn() }));
-import { resolveOAuthUser } from "@/lib/auth-callbacks";
+vi.mock("@/lib/auth-config", () => ({ shouldRegisterE2eProvider: vi.fn() }));
+import { resolveOAuthUser, resolveE2eUser } from "@/lib/auth-callbacks";
 import { mintSessionToken } from "@/lib/mobile-session";
+import { shouldRegisterE2eProvider } from "@/lib/auth-config";
 import { LOCKOUT_CONFIG, resetLockout } from "@/lib/lockout";
 import { resetRateLimit } from "@/lib/rate-limit";
 
@@ -161,5 +163,40 @@ describe("account lockout (#34)", () => {
       );
       expect(res.status).toBe(422);
     }
+  });
+});
+
+describe("POST /api/mobile/auth/e2e (gated dev sign-in)", () => {
+  it("mints a Bearer token for the handle when the e2e path is armed", async () => {
+    vi.mocked(shouldRegisterE2eProvider).mockReturnValue(true);
+    vi.mocked(resolveE2eUser).mockResolvedValue({ id: "uid-e2e", displayName: "alice" });
+    vi.mocked(mintSessionToken).mockResolvedValue("e2e-jwt");
+
+    const res = await POST(req({ handle: "alice" }), ctx("e2e"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ token: "e2e-jwt" });
+    expect(resolveE2eUser).toHaveBeenCalledWith("alice");
+    expect(mintSessionToken).toHaveBeenCalledWith("uid-e2e");
+  });
+
+  it("defaults the handle to 'dev' when none is provided", async () => {
+    vi.mocked(shouldRegisterE2eProvider).mockReturnValue(true);
+    vi.mocked(resolveE2eUser).mockResolvedValue({ id: "uid-dev", displayName: "dev" });
+    vi.mocked(mintSessionToken).mockResolvedValue("dev-jwt");
+
+    const res = await POST(req({}), ctx("e2e"));
+
+    expect(res.status).toBe(200);
+    expect(resolveE2eUser).toHaveBeenCalledWith("dev");
+  });
+
+  it("refuses with 422 when the e2e path is not armed (e.g. production)", async () => {
+    vi.mocked(shouldRegisterE2eProvider).mockReturnValue(false);
+
+    const res = await POST(req({ handle: "x" }), ctx("e2e"));
+
+    expect(res.status).toBe(422);
+    expect(resolveE2eUser).not.toHaveBeenCalled();
   });
 });
