@@ -144,3 +144,20 @@ export async function resolveOAuthUser(params: {
 
   return dbUser.id;
 }
+
+/**
+ * Resolve (upsert) the deterministic dev/e2e user by handle. Shared by the web
+ * e2e Credentials provider (auth.ts) and the mobile e2e token endpoint so both
+ * mint sessions for the SAME user. Passwordless — only ever reached when the
+ * e2e path is armed (shouldRegisterE2eProvider / AUTH_E2E), never in production.
+ */
+export async function resolveE2eUser(
+  handle: string,
+): Promise<{ id: string; displayName: string }> {
+  const user = await prisma.user.upsert({
+    where: { handle },
+    update: {},
+    create: { handle, displayName: handle },
+  });
+  return { id: user.id, displayName: user.displayName };
+}

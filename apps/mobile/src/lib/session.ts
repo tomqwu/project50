@@ -54,53 +54,28 @@ export async function signOut(): Promise<void> {
 // ─── Dev / e2e sign-in ───────────────────────────────────────────────────────
 
 /**
- * Sign in via the backend's dev/e2e path.
- * 1. Fetch CSRF token from /api/auth/csrf.
- * 2. POST to /api/auth/callback/e2e with the handle + csrfToken.
- * 3. Extract the session token from the Set-Cookie header and store it.
+ * Sign in via the backend's gated dev/e2e mobile endpoint.
  *
- * For use in development and automated e2e flows only; not available in production.
+ * POSTs the handle to `/api/mobile/auth/e2e`, which (only when the backend has
+ * the e2e path armed via `AUTH_E2E=1` on a non-prod server) upserts the user
+ * and returns a minted Bearer token in the JSON body. Returns no token /
+ * rejects in production, where the endpoint 422s like an unknown provider.
+ *
+ * For development and automated e2e flows only.
  */
 export async function signInDev(handle: string, baseUrl?: string): Promise<string> {
   const base = baseUrl ?? process.env["EXPO_PUBLIC_API_BASE_URL"] ?? "http://localhost:3000";
 
-  // Step 1: Get CSRF token
-  const csrfResp = await fetch(`${base}/api/auth/csrf`);
-  if (!csrfResp.ok) {
-    throw new Error(`CSRF fetch failed: ${csrfResp.status}`);
-  }
-  const { csrfToken } = (await csrfResp.json()) as { csrfToken: string };
-
-  // Step 2: POST to e2e callback
-  const callbackResp = await fetch(`${base}/api/auth/callback/e2e`, {
+  const resp = await fetch(`${base}/api/mobile/auth/e2e`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ handle, csrfToken }),
+    body: JSON.stringify({ handle }),
   });
-  if (!callbackResp.ok) {
-    throw new Error(`E2E sign-in failed: ${callbackResp.status}`);
+  if (!resp.ok) {
+    throw new Error(`E2E sign-in failed: ${resp.status}`);
   }
 
-  // Step 3: Extract the session token
-  // The backend may return the token as a cookie header or in the body.
-  // Try body first, then Set-Cookie.
-  let token: string | null = null;
-  try {
-    const body = (await callbackResp.json()) as { token?: string; sessionToken?: string };
-    token = body.token ?? body.sessionToken ?? null;
-  } catch {
-    // body not JSON — fall through to cookie extraction
-  }
-
-  if (!token) {
-    // Try to extract from Set-Cookie header
-    const setCookie = callbackResp.headers.get("set-cookie");
-    if (setCookie) {
-      const match = /next-auth\.session-token=([^;]+)/.exec(setCookie);
-      if (match?.[1]) token = match[1];
-    }
-  }
-
+  const { token } = (await resp.json()) as { token?: string };
   if (!token) {
     throw new Error("No session token in e2e sign-in response");
   }

@@ -16,6 +16,7 @@ jest.mock("../lib/session", () => ({
   signInWithFacebook: jest.fn().mockResolvedValue("tok"),
   signInWithGoogle: jest.fn().mockResolvedValue("tok"),
   handleDeepLinkRedirect: jest.fn().mockResolvedValue(null),
+  signInDev: jest.fn().mockResolvedValue("dev-tok"),
   REDIRECT_URI: "project50://redirect",
 }));
 
@@ -42,6 +43,7 @@ import {
   signInWithFacebook,
   signInWithGoogle,
   handleDeepLinkRedirect,
+  signInDev,
 } from "../lib/session";
 
 describe("SignInScreen", () => {
@@ -54,6 +56,7 @@ describe("SignInScreen", () => {
     (signInWithFacebook as jest.Mock).mockResolvedValue("tok");
     (signInWithGoogle as jest.Mock).mockResolvedValue("tok");
     (handleDeepLinkRedirect as jest.Mock).mockResolvedValue(null);
+    (signInDev as jest.Mock).mockResolvedValue("dev-tok");
   });
 
   // ─── Facebook ───────────────────────────────────────────────────────────────
@@ -165,6 +168,40 @@ describe("SignInScreen", () => {
 
     await waitFor(() => expect(handleDeepLinkRedirect).toHaveBeenCalled());
     expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  // ─── Dev login bypass (__DEV__ only) ────────────────────────────────────────
+
+  it("renders the dev skip-login button and signs in via signInDev in __DEV__", async () => {
+    const onSignedIn = jest.fn();
+    const { getByTestId } = render(<SignInScreen onSignedIn={onSignedIn} />);
+    fireEvent.press(getByTestId("signin-dev"));
+    await waitFor(() => expect(signInDev).toHaveBeenCalled());
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalled());
+    expect(mockRegisterAndSavePushToken).toHaveBeenCalled();
+  });
+
+  it("warns and does not sign in when dev sign-in fails", async () => {
+    const onSignedIn = jest.fn();
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    (signInDev as jest.Mock).mockRejectedValueOnce(new Error("backend down"));
+    const { getByTestId } = render(<SignInScreen onSignedIn={onSignedIn} />);
+    fireEvent.press(getByTestId("signin-dev"));
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(onSignedIn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("hides the dev skip-login button outside __DEV__ (never in production builds)", () => {
+    const g = globalThis as { __DEV__?: boolean };
+    const prev = g.__DEV__;
+    g.__DEV__ = false;
+    try {
+      const { queryByTestId } = render(<SignInScreen onSignedIn={jest.fn()} />);
+      expect(queryByTestId("signin-dev")).toBeNull();
+    } finally {
+      g.__DEV__ = prev;
+    }
   });
 
   // ─── Accessibility ──────────────────────────────────────────────────────────
