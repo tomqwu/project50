@@ -35,6 +35,9 @@ updates:
       # NOT pinned and keep getting dependabot PRs.
       - dependency-name: "expo"
       - dependency-name: "expo-*"
+      # @expo/config-plugins (and other @expo/* scoped pkgs) are pinned to the
+      # SDK-52 line; a stray bump breaks the native build the same way expo-* does.
+      - dependency-name: "@expo/*"
       - dependency-name: "react-native"
       - dependency-name: "react-native-safe-area-context"
       - dependency-name: "react-native-screens"
