@@ -71,7 +71,8 @@
           "icon": "./assets/notification-icon.png",
           "color": "#D6FF3F"
         }
-      ]
+      ],
+      "./plugins/withFmtConstevalFix"
     ]
   }
 }

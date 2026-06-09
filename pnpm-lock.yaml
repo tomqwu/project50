@@ -42,6 +42,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@expo/config-plugins':
+        specifier: ~9.0.17
+        version: 9.0.17
       '@project50/core':
         specifier: workspace:*
         version: link:../../packages/core
