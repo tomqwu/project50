@@ -183,10 +183,7 @@ describe("signOut", () => {
 // ─── signInDev ────────────────────────────────────────────────────────────────
 
 describe("signInDev", () => {
-  it("fetches CSRF then posts to e2e callback, returns token from body", async () => {
-    // CSRF fetch
-    mockFetchOk({ csrfToken: "csrf-token-123" });
-    // e2e callback POST
+  it("posts the handle to the e2e mobile endpoint and stores the returned token", async () => {
     mockFetchOk({ token: "session-token-abc" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
@@ -200,116 +197,41 @@ describe("signInDev", () => {
     expect(apiClient.setToken).toHaveBeenCalledWith("session-token-abc");
   });
 
-  it("handles sessionToken in body (alternate key)", async () => {
-    mockFetchOk({ csrfToken: "csrf-token-456" });
-    mockFetchOk({ sessionToken: "session-token-def" });
+  it("posts {handle} to /api/mobile/auth/e2e on the given base URL", async () => {
+    mockFetchOk({ token: "session-token" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
-    const token = await signInDev("testuser2", "http://localhost:3000");
-    expect(token).toBe("session-token-def");
+    await signInDev("myhandle", "http://myapi:3001");
+
+    const calls = globalFetch().mock.calls as Array<[string, RequestInit]>;
+    expect(calls[0]![0]).toBe("http://myapi:3001/api/mobile/auth/e2e");
+    const body = JSON.parse(calls[0]![1]!.body as string) as { handle: string };
+    expect(body).toEqual({ handle: "myhandle" });
   });
 
-  it("falls back to Set-Cookie header when body has no token", async () => {
-    // CSRF fetch
-    mockFetchOk({ csrfToken: "csrf-token-789" });
-    // e2e callback returns no token in body, but Set-Cookie header
-    const cookieValue = "session-token-ghi";
-    globalFetch().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({}), // no token field
-      headers: {
-        get: (key: string) =>
-          key === "set-cookie"
-            ? `next-auth.session-token=${cookieValue}; Path=/; HttpOnly`
-            : null,
-      },
-    });
-    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
-
-    const token = await signInDev("testuser3", "http://localhost:3000");
-    expect(token).toBe(cookieValue);
-  });
-
-  it("throws when CSRF fetch fails", async () => {
-    mockFetchError(500);
-    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
-      "CSRF fetch failed: 500",
-    );
-  });
-
-  it("throws when e2e callback fails", async () => {
-    mockFetchOk({ csrfToken: "tok" });
-    mockFetchError(401);
-    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
-      "E2E sign-in failed: 401",
-    );
-  });
-
-  it("throws when no token found in response", async () => {
-    mockFetchOk({ csrfToken: "tok" });
-    globalFetch().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({}),
-      headers: { get: () => null },
-    });
-    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
-      "No session token",
-    );
-  });
-
-  it("throws when Set-Cookie header exists but has no next-auth token match", async () => {
-    mockFetchOk({ csrfToken: "tok" });
-    globalFetch().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({}),
-      headers: {
-        get: (key: string) =>
-          key === "set-cookie" ? "some-other-cookie=value; Path=/" : null,
-      },
-    });
-    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
-      "No session token",
-    );
-  });
-
-  it("uses default localhost URL when no baseUrl and no env var", async () => {
-    // Env var not set, baseUrl not passed → should use default localhost:3000
+  it("uses the default localhost URL when no baseUrl and no env var", async () => {
     delete process.env["EXPO_PUBLIC_API_BASE_URL"];
-    mockFetchOk({ csrfToken: "tok" });
     mockFetchOk({ token: "tok2" });
     mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
 
     await signInDev("user");
 
     const calls = globalFetch().mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toContain("http://localhost:3000");
+    expect(calls[0]![0]).toBe("http://localhost:3000/api/mobile/auth/e2e");
   });
 
-  it("calls the CSRF endpoint on the correct base URL", async () => {
-    mockFetchOk({ csrfToken: "tok" });
-    mockFetchOk({ token: "session-token" });
-    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
-
-    await signInDev("user", "http://myapi:3001");
-
-    const calls = globalFetch().mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toBe("http://myapi:3001/api/auth/csrf");
-    expect(calls[1]![0]).toBe("http://myapi:3001/api/auth/callback/e2e");
+  it("throws when the endpoint responds non-ok", async () => {
+    mockFetchError(401);
+    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
+      "E2E sign-in failed: 401",
+    );
   });
 
-  it("posts handle + csrfToken to e2e callback", async () => {
-    mockFetchOk({ csrfToken: "csrf-abc" });
-    mockFetchOk({ token: "session-tok" });
-    mockSecureStore.setItemAsync.mockResolvedValueOnce(undefined);
-
-    await signInDev("myhandle", "http://localhost:3000");
-
-    const calls = globalFetch().mock.calls as Array<[string, RequestInit]>;
-    const body = JSON.parse(calls[1]![1]!.body as string) as { handle: string; csrfToken: string };
-    expect(body).toEqual({ handle: "myhandle", csrfToken: "csrf-abc" });
+  it("throws when the response body has no token", async () => {
+    mockFetchOk({});
+    await expect(signInDev("user", "http://localhost:3000")).rejects.toThrow(
+      "No session token",
+    );
   });
 });
 

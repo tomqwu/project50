@@ -2,8 +2,7 @@ import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import Facebook from "next-auth/providers/facebook";
 import Credentials from "next-auth/providers/credentials";
-import { prisma } from "@project50/db";
-import { onJwt, onSession, onSignIn } from "@/lib/auth-callbacks";
+import { onJwt, onSession, onSignIn, resolveE2eUser } from "@/lib/auth-callbacks";
 import {
   SESSION_MAX_AGE_SECONDS,
   SESSION_UPDATE_AGE_SECONDS,
@@ -59,11 +58,7 @@ if (shouldRegisterE2eProvider()) {
       credentials: { handle: {} },
       authorize: async (creds) => {
         const handle = String(creds?.handle ?? "e2e-user");
-        const user = await prisma.user.upsert({
-          where: { handle },
-          update: {},
-          create: { handle, displayName: handle },
-        });
+        const user = await resolveE2eUser(handle);
         return { id: user.id, name: user.displayName };
       },
     }),

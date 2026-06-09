@@ -4,8 +4,9 @@ import {
   HttpError,
   unprocessable,
 } from "@/lib/api/http";
-import { resolveOAuthUser } from "@/lib/auth-callbacks";
+import { resolveOAuthUser, resolveE2eUser } from "@/lib/auth-callbacks";
 import { mintSessionToken } from "@/lib/mobile-session";
+import { shouldRegisterE2eProvider } from "@/lib/auth-config";
 import { clientKey } from "@/lib/rate-limit";
 import { isLockedOut, recordFailure, recordSuccess } from "@/lib/lockout";
 
@@ -45,6 +46,25 @@ export async function POST(
     enforceRateLimit(req, { limit: 10, windowMs: 60_000 });
 
     const { provider } = await ctx.params;
+
+    // Dev/e2e provider: passwordless Bearer-token mint for local testing and
+    // Playwright. Gated by shouldRegisterE2eProvider() (AUTH_E2E + the prod
+    // escape-hatch, #277) exactly like the web e2e Credentials provider, so it
+    // is NEVER reachable in production — when unarmed it 422s like any unknown
+    // provider. Mints a token for the SAME handle-resolved user as the web path.
+    if (provider === "e2e") {
+      if (!shouldRegisterE2eProvider()) unprocessable("UNSUPPORTED_PROVIDER");
+      const e2eBody = await req.json().catch(() => ({}));
+      const handle =
+        typeof e2eBody?.handle === "string" && e2eBody.handle.length > 0
+          ? e2eBody.handle
+          : "dev";
+      const { id } = await resolveE2eUser(handle);
+      const token = await mintSessionToken(id);
+      recordSuccess(key);
+      return Response.json({ token });
+    }
+
     if (provider !== "facebook") unprocessable("UNSUPPORTED_PROVIDER");
 
     const body = await req.json().catch(() => ({}));

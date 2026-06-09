@@ -76,6 +76,7 @@ vi.mock("@/lib/auth-callbacks", () => ({
   onJwt: vi.fn(),
   onSession: vi.fn(),
   onSignIn: vi.fn(),
+  resolveE2eUser: vi.fn().mockResolvedValue({ id: "mock-user-id", displayName: "Mock" }),
 }));
 
 beforeEach(() => {
@@ -163,23 +164,27 @@ describe("auth.ts module wiring", () => {
     process.env.AUTH_SECRET = "test-secret";
     process.env.AUTH_E2E = "1";
 
+    const { resolveE2eUser } = await import("@/lib/auth-callbacks");
     await import("./auth");
     expect(capturedAuthorize).toBeTypeOf("function");
 
-    // Call the captured authorize — prisma.user.upsert is mocked above
+    // Call the captured authorize — resolveE2eUser is mocked above
     const result = await capturedAuthorize!({});
     expect(result).toMatchObject({ id: "mock-user-id", name: "Mock" });
+    expect(resolveE2eUser).toHaveBeenCalledWith("e2e-user");
   });
 
   it("e2e authorize uses the provided handle", async () => {
     process.env.AUTH_SECRET = "test-secret";
     process.env.AUTH_E2E = "1";
 
+    const { resolveE2eUser } = await import("@/lib/auth-callbacks");
     await import("./auth");
     expect(capturedAuthorize).toBeTypeOf("function");
 
     const result = await capturedAuthorize!({ handle: "myhandle" });
     expect(result).toMatchObject({ id: "mock-user-id", name: "Mock" });
+    expect(resolveE2eUser).toHaveBeenCalledWith("myhandle");
   });
 
   it("does NOT include e2e provider when NODE_ENV=production (no AUTH_E2E_ALLOW_PROD)", async () => {
